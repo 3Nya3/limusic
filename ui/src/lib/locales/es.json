@@ -325,7 +325,11 @@
 			"system_titlebar": "Usar la barra de título del sistema",
 			"system_titlebar_hint": "Deja que el sistema gestione el borde de la ventana y sus botones. Limusic mantendrá su propia barra de herramientas debajo.",
 			"language_search": "Buscar idiomas",
-			"language_contribute": "Ayuda a traducir Limusic"
+			"language_contribute": "Ayuda a traducir Limusic",
+			"track_notifications": "Notificaciones de canciones",
+			"track_notifications_hint": "Muestra una notificación cuando una nueva canción empieza mientras Limusic esta en segundo plano.",
+			"start_minimized": "Iniciar en la bandeja al arrancar",
+			"start_minimized_hint": "Cuando Limusic inicia con tu sistema, se mantiene en la bandeja hasta que lo abres. Siempre se muestra la ventana al abrirlo tu mismo."
 		},
 		"themes": {
 			"interface_font": "Fuente de la interfaz",
