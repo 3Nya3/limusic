@@ -82,6 +82,14 @@ the app off Chromium's compositor thread.
 **Full-screen elements hold still.** A moving viewport-sized layer damages the whole viewport every
 frame and drags every other repaint along with it (`TheaterMode.svelte`).
 
+**A full-view canvas draws on a budget, not once per source frame.** Every draw of the ambient
+glow repaints the whole player view, in the web process and again in GTK. The AppImage runs GTK on
+X11, where repainting a window that holds a GL surface costs two GLX round trips and a pixmap
+readback per paint, and GTK's buffer-age damage drags a full-view repaint into the next paint or two
+as well. One draw per frame of a 24 fps video cost 34% of a core on the AppImage's WebKitGTK;
+capped at 15 draws a second (`GAP` in `Ambient.svelte`) it costs 24%. The glow's frame blend
+smooths over 0.3 s anyway, so the extra draws bought nothing visible.
+
 **A scroller next to animated content gets its own stacking context.** On WebKitGTK, a transform
 transition blanks the scrollbar of a scroller painted after it in the same stacking context, for as
 long as the transition runs. The lyrics run one per sung word, so theater mode's queue scrollbar
