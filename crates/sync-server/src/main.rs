@@ -498,7 +498,9 @@ impl Server {
                 let (Some(me), Some(code)) = (uid.clone(), room_code.clone()) else { return };
                 let mut rooms = self.rooms.lock().await;
                 let Some(room) = rooms.get_mut(&code) else { return };
-                if !room.is_host(&me) || !room.peers.contains_key(&target) {
+                // Not to someone whose socket is down: the room would have a host nobody can
+                // reach, and joins are refused until they come back or their slot expires.
+                if !room.is_host(&me) || !room.peers.get(&target).is_some_and(|p| p.connected) {
                     return;
                 }
                 room.set_host(target);
