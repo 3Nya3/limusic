@@ -834,6 +834,7 @@ pub fn run() {
             commands::remove_google_account,
             commands::open_mini,
             commands::close_mini,
+            commands::set_mini_compact,
             commands::show_main,
             commands::take_launch_args,
             commands::get_home,

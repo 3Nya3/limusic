@@ -713,6 +713,12 @@ pub async fn close_mini(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// The widget's shrink/expand button (#301).
+#[tauri::command]
+pub async fn set_mini_compact(app: tauri::AppHandle, compact: bool) -> Result<(), String> {
+    crate::mini::set_compact(&app, compact)
+}
+
 /// The arguments this process was launched with, handed over once (#348). See `LAUNCH_ARGS`.
 #[tauri::command]
 pub fn take_launch_args() -> Vec<String> {
