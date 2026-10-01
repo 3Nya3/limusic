@@ -414,11 +414,20 @@ impl LtSession {
                             _ => {}
                         }
                     }
-                    writer.abort();
                     ping.abort();
                     // Only if we still own the session: a newer connection may have replaced us.
                     if self.gen.load(Ordering::SeqCst) == gen {
                         self.inner.lock().await.outbound = None;
+                    }
+                    // Let the writer send what is queued and stop once the last sender is gone.
+                    // `leave()` queues LeaveRoom right before cancelling us, and aborting could
+                    // lose it: the server then took the leave for a dropped socket, kept the room
+                    // up and handed the host role on instead of closing it. Bounded, because a
+                    // half-open socket can block a write.
+                    drop(otx);
+                    let mut writer = writer;
+                    if tokio::time::timeout(Duration::from_secs(2), &mut writer).await.is_err() {
+                        writer.abort();
                     }
                 }
                 Err(e) => {
