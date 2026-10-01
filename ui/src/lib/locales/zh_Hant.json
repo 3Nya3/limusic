@@ -451,7 +451,7 @@
 			"ambient_light_gpu_title": "為了確保流暢的運行，需要高性能的顯卡",
 			"ambient_light_gpu": "在 PassMark 的顯卡測試中，如果分數低於 1000 點，觀看影片時可能會出現卡頓現象，尤其是在播放 MV 時。",
 			"ambient_light_gpu_check": "查看您的顯卡",
-			"ambient_light": "沉浸式背景"
+			"ambient_light": "流光溢彩"
 		},
 		"data": {
 			"clear_cache": "清除縮圖與串流的快取",
