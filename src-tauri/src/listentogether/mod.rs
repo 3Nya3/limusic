@@ -37,7 +37,6 @@ pub enum SyncCommand {
     },
     Play {
         position_ms: i64,
-        server_time_ms: i64,
     },
     Pause {
         position_ms: i64,
@@ -643,10 +642,7 @@ impl LtSession {
             }
         }
         let cmd = match p.kind {
-            PlaybackKind::Play => Some(SyncCommand::Play {
-                position_ms: p.position_ms,
-                server_time_ms: p.server_time_ms,
-            }),
+            PlaybackKind::Play => Some(SyncCommand::Play { position_ms: p.position_ms }),
             PlaybackKind::Pause => Some(SyncCommand::Pause { position_ms: p.position_ms }),
             PlaybackKind::Seek => Some(SyncCommand::Seek { position_ms: p.position_ms }),
             PlaybackKind::ChangeTrack => p.track.map(|track| SyncCommand::ChangeTrack {

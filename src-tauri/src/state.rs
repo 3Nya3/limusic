@@ -3137,9 +3137,7 @@ impl AppState {
             SyncCommand::ChangeTrack { track, position_ms, playing, queue } => {
                 self.lt_apply_change_track(track, position_ms, playing, queue).await
             }
-            SyncCommand::Play { position_ms, server_time_ms } => {
-                self.lt_apply_play(position_ms, server_time_ms).await
-            }
+            SyncCommand::Play { position_ms } => self.lt_apply_play(position_ms).await,
             SyncCommand::Pause { position_ms } => self.lt_apply_pause(position_ms).await,
             SyncCommand::Seek { position_ms } => {
                 let _ = self.player.seek(position_ms as f64 / 1000.0);
@@ -3272,16 +3270,16 @@ impl AppState {
         }
     }
 
-    /// Guest: apply a play, offsetting the target position by transit latency (context/19 §6.5).
-    async fn lt_apply_play(&self, position_ms: i64, server_time_ms: i64) {
-        let target = if server_time_ms > 0 {
-            position_ms + (now_ms() - server_time_ms).max(0)
-        } else {
-            position_ms
-        };
+    /// Guest: apply a play, correcting position if it drifted past tolerance.
+    ///
+    /// No latency offset. The server stamps `server_time_ms` for one, but subtracting it from this
+    /// machine's clock measures the clock difference between the two machines as much as the
+    /// transit, and a guest whose clock ran a few seconds fast landed that far ahead. The transit
+    /// itself is tens of ms, far inside the 2s tolerance.
+    async fn lt_apply_play(&self, position_ms: i64) {
         let cur_ms = (self.current_position() * 1000.0) as i64;
-        if (cur_ms - target).abs() > 2000 {
-            let _ = self.player.seek(target as f64 / 1000.0);
+        if (cur_ms - position_ms).abs() > 2000 {
+            let _ = self.player.seek(position_ms as f64 / 1000.0);
         }
         let _ = self.player.play();
     }
@@ -3835,14 +3833,6 @@ impl AppState {
         }
         self.emit_queue().await;
     }
-}
-
-/// Current wall-clock in ms (for guest latency compensation).
-fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
 }
 
 pub(crate) fn song_to_track(s: &SongItem) -> Track {
