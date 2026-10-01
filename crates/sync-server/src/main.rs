@@ -520,7 +520,7 @@ impl Server {
 
     /// A socket dropped without leaving. Keep the slot for reconnection, but hand off host now so
     /// nobody is stuck (fixes Metrolist's up-to-15-min dead zone, context/19 §4.7).
-    async fn handle_disconnect(&self, uid: Option<String>, room_code: Option<String>) {
+    async fn handle_disconnect(&self, uid: Option<String>, room_code: Option<String>, tx: &Tx) {
         let (Some(me), Some(code)) = (uid, room_code) else { return };
         let mut rooms = self.rooms.lock().await;
         let Some(room) = rooms.get_mut(&code) else { return };
@@ -529,6 +529,12 @@ impl Server {
             return;
         }
         let Some(peer) = room.peers.get_mut(&me) else { return };
+        // The user already reconnected on another socket, and this is the old one finally timing
+        // out. Marking them disconnected would hand off their host role and, after the grace,
+        // delete a live member who then silently stops getting the room's messages.
+        if !peer.tx.same_channel(tx) {
+            return;
+        }
         peer.connected = false;
         peer.disconnected_at = Some(Instant::now());
         room.broadcast(&ServerMessage::UserDisconnected { user_id: me.clone() }, Some(&me));
@@ -612,7 +618,7 @@ async fn handle_conn(stream: TcpStream, server: Arc<Server>) {
         }
     }
 
-    server.handle_disconnect(uid, room_code).await;
+    server.handle_disconnect(uid, room_code, &tx).await;
     writer.abort();
 }
 
@@ -663,6 +669,65 @@ mod tests {
         mpsc::unbounded_channel()
     }
 
+    /// One connection as the dispatcher sees it: its channel plus the identity it has taken on.
+    struct Conn {
+        tx: Tx,
+        rx: mpsc::UnboundedReceiver<ServerMessage>,
+        uid: Option<String>,
+        code: Option<String>,
+    }
+
+    impl Conn {
+        fn new() -> Self {
+            let (tx, rx) = dummy_tx();
+            Conn { tx, rx, uid: None, code: None }
+        }
+        async fn send(&mut self, server: &Server, m: ClientMessage) {
+            server.dispatch(m, &self.tx, &mut self.uid, &mut self.code).await;
+        }
+        fn drain(&mut self) -> Vec<ServerMessage> {
+            std::iter::from_fn(|| self.rx.try_recv().ok()).collect()
+        }
+        fn id(&self) -> String {
+            self.uid.clone().unwrap()
+        }
+    }
+
+    /// A room with an approved guest. Returns (host, guest, guest's session token).
+    async fn room_with_guest(server: &Server) -> (Conn, Conn, String) {
+        let mut host = Conn::new();
+        host.send(server, ClientMessage::CreateRoom { username: "host".into() }).await;
+        let mut guest = Conn::new();
+        let room_code = host.code.clone().unwrap();
+        guest.send(server, ClientMessage::JoinRoom { room_code, username: "guest".into() }).await;
+        host.send(server, ClientMessage::ApproveJoin { user_id: guest.id() }).await;
+        let token = guest
+            .drain()
+            .into_iter()
+            .find_map(|m| match m {
+                ServerMessage::JoinApproved { session_token, .. } => Some(session_token),
+                _ => None,
+            })
+            .expect("guest approved");
+        host.drain();
+        (host, guest, token)
+    }
+
+    /// A user who reconnected on a new socket must not be marked gone when the old socket finally
+    /// times out, or they lose the host role and, after the grace, their place in the room.
+    #[tokio::test]
+    async fn old_socket_closing_after_a_reconnect_is_ignored() {
+        let server = Server::default();
+        let (_host, guest, token) = room_with_guest(&server).await;
+        let mut fresh = Conn::new();
+        fresh.send(&server, ClientMessage::Reconnect { session_token: token }).await;
+        assert!(matches!(fresh.drain()[..], [ServerMessage::Reconnected { .. }]));
+
+        server.handle_disconnect(guest.uid.clone(), guest.code.clone(), &guest.tx).await;
+        let rooms = server.rooms.lock().await;
+        assert!(rooms[&guest.code.unwrap()].peers[&guest.uid.unwrap()].connected);
+    }
+
     #[tokio::test]
     async fn host_handoff_on_disconnect() {
         let server = Server::default();
@@ -703,7 +768,7 @@ mod tests {
             .await;
 
         // Host drops → host role must move to the connected guest (no dead zone).
-        server.handle_disconnect(Some(host_id.clone()), Some(code.clone())).await;
+        server.handle_disconnect(Some(host_id.clone()), Some(code.clone()), &htx).await;
         let rooms = server.rooms.lock().await;
         assert_eq!(rooms[&code].host_id, guest_id, "host should hand off to the connected guest");
     }
@@ -872,7 +937,7 @@ mod tests {
             )
             .await;
         let code = hcode.clone().unwrap();
-        server.handle_disconnect(huid.clone(), hcode.clone()).await;
+        server.handle_disconnect(huid.clone(), hcode.clone(), &htx).await;
 
         let (jtx, mut jrx) = dummy_tx();
         let (mut juid, mut jcode) = (None, None);
