@@ -30,6 +30,12 @@ const HOST_GRACE: Duration = Duration::from_secs(20);
 /// How often expired slots and hosts are swept. Bounds how late a handoff can be.
 const SWEEP_EVERY: Duration = Duration::from_secs(5);
 const MAX_USERS_PER_ROOM: usize = 50;
+/// Rooms the server holds at once. The default server is public, and every room is memory.
+const MAX_ROOMS: usize = 1000;
+/// Upcoming tracks a room keeps. The client sends at most 50.
+const MAX_QUEUE: usize = 50;
+/// Largest message accepted. A full 50-track queue is ~40 KiB; tungstenite's default is 64 MiB.
+const MAX_MESSAGE: usize = 256 * 1024;
 /// A connection that sends nothing for this long is dropped. Clients ping every 25s.
 const IDLE_LIMIT: Duration = Duration::from_secs(90);
 /// Room code alphabet — no `I`/`O` to avoid confusion (context/19 §2.2).
@@ -199,6 +205,20 @@ impl Server {
         uid: &mut Option<String>,
         room_code: &mut Option<String>,
     ) {
+        // One identity per connection. The client opens a fresh socket for every create, join and
+        // reconnect; a second one here would orphan the first: its slot stays `connected` and
+        // nothing ever closes that room.
+        if uid.is_some()
+            && matches!(
+                cm,
+                ClientMessage::CreateRoom { .. }
+                    | ClientMessage::JoinRoom { .. }
+                    | ClientMessage::Reconnect { .. }
+            )
+        {
+            let _ = tx.send(err("already_in_room", "Leave this room first."));
+            return;
+        }
         match cm {
             ClientMessage::Ping => {
                 let _ = tx.send(ServerMessage::Pong);
@@ -206,6 +226,10 @@ impl Server {
 
             ClientMessage::CreateRoom { username } => {
                 let mut rooms = self.rooms.lock().await;
+                if rooms.len() >= MAX_ROOMS {
+                    let _ = tx.send(err("server_full", "The server is full, try again later."));
+                    return;
+                }
                 let code = loop {
                     let c = gen_code();
                     if !rooms.contains_key(&c) {
@@ -345,6 +369,9 @@ impl Server {
                 if !room.is_host(&me) {
                     let _ = tx.send(err("not_host", "Only the host controls playback."));
                     return;
+                }
+                if let Some(q) = p.queue.as_mut() {
+                    q.truncate(MAX_QUEUE);
                 }
                 let now = now_ms();
                 match p.kind {
@@ -637,7 +664,12 @@ fn sanitize(s: &str) -> String {
 }
 
 async fn handle_conn(stream: TcpStream, server: Arc<Server>) {
-    let ws = match tokio_tungstenite::accept_async(stream).await {
+    let config = tokio_tungstenite::tungstenite::protocol::WebSocketConfig {
+        max_message_size: Some(MAX_MESSAGE),
+        max_frame_size: Some(MAX_MESSAGE),
+        ..Default::default()
+    };
+    let ws = match tokio_tungstenite::accept_async_with_config(stream, Some(config)).await {
         Ok(ws) => ws,
         Err(e) => {
             tracing::debug!(error = %e, "ws handshake failed");
@@ -808,6 +840,22 @@ mod tests {
         let got = back.drain();
         assert!(
             matches!(&got[..], [ServerMessage::UserLeft { user_id }] if *user_id == joiner_id),
+            "{got:?}"
+        );
+    }
+
+    /// A second create on one socket used to make a second room and orphan the first, which then
+    /// lived forever with a host marked connected.
+    #[tokio::test]
+    async fn one_room_per_connection() {
+        let server = Server::default();
+        let mut c = Conn::new();
+        c.send(&server, ClientMessage::CreateRoom { username: "a".into() }).await;
+        c.send(&server, ClientMessage::CreateRoom { username: "a".into() }).await;
+        assert_eq!(server.rooms.lock().await.len(), 1);
+        let got = c.drain();
+        assert!(
+            matches!(got.last(), Some(ServerMessage::Error { code, .. }) if code == "already_in_room"),
             "{got:?}"
         );
     }
