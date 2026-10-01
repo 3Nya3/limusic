@@ -123,6 +123,36 @@ impl Room {
     fn set_host(&mut self, id: String) {
         self.host_id = id.clone();
         self.broadcast(&ServerMessage::HostChanged { host_id: id }, None);
+        self.brief_host();
+    }
+
+    /// (Re)send the host everything only a host can act on. Join requests and guest adds are sent
+    /// to whoever was host when they arrived, so a host change, or a host whose socket was down,
+    /// would otherwise leave a joiner waiting forever and drop the add without a word. The client
+    /// ignores a join request it already lists, and a re-sent add lands on its earlier copy.
+    fn brief_host(&self) {
+        for (id, p) in &self.pending {
+            self.send_to(
+                &self.host_id,
+                ServerMessage::JoinRequest { user_id: id.clone(), username: p.username.clone() },
+            );
+        }
+        for s in self.suggestions.values() {
+            self.send_to(
+                &self.host_id,
+                ServerMessage::SuggestionReceived { suggestion: s.clone() },
+            );
+        }
+    }
+
+    /// A joiner gave up (cancelled, or their socket dropped) before the host answered. Without
+    /// this the host keeps a request row that approving can never clear.
+    fn drop_pending(&mut self, id: &str) -> bool {
+        if self.pending.remove(id).is_none() {
+            return false;
+        }
+        self.send_to(&self.host_id, ServerMessage::UserLeft { user_id: id.to_string() });
+        true
     }
 
     /// Is there a host who can actually answer a join request right now?
@@ -481,6 +511,9 @@ impl Server {
                     &ServerMessage::UserReconnected { user_id: user_id.clone() },
                     Some(&user_id),
                 );
+                if is_host {
+                    room.brief_host();
+                }
                 *uid = Some(user_id);
                 *room_code = Some(code);
             }
@@ -505,7 +538,7 @@ impl Server {
         graceful: bool,
     ) {
         let Some(room) = rooms.get_mut(code) else { return };
-        room.pending.remove(me);
+        room.drop_pending(me);
         if room.peers.remove(me).is_some() && graceful {
             room.broadcast(&ServerMessage::UserLeft { user_id: me.to_string() }, None);
         }
@@ -537,8 +570,7 @@ impl Server {
         let (Some(me), Some(code)) = (uid, room_code) else { return };
         let mut rooms = self.rooms.lock().await;
         let Some(room) = rooms.get_mut(&code) else { return };
-        // A still-pending joiner just disappears.
-        if room.pending.remove(&me).is_some() {
+        if room.drop_pending(&me) {
             return;
         }
         let Some(peer) = room.peers.get_mut(&me) else { return };
@@ -733,6 +765,51 @@ mod tests {
             .expect("guest approved");
         host.drain();
         (host, guest, token)
+    }
+
+    /// A join request and a guest add are sent to the host at the time. When the role moves, the
+    /// new host has to get them, and a joiner who gives up has to disappear from the host's list.
+    #[tokio::test]
+    async fn pending_requests_follow_the_host() {
+        let server = Server::default();
+        let (mut host, mut guest, _) = room_with_guest(&server).await;
+        let mut joiner = Conn::new();
+        let room_code = host.code.clone().unwrap();
+        joiner.send(&server, ClientMessage::JoinRoom { room_code, username: "j".into() }).await;
+        host.send(&server, ClientMessage::TransferHost { user_id: guest.id() }).await;
+        let got = guest.drain();
+        assert!(got.iter().any(|m| matches!(m, ServerMessage::JoinRequest { user_id, .. } if *user_id == joiner.id())), "{got:?}");
+
+        let track = Track {
+            id: "vid".into(),
+            title: "t".into(),
+            artist: "a".into(),
+            thumbnail: None,
+            duration_ms: 0,
+            queued_by: None,
+        };
+        host.send(&server, ClientMessage::Suggest { track }).await;
+        guest.drain();
+        // The new host's socket drops before answering; the add must reach it on reconnect.
+        let token = server.rooms.lock().await[&guest.code.clone().unwrap()].peers[&guest.id()]
+            .session_token
+            .clone();
+        server.handle_disconnect(guest.uid.clone(), guest.code.clone(), &guest.tx).await;
+        let mut back = Conn::new();
+        back.send(&server, ClientMessage::Reconnect { session_token: token }).await;
+        let got = back.drain();
+        assert!(
+            got.iter().any(|m| matches!(m, ServerMessage::SuggestionReceived { .. })),
+            "{got:?}"
+        );
+
+        let joiner_id = joiner.id();
+        joiner.send(&server, ClientMessage::LeaveRoom).await;
+        let got = back.drain();
+        assert!(
+            matches!(&got[..], [ServerMessage::UserLeft { user_id }] if *user_id == joiner_id),
+            "{got:?}"
+        );
     }
 
     /// A user who reconnected on a new socket must not be marked gone when the old socket finally

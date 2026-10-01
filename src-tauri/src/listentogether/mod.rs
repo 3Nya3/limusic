@@ -552,6 +552,11 @@ impl LtSession {
                     let me = inner.my_id.clone();
                     let became = me.as_deref() == Some(host_id.as_str());
                     inner.role = if became { Role::Host } else { Role::Guest };
+                    if !became {
+                        // The server re-sends these to the new host; ours can't be acted on now.
+                        inner.pending_joins.clear();
+                        inner.suggestions.clear();
+                    }
                     became
                 };
                 if became_host {
