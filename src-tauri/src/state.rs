@@ -3273,6 +3273,18 @@ impl AppState {
                 lt.request_sync().await;
             });
         }
+        // Resolve the host's next track now, into the URL cache, so its ChangeTrack only has to
+        // load it. A guest never primes (the host decides what is next), so without this every
+        // track change waited on a full resolve, a gap of a second or more the host doesn't have.
+        if let Some(next) = upcoming.first() {
+            let st = tauri::Manager::state::<Arc<AppState>>(&self.app).inner().clone();
+            let (id, secs) = (next.id.clone(), next.duration_ms / 1000);
+            tauri::async_runtime::spawn(async move {
+                if st.generation.load(Ordering::SeqCst) == gen {
+                    let _ = st.resolve(&id, false, secs).await;
+                }
+            });
+        }
     }
 
     /// Guest: apply a play, correcting position if it drifted past tolerance.
