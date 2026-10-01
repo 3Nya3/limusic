@@ -1,8 +1,8 @@
 <script lang="ts">
 	// The glow around the music video in the player view (the setting under "Enable music videos";
 	// $lib/ambient has the effect itself). This owns the canvas, feeds it frames, and draws only
-	// when there is something new: once per video frame while the video plays, then for the half
-	// second the blend takes to land, then not at all until the next frame or a resize.
+	// when there is something new: the newest video frame every GAP while the video plays, then for
+	// the half second the blend takes to land, then not at all until the next frame or a resize.
 	import { fade } from 'svelte/transition';
 	import * as api from '$lib/api';
 	import { createGlow, type Box, type Glow } from '$lib/ambient';
@@ -17,14 +17,20 @@
 	/** A frame has been drawn, so the canvas can fade in on it rather than on a blank. */
 	let ready = $state(false);
 
-	/** Draw soon. Swapped for the live one while the renderer exists. */
-	let kick = () => {};
+	/** Draw soon: within GAP for a new frame, on the next animation frame when `now` (the picture
+	 *  moved, and the hole cut has to follow it). Swapped for the live one while the renderer exists. */
+	let kick: (now?: boolean) => void = () => {};
 	/** Linux: the hole mpv's picture shows through, as the page reports it (viewport pixels). The
 	 *  glow must not paint it. Kept in viewport pixels and placed against the canvas at each draw,
 	 *  because the canvas moves too: collapsing the sidebar slides the whole view over. */
 	let hole: Box | null = null;
 	/** Where the canvas sits in the viewport, as of the last measure. */
 	let origin = { x: 0, y: 0 };
+
+	/** The glow draws at most this often, ms. A draw repaints the whole player view (on the
+	 *  AppImage's X11 path WebKit and GTK also copy all of it out), and the frame blend already
+	 *  spreads a change over ~0.3 s, so a draw per video frame bought cost, not light. */
+	const GAP = 1000 / 15;
 
 	/** Context attempts so far. State, so a retry re-runs the effect below. */
 	let tries = $state(0);
@@ -79,14 +85,26 @@
 			}
 			draw();
 			clearTimeout(settle);
-			// While the video plays a frame lands every 30-40 ms and each is drawn once. When they stop
-			// (paused, seeking) the blend still has to ease the rest of the way, so draw on for a bit.
-			if (fresh) settle = setTimeout(kick, 80);
+			// While the video plays a frame lands every 30-40 ms, and the newest is drawn every GAP.
+			// When they stop (paused, seeking) the blend still has to ease the rest of the way, so draw
+			// on for a bit.
+			if (fresh) settle = setTimeout(() => kick(), 80);
 			else if (now - lastFrame < 600) kick();
 		}
 
-		kick = () => {
-			if (!raf && alive) raf = requestAnimationFrame(tick);
+		/** A draw held back by GAP. */
+		let wait: ReturnType<typeof setTimeout> | undefined;
+		kick = (now = false) => {
+			if (raf || !alive) return;
+			// Half a display frame early: the animation frame it waits for lands up to one later.
+			const early = now ? 0 : lastDraw + GAP - 8 - performance.now();
+			if (early > 0) {
+				wait ??= setTimeout(() => ((wait = undefined), kick()), early);
+				return;
+			}
+			clearTimeout(wait);
+			wait = undefined;
+			raf = requestAnimationFrame(tick);
 		};
 
 		// The picture's box against the canvas. Both move together while the view flies in, so this
@@ -107,7 +125,7 @@
 				lastDraw = 0;
 				draw();
 			}
-			kick();
+			kick(true);
 		};
 		const ro = new ResizeObserver(measure);
 		ro.observe(canvas);
@@ -122,6 +140,7 @@
 			// but the unmount: the component outlives most track changes, so a loop that stopped
 			// on one odd reply left the glow dark until the setting was turned off and on.
 			const sleep = (ms: number) => new Promise<null>((r) => setTimeout(r, ms, null));
+			let asked = 0;
 			(async () => {
 				while (alive) {
 					if (document.hidden) {
@@ -131,6 +150,9 @@
 						continue;
 					}
 					try {
+						// No faster than the glow draws: a frame it would skip is a wasted round trip.
+						await sleep(asked + GAP - 8 - performance.now());
+						asked = performance.now();
 						// Raced, so a request that never comes back cannot hold the loop either.
 						const reply = await Promise.race([api.ambientFrame(seq), sleep(2000)]);
 						if (!alive) break;
@@ -205,7 +227,7 @@
 			lastDraw = 0;
 			seq = 0;
 			take();
-			kick();
+			kick(true);
 		};
 		canvas.addEventListener('webglcontextlost', onLost);
 		canvas.addEventListener('webglcontextrestored', onRestored);
@@ -215,6 +237,7 @@
 			kick = () => {};
 			cancelAnimationFrame(raf);
 			clearTimeout(settle);
+			clearTimeout(wait);
 			ro.disconnect();
 			for (const stop of stops) stop();
 			canvas.removeEventListener('webglcontextlost', onLost);
@@ -232,7 +255,7 @@
 			const c = canvas.getBoundingClientRect();
 			origin = { x: c.left, y: c.top };
 		}
-		kick();
+		kick(true);
 	});
 </script>
 

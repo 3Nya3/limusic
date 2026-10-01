@@ -169,7 +169,9 @@ fn build(webview: webkit2gtk::WebView, state: Arc<AppState>) -> Result<(), &'sta
                     let (w, h) = (area.allocated_width() * s, area.allocated_height() * s);
                     let fbo = current_fbo();
                     match r.render(fbo, w, h) {
-                        Ok(()) if ambient_wanted() => grab(&capture, area, fbo, w, h),
+                        Ok(()) if WAITING.load(Ordering::Relaxed) => {
+                            grab(&capture, area, fbo, w, h)
+                        }
                         Ok(()) => {}
                         Err(e) => tracing::debug!(error = %e, "native video: render failed"),
                     }
@@ -277,9 +279,10 @@ pub async fn set_rect(
 
 // --- Ambient light ------------------------------------------------------------------------------
 // The glow around the picture (ui/src/lib/ambient.ts) is drawn by the page, which cannot see what
-// mpv draws under it. So while the page asks for it, each frame is also shrunk on the GPU to about
-// 100x56 and read back, ~22 KB a frame, for `ambient_frame` to hand over. Nothing runs unless a
-// request came in within the last second.
+// mpv draws under it. So while the page asks for it, a frame is also shrunk on the GPU to about
+// 100x56 and read back, ~22 KB a frame, for `ambient_frame` to hand over. Only while a request is
+// waiting: the page asks about 15 times a second, slower than most videos play, and a frame nobody
+// takes still costs the GTK thread a context switch (an X round trip on X11) to read it back.
 
 /// The newest small frame: `seq`, `w`, `h` as little-endian u32s, then RGBA rows bottom-up (GL's
 /// order), exactly what `ambient_frame` returns.
@@ -289,6 +292,8 @@ static FRAMES: LazyLock<tokio::sync::watch::Sender<(u32, Arc<[u8]>)>> =
 /// When the page last asked, in ms since [`EPOCH`] (0: never).
 static WANTED_AT: AtomicU64 = AtomicU64::new(0);
 static EPOCH: LazyLock<Instant> = LazyLock::new(Instant::now);
+/// A request is waiting for the next frame. Cleared when one is read back.
+static WAITING: AtomicBool = AtomicBool::new(false);
 
 fn now_ms() -> u64 {
     EPOCH.elapsed().as_millis() as u64 + 1
@@ -304,6 +309,7 @@ fn ambient_wanted() -> bool {
 pub async fn next_frame(after: u32) -> Option<Arc<[u8]>> {
     let was = ambient_wanted();
     WANTED_AT.store(now_ms(), Ordering::Relaxed);
+    WAITING.store(true, Ordering::Relaxed);
     let mut rx = FRAMES.subscribe();
     // Frames were not being grabbed, so the newest is from whenever they last were, maybe another
     // video: wait past it, and redraw the current frame, or a paused picture would give none.
@@ -421,6 +427,9 @@ fn grab(capture: &Rc<RefCell<Capture>>, area: &gtk::GLArea, fbo: i32, w: i32, h:
             (gl.BindFramebuffer)(GL_READ_FRAMEBUFFER, fbo);
             (gl.ReadPixels)(0, 0, lw, lh, GL_RGBA, GL_UNSIGNED_BYTE, out[12..].as_mut_ptr().cast());
         }
+        // Before the send: the request it answers is the only one out, and the next may follow it
+        // at once.
+        WAITING.store(false, Ordering::Relaxed);
         FRAMES.send_replace((c.seq, out.into()));
     });
 }

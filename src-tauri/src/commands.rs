@@ -288,8 +288,10 @@ pub async fn video_stream(
 pub async fn ambient_frame(after: u32) -> tauri::ipc::Response {
     #[cfg(target_os = "linux")]
     let frame = crate::nativevideo::next_frame(after).await.map(|f| f.to_vec());
+    // Typed: off Linux a bare `None` leaves nothing to infer from, and the PR checks only build on
+    // Linux, so this broke rc.3's Windows and macOS builds with every check green.
     #[cfg(not(target_os = "linux"))]
-    let frame = {
+    let frame: Option<Vec<u8>> = {
         let _ = after;
         None
     };
