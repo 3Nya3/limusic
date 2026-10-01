@@ -23,6 +23,12 @@ use tokio_tungstenite::tungstenite::Message;
 
 /// How long a dropped participant's slot (and session token) survives for reconnection.
 const RECONNECT_GRACE: Duration = Duration::from_secs(120);
+/// How long a dropped host keeps the role before it moves to someone connected. Long enough to
+/// ride out a network blip (the client reconnects within seconds), short enough that a room isn't
+/// left without anyone driving it.
+const HOST_GRACE: Duration = Duration::from_secs(20);
+/// How often expired slots and hosts are swept. Bounds how late a handoff can be.
+const SWEEP_EVERY: Duration = Duration::from_secs(5);
 const MAX_USERS_PER_ROOM: usize = 50;
 /// A connection that sends nothing for this long is dropped. Clients ping every 25s.
 const IDLE_LIMIT: Duration = Duration::from_secs(90);
@@ -111,6 +117,12 @@ impl Room {
             .iter()
             .find(|(id, p)| p.connected && id.as_str() != besides)
             .map(|(id, _)| id.clone())
+    }
+
+    /// Hand the host role to `id` and tell everyone.
+    fn set_host(&mut self, id: String) {
+        self.host_id = id.clone();
+        self.broadcast(&ServerMessage::HostChanged { host_id: id }, None);
     }
 
     /// Is there a host who can actually answer a join request right now?
@@ -432,8 +444,7 @@ impl Server {
                 if !room.is_host(&me) || !room.peers.contains_key(&target) {
                     return;
                 }
-                room.host_id = target.clone();
-                room.broadcast(&ServerMessage::HostChanged { host_id: target }, None);
+                room.set_host(target);
             }
 
             ClientMessage::Reconnect { session_token } => {
@@ -501,8 +512,7 @@ impl Server {
         // Host left → hand off to any connected peer.
         if room.host_id == me {
             if let Some(next) = room.any_connected_other(me) {
-                room.host_id = next.clone();
-                room.broadcast(&ServerMessage::HostChanged { host_id: next }, None);
+                room.set_host(next);
             }
         }
         // Last member gone: nobody holds a session token for this room anymore, so it can never be
@@ -518,8 +528,11 @@ impl Server {
         }
     }
 
-    /// A socket dropped without leaving. Keep the slot for reconnection, but hand off host now so
-    /// nobody is stuck (fixes Metrolist's up-to-15-min dead zone, context/19 §4.7).
+    /// A socket dropped without leaving. Keep the slot for reconnection. A host keeps the role for
+    /// [`HOST_GRACE`] before `cleanup` hands it on: handing it off at once moved it to a random
+    /// guest on every network blip, and the host came back as a guest whose own playback was then
+    /// overridden. Still bounded, so Metrolist's up-to-15-min dead zone (context/19 §4.7) stays
+    /// fixed.
     async fn handle_disconnect(&self, uid: Option<String>, room_code: Option<String>, tx: &Tx) {
         let (Some(me), Some(code)) = (uid, room_code) else { return };
         let mut rooms = self.rooms.lock().await;
@@ -538,20 +551,29 @@ impl Server {
         peer.connected = false;
         peer.disconnected_at = Some(Instant::now());
         room.broadcast(&ServerMessage::UserDisconnected { user_id: me.clone() }, Some(&me));
-        if room.host_id == me {
-            if let Some(next) = room.any_connected_other(&me) {
-                room.host_id = next.clone();
-                room.broadcast(&ServerMessage::HostChanged { host_id: next }, None);
-            }
-        }
     }
 
-    /// Sweep expired reconnection slots and empty rooms.
+    /// Sweep expired reconnection slots and empty rooms, and move the host role off a host who
+    /// has been gone longer than [`HOST_GRACE`].
     async fn cleanup(&self) {
         let mut rooms = self.rooms.lock().await;
         let now = Instant::now();
         let codes: Vec<String> = rooms.keys().cloned().collect();
         for code in codes {
+            {
+                let room = rooms.get_mut(&code).unwrap();
+                let host_gone = room
+                    .peers
+                    .get(&room.host_id)
+                    .and_then(|p| p.disconnected_at)
+                    .is_some_and(|t| now - t > HOST_GRACE);
+                if host_gone {
+                    let host = room.host_id.clone();
+                    if let Some(next) = room.any_connected_other(&host) {
+                        room.set_host(next);
+                    }
+                }
+            }
             // Collect peers past the grace window, then remove them via the shared path.
             let expired: Vec<String> = {
                 let room = &rooms[&code];
@@ -643,7 +665,7 @@ async fn main() {
         let server = server.clone();
         tokio::spawn(async move {
             loop {
-                tokio::time::sleep(Duration::from_secs(30)).await;
+                tokio::time::sleep(SWEEP_EVERY).await;
                 server.cleanup().await;
             }
         });
@@ -767,8 +789,23 @@ mod tests {
             )
             .await;
 
-        // Host drops → host role must move to the connected guest (no dead zone).
+        // Host drops: a blip keeps the role, so a reconnect within the grace finds it unchanged.
         server.handle_disconnect(Some(host_id.clone()), Some(code.clone()), &htx).await;
+        server.cleanup().await;
+        assert_eq!(server.rooms.lock().await[&code].host_id, host_id, "handed off on a blip");
+
+        // Past the grace the role must move to the connected guest (no dead zone).
+        server
+            .rooms
+            .lock()
+            .await
+            .get_mut(&code)
+            .unwrap()
+            .peers
+            .get_mut(&host_id)
+            .unwrap()
+            .disconnected_at = Some(Instant::now() - HOST_GRACE - Duration::from_secs(1));
+        server.cleanup().await;
         let rooms = server.rooms.lock().await;
         assert_eq!(rooms[&code].host_id, guest_id, "host should hand off to the connected guest");
     }

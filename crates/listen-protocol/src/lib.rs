@@ -3,8 +3,8 @@
 //!
 //! The design is copied from Metrolist's `metroserver` (see `context/19-listen-together.md`):
 //! host-authoritative, push-based sync, server-extrapolated playback position. The differences:
-//! JSON instead of protobuf, and the server hands the host role off on disconnect instead of
-//! freezing the room for 15 minutes (context/19 §4.7 "host-gone dead zone").
+//! JSON instead of protobuf, and the server hands the host role off 20s after a disconnect instead
+//! of freezing the room for 15 minutes (context/19 §4.7 "host-gone dead zone").
 
 use serde::{Deserialize, Serialize};
 

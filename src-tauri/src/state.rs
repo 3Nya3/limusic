@@ -3108,7 +3108,13 @@ impl AppState {
             // Role already flipped; nothing to undo. Not always a *leave*: a promotion to host
             // sends one too, which is why `apply_crossfade` re-reads the role instead of
             // assuming this means the room is over.
-            SyncCommand::Release => self.apply_crossfade().await,
+            SyncCommand::Release => {
+                self.apply_crossfade().await;
+                // Guests never prime, so whoever stops being one (promoted, or out of the room)
+                // has no gapless next track, and a new host's first track change would otherwise
+                // be a reload with a gap.
+                self.prime_lookahead(self.generation.load(Ordering::SeqCst)).await;
+            }
             SyncCommand::ApplyState(state) => {
                 self.apply_crossfade().await;
                 self.lt_apply_state(state).await
