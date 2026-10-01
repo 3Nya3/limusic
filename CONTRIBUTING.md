@@ -74,6 +74,9 @@ setup.
 
 ## Pull requests
 
+- **Target `dev`, not `master`.** Every change lands on `dev` first, and `master`
+  only moves when a release is cut from it. Branch from `dev` and pick it as the
+  base when you open the PR.
 - **Open from a branch, not your fork's `master`.** It keeps your default branch
   clean and makes it much easier to take your changes.
 - **Changing how the app looks or behaves? Open an issue first.** Describe what
@@ -86,6 +89,10 @@ setup.
   not only what the code does.
 - **Say what you tested.** "Played five tracks, checked light and dark" is worth
   more than a description of the code.
+- **Used AI to write the code? Say which model.** AI-assisted PRs are welcome,
+  but the description has to name the model that wrote the code (for example
+  "Claude Opus 5.5" or "GPT-5"), not just "AI". If an AI agent is opening the PR
+  itself, it should state its own model the same way.
 
 ## Translations
 

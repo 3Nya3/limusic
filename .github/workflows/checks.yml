@@ -17,7 +17,7 @@ name: Checks
 
 on:
   push:
-    branches: [master]
+    branches: [master, dev]
   pull_request:
 
 # A second push to the same PR makes the earlier run irrelevant.
