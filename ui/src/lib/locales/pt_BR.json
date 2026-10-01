@@ -853,7 +853,10 @@
 		"unsubscribed": "Inscrição cancelada",
 		"signed_in_as": "Conectado como {name}",
 		"switched_to": "Você alternou para {name}",
-		"could_not_add": "Não foi possível adicionar esse item, tente abri-lo em vez disso"
+		"could_not_add": "Não foi possível adicionar esse item, tente abri-lo em vez disso",
+		"added_to_playlists": "Adicionado a {count} playlists",
+		"added_to_playlists_dupes": "Adicionado a {count} playlists. Duplicatas ignoradas: {dupes}",
+		"already_in_selected": "Tudo já está nas playlists selecionadas"
 	},
 	"history": {
 		"title": "Histórico",
@@ -884,7 +887,8 @@
 		"account_changed": "Interrompida a adição de músicas porque a conta foi alterada.",
 		"playlist_partial": "Total adicionado à {playlist}: {added}; Total de duplicatas: {duplicates}; Total não confirmado: {remaining}. {error}",
 		"remove": "Remover desta playlist",
-		"remove_confirm": "Remover {count}?"
+		"remove_confirm": "Remover {count}?",
+		"playlists_partial": "Adicionado a {done} de {total} playlists. {error}"
 	},
 	"errors": {
 		"unreachable": "Não foi possível acessar o YouTube Music. Verifique sua conexão.",
@@ -897,5 +901,19 @@
 		"clear_recent": "Limpar",
 		"forget": "Remover \"{query}\" das pesquisas recentes",
 		"filters": "Tipos de resultados"
+	},
+	"add_playlist": {
+		"confirm": "Adicionar às playlists",
+		"confirm_one": "Adicionar à playlist",
+		"dupes_title": "Duplicatas encontradas",
+		"dupes_there": "Já está lá",
+		"dupes_of": "{count} de {total} já estão lá",
+		"dupes_skip": "Ignorar duplicatas",
+		"skip_hint": "Adicionar apenas o que falta",
+		"skip_none": "Nada novo para adicionar",
+		"dupes_add": "Adicionar mesmo assim",
+		"anyway_hint": "Manter uma segunda cópia",
+		"anyway_hint_local": "As segundas cópias vão apenas para as playlists do YouTube",
+		"adds": "+{count}"
 	}
 }
