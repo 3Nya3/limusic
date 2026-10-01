@@ -861,7 +861,10 @@
 		"subscribed": "Підписано на {name}",
 		"unsubscribed": "Відписано",
 		"signed_in_as": "Увійшов під ім'ям {name}",
-		"switched_to": "Перейшов на {name}"
+		"switched_to": "Перейшов на {name}",
+		"added_to_playlists": "Додано до плейлістів ({count})",
+		"added_to_playlists_dupes": "Додано до {count} плейлістів. Пропущено дублікатів: {dupes}",
+		"already_in_selected": "Усе вже є у вибраних плейлістах"
 	},
 	"selection": {
 		"actions": "Вибрані дії з треками",
@@ -883,7 +886,8 @@
 		"pending": "Знайдено {count} вибраних треків на сторінках, які ще завантажуються.",
 		"local_playlist": "Локальні файли не можна додавати до плейлиста YouTube.",
 		"account_changed": "Припинив додавати пісні, оскільки змінився обліковий запис.",
-		"playlist_partial": "Додано {added} до {playlist}; {duplicates} вже є; {remaining} не підтверджено. {error}"
+		"playlist_partial": "Додано {added} до {playlist}; {duplicates} вже є; {remaining} не підтверджено. {error}",
+		"playlists_partial": "Додано до {done} із {total} плейлістів. {error}"
 	},
 	"errors": {
 		"unreachable": "Не вдається підключитися до YouTube Music. Перевірте з’єднання.",
@@ -896,5 +900,19 @@
 		"clear_recent": "Очистити",
 		"filters": "Типи результатів",
 		"forget": "Видалити “{query}” з останніх пошукових запитів"
+	},
+	"add_playlist": {
+		"confirm": "Додати до плейлістів",
+		"confirm_one": "Додати до плейліста",
+		"dupes_title": "Знайдено дублікати",
+		"dupes_there": "Уже додано",
+		"dupes_of": "{count} із {total} вже додано",
+		"dupes_skip": "Пропустити дублікати",
+		"skip_hint": "Додати тільки те, чого немає",
+		"skip_none": "Немає що додавати",
+		"dupes_add": "Усе одно додати",
+		"anyway_hint": "Зберегти дублікат",
+		"anyway_hint_local": "Дублікати додаються тільки до плейлістів YouTube",
+		"adds": "+{count}"
 	}
 }
