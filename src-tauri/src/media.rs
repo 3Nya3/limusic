@@ -6,7 +6,7 @@
 //! captured `AppHandle`. The two share the same commands the UI uses, so they never drift.
 
 use std::sync::mpsc::{channel, Sender};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use souvlaki::{
@@ -154,6 +154,25 @@ fn apply_metadata(
         cover_url: cover.as_deref(),
         duration: duration.map(Duration::from_secs_f64),
     });
+}
+
+/// Request a cover big enough for a media widget or Discord card: stored thumbs are usually
+/// row-sized (120px), which looks pixelated anywhere larger (#360). Mirrors `ui/src/lib/thumb.ts`:
+/// only googleusercontent-style URLs carry their size in the URL; i.ytimg path-variant thumbs and
+/// local `file://` covers pass through unchanged (other sizes can 404). 512 is the size Discord has
+/// always requested, so it is known to be served.
+pub(crate) fn cover_url(url: &str) -> String {
+    static WH: OnceLock<regex::Regex> = OnceLock::new();
+    static S: OnceLock<regex::Regex> = OnceLock::new();
+    let wh = WH.get_or_init(|| regex::Regex::new(r"=w\d+-h\d+").expect("static regex"));
+    let s = S.get_or_init(|| regex::Regex::new(r"=s\d+").expect("static regex"));
+    if wh.is_match(url) {
+        wh.replace(url, "=w512-h512").into_owned()
+    } else if s.is_match(url) {
+        s.replace(url, "=s512").into_owned()
+    } else {
+        url.to_owned()
+    }
 }
 
 /// Route an OS control press into the same [`AppState`] methods the UI commands use. Runs the

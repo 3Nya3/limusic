@@ -2394,7 +2394,7 @@ impl AppState {
             // metadata update (cover included) when the thumbnail URI won't parse.
             let cover = item.thumbnail.as_ref().map(|t| {
                 if t.contains("://") {
-                    t.clone()
+                    crate::media::cover_url(t)
                 } else {
                     format!("file://{t}")
                 }

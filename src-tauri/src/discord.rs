@@ -40,7 +40,6 @@
 //! which Discord dropped — leaving the card stuck as an elapsed counter with no progress bar.
 
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender, TryRecvError};
-use std::sync::OnceLock;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use discord_rich_presence::{activity, DiscordIpc, DiscordIpcClient};
@@ -827,22 +826,10 @@ fn field(s: &str) -> String {
     out
 }
 
-/// Ready a thumbnail URL for Discord's card: request a decent resolution (stored thumbs are often
-/// row-sized, 60px) and refuse URLs over Discord's length limit. Mirrors `ui/src/lib/thumb.ts` —
-/// only googleusercontent-style URLs carry their size in the URL; i.ytimg path-variant thumbs pass
-/// through unchanged (other sizes can 404).
+/// Ready a thumbnail URL for Discord's card: request a decent resolution (see
+/// [`crate::media::cover_url`]) and refuse URLs over Discord's length limit.
 fn discord_thumb(url: &str) -> Option<String> {
-    static WH: OnceLock<regex::Regex> = OnceLock::new();
-    static S: OnceLock<regex::Regex> = OnceLock::new();
-    let wh = WH.get_or_init(|| regex::Regex::new(r"=w\d+-h\d+").expect("static regex"));
-    let s = S.get_or_init(|| regex::Regex::new(r"=s\d+").expect("static regex"));
-    let sized = if wh.is_match(url) {
-        wh.replace(url, "=w512-h512").into_owned()
-    } else if s.is_match(url) {
-        s.replace(url, "=s512").into_owned()
-    } else {
-        url.to_owned()
-    };
+    let sized = crate::media::cover_url(url);
     (sized.len() <= MAX_ASSET_URL).then_some(sized)
 }
 
