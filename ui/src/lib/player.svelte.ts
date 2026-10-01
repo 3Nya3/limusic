@@ -1225,6 +1225,56 @@ export function openNewPlaylist(songs: SongItem[] = []) {
 	ui.newPlaylist = { songs };
 }
 
+async function addToOne(
+	target: BrowseItem,
+	songs: SongItem[],
+	allowDuplicates: boolean
+): Promise<{ added: SongItem[]; dupes: number; failure: string | null; aborted: boolean }> {
+	const local = api.isLocalPlaylist(target.id);
+	const epoch = auth.epoch;
+	let added: SongItem[] = [];
+	let confirmed: SongItem[] = [];
+	let failure: string | null = null;
+	if (local) {
+		const went = await api.addToLocalPlaylist(target.id, songs);
+		if (epoch !== auth.epoch) {
+			return { added: [], dupes: 0, failure: null, aborted: true };
+		}
+		added = songs.filter((_, i) => went[i]);
+		confirmed = songs;
+	} else {
+		// YouTube refuses a track the playlist already holds, so only the ones it accepted get
+		// counted and drawn: an optimistic row for a refused add is a row that can never be
+		// removed (no setVideoId behind it) until the app restarts.
+		for (const song of songs) {
+			if (epoch !== auth.epoch) break;
+			try {
+				if (await api.addToPlaylist(target.id, song.video_id, allowDuplicates)) added.push(song);
+				confirmed.push(song);
+			} catch (e) {
+				failure = String(e);
+				break;
+			}
+		}
+		// A switched account owns different caches. Stop the batch and never patch those.
+		if (epoch !== auth.epoch) {
+			return { added: [], dupes: 0, failure: null, aborted: true };
+		}
+	}
+	if (epoch !== auth.epoch) {
+		return { added: [], dupes: 0, failure: null, aborted: true };
+	}
+	const dupes = confirmed.length - added.length;
+	// Every song, not just the accepted ones: a refusal means the playlist already holds it,
+	// so its "saved" mark is right either way.
+	noteSavedIn(target.id, confirmed.map((s) => s.video_id));
+	if (added.length) {
+		bumpLibraryTrackCount(target.id, added.length);
+		notePlaylistAdd(target.id, added);
+	}
+	return { added, dupes, failure, aborted: false };
+}
+
 /**
  * Add songs to a playlist, from the picker or the create dialog, and say what happened. One batch
  * at a time (`ui.addPending`), even after the picker has closed.
@@ -1239,52 +1289,23 @@ export async function addSongsToPlaylist(target: BrowseItem, songs: SongItem[]):
 		toast.error(t('selection.local_playlist'));
 		return;
 	}
-	const epoch = auth.epoch;
 	ui.addPending = true;
-	let added: SongItem[] = [];
-	let confirmed: SongItem[] = [];
-	let failure: string | null = null;
+	const epoch = auth.epoch;
 	try {
-		if (local) {
-			const went = await api.addToLocalPlaylist(target.id, songs);
-			added = songs.filter((_, i) => went[i]);
-			confirmed = songs;
-		} else {
-			// YouTube refuses a track the playlist already holds, so only the ones it accepted get
-			// counted and drawn: an optimistic row for a refused add is a row that can never be
-			// removed (no setVideoId behind it) until the app restarts.
-			for (const song of songs) {
-				if (epoch !== auth.epoch) break;
-				try {
-					if (await api.addToPlaylist(target.id, song.video_id)) added.push(song);
-					confirmed.push(song);
-				} catch (e) {
-					failure = String(e);
-					break;
-				}
-			}
-			// A switched account owns different caches. Stop the batch and never patch those.
-			if (epoch !== auth.epoch) {
-				toast.error(t('selection.account_changed'));
-				return;
-			}
-		}
-		const dupes = confirmed.length - added.length;
-		// Every song, not just the accepted ones: a refusal means the playlist already holds it,
-		// so its "saved" mark is right either way.
-		noteSavedIn(target.id, confirmed.map((s) => s.video_id));
-		if (added.length) {
-			bumpLibraryTrackCount(target.id, added.length);
-			notePlaylistAdd(target.id, added);
+		const res = await addToOne(target, songs, false);
+		if (epoch !== auth.epoch || res.aborted) {
+			toast.error(t('selection.account_changed'));
+			return;
 		}
 		const playlist = target.title;
+		const { added, dupes, failure } = res;
 		if (failure !== null) {
 			toast.error(
 				t('selection.playlist_partial', {
 					added: added.length,
 					playlist,
 					duplicates: dupes,
-					remaining: songs.length - confirmed.length,
+					remaining: songs.length - added.length - dupes,
 					error: failure
 				})
 			);
@@ -1301,6 +1322,75 @@ export async function addSongsToPlaylist(target: BrowseItem, songs: SongItem[]):
 				added.length > 1
 					? t('toasts.added_songs', { count: added.length, playlist })
 					: t('toasts.added_one', { playlist })
+			);
+		}
+	} catch (e) {
+		toast.error(String(e));
+	} finally {
+		ui.addPending = false;
+	}
+}
+
+/**
+ * Add songs to multiple playlists sequentially. 'skip' leaves duplicates to the playlist itself:
+ * YouTube refuses them and a playlist on this machine never takes one. The savedIn index is not
+ * asked, because it can still list a track that was removed on youtube.com.
+ */
+export async function addSongsToPlaylists(
+	targets: BrowseItem[],
+	songs: SongItem[],
+	mode: 'skip' | 'anyway'
+): Promise<void> {
+	if (ui.addPending || !targets.length || !songs.length) return;
+	if (targets.length === 1 && mode === 'skip') {
+		await addSongsToPlaylist(targets[0], songs);
+		return;
+	}
+	ui.addPending = true;
+	const epoch = auth.epoch;
+	const results: { target: BrowseItem; added: number; dupes: number }[] = [];
+	try {
+		for (const target of targets) {
+			if (epoch !== auth.epoch) {
+				toast.error(t('selection.account_changed'));
+				return;
+			}
+			const local = api.isLocalPlaylist(target.id);
+			if (!local && songs.some((s) => api.isLocalId(s.video_id))) {
+				toast.error(t('selection.local_playlist'));
+				return;
+			}
+			const res = await addToOne(target, songs, mode === 'anyway');
+			if (epoch !== auth.epoch || res.aborted) {
+				toast.error(t('selection.account_changed'));
+				return;
+			}
+			if (res.failure !== null) {
+				const done = results.length;
+				toast.error(t('selection.playlists_partial', { done, total: targets.length, error: res.failure }));
+				return;
+			}
+			results.push({ target, added: res.added.length, dupes: res.dupes });
+		}
+		const touched = results.filter((r) => r.added > 0);
+		const dupesTotal = results.reduce((n, r) => n + r.dupes, 0);
+		if (touched.length === 0) {
+			toast(targets.length === 1 ? t('toasts.already_in', { playlist: targets[0].title }) : t('toasts.already_in_selected'));
+		} else if (touched.length === 1) {
+			const { target, added, dupes } = touched[0];
+			const playlist = target.title;
+			toast.success(
+				dupes
+					? t('toasts.added_to_playlist_dupes', { count: added, playlist, dupes })
+					: added > 1
+						? t('toasts.added_songs', { count: added, playlist })
+						: t('toasts.added_one', { playlist })
+			);
+		} else {
+			toast.success(
+				dupesTotal
+					? t('toasts.added_to_playlists_dupes', { count: touched.length, dupes: dupesTotal })
+					: t('toasts.added_to_playlists', { count: touched.length })
 			);
 		}
 	} catch (e) {

@@ -1210,15 +1210,20 @@ pub async fn sync_playlist_index(
 
 /// `false` means the playlist already had the track and YouTube added nothing — not an error, but
 /// the UI must not draw an optimistic row for it (there is no real row to remove later).
+/// With `allow_duplicates` set to `true`, `true` is returned for a duplicate that was added on purpose.
 #[tauri::command]
 pub async fn add_to_playlist(
     state: St<'_>,
     playlist_id: String,
     video_id: String,
+    allow_duplicates: Option<bool>,
 ) -> Result<bool, String> {
     let client = editable_playlist(&state, &playlist_id)?;
-    let added =
-        state.it.playlist_add(client, &playlist_id, &video_id).await.map_err(|e| e.to_string())?;
+    let added = state
+        .it
+        .playlist_add(client, &playlist_id, &video_id, allow_duplicates.unwrap_or(false))
+        .await
+        .map_err(|e| e.to_string())?;
     // Also on `false`: YouTube refusing a duplicate means the playlist holds the track, which is
     // exactly what the index should say. A stale index is how it got asked in the first place.
     state.db.add_playlist_track(&playlist_id, &video_id);

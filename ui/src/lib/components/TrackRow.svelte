@@ -12,7 +12,7 @@
 	import type { SongItem } from '$lib/api';
 	import { thumb } from '$lib/thumb';
 	import { lt } from '$lib/lt.svelte';
-	import { anySaved, isLiked, ratingOf, savedPlaylists, toggleRating } from '$lib/player.svelte';
+	import { anySaved, isLiked, openAddManyToPlaylist, ratingOf, savedPlaylists, toast, toggleRating } from '$lib/player.svelte';
 	import SavedInPlaylists from './SavedInPlaylists.svelte';
 	import TrackMenu from './TrackMenu.svelte';
 	import ArtistLine from './ArtistLine.svelte';
@@ -95,6 +95,24 @@
 	// Space/click rebinding.
 	const selectable = $derived(!!selection?.active && selectionKey !== undefined);
 	const selected = $derived(selection?.has(selectionKey) ?? false);
+
+	// In select mode the row's menu acts on the whole selection when this row is in it; otherwise it
+	// keeps adding just this row. While pages are still being fetched the floating bar disables its
+	// button, so this says why instead of quietly adding the one row.
+	const rowAdd = $derived(
+		onAdd
+			? () => {
+					if (!(selectable && selected && selection!.count > 1)) onAdd();
+					else if (selection!.pending || selection!.selectingAll)
+						toast(
+							selection!.pending
+								? t('selection.pending', { count: selection!.pending })
+								: t('common.loading')
+						);
+					else openAddManyToPlaylist([...selection!.songs]);
+				}
+			: undefined
+	);
 
 	function select(range = false) {
 		if (selection && selectionKey !== undefined) selection.toggle(selectionKey, range);
@@ -372,7 +390,7 @@
 		{/if}
 		<TrackMenu
 			{song}
-			{onAdd}
+			onAdd={rowAdd}
 			{onRemove}
 			{removeLabel}
 			{playlistId}

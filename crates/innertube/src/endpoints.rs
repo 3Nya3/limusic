@@ -777,19 +777,16 @@ impl InnerTube {
     /// Add a video to a playlist. context/01 `browse/edit_playlist`.
     ///
     /// Returns `false` when the track is already in the playlist: YouTube refuses the add (see
-    /// `edit_rejection`) rather than storing a second copy.
+    /// `edit_rejection`) rather than storing a second copy, unless `allow_duplicates` asks for one.
     pub async fn playlist_add(
         &self,
         client: &YouTubeClient,
         playlist_id: &str,
         video_id: &str,
+        allow_duplicates: bool,
     ) -> Result<bool, Error> {
         match self
-            .edit_playlist(
-                client,
-                playlist_id,
-                serde_json::json!({ "action": "ACTION_ADD_VIDEO", "addedVideoId": video_id }),
-            )
+            .edit_playlist(client, playlist_id, add_video_action(video_id, allow_duplicates))
             .await
         {
             Ok(()) => Ok(true),
@@ -1127,6 +1124,17 @@ fn strip_vl(id: &str) -> &str {
     id.strip_prefix("VL").unwrap_or(id)
 }
 
+/// `DEDUPE_OPTION_SKIP` skips YouTube's duplicate check: it is what the refusal's own "Add anyway"
+/// button sends (the capture in `duplicate_add_is_rejected`). Sent on an ordinary add, it stores a
+/// second copy instead of refusing.
+fn add_video_action(video_id: &str, allow_duplicates: bool) -> serde_json::Value {
+    let mut action = serde_json::json!({ "action": "ACTION_ADD_VIDEO", "addedVideoId": video_id });
+    if allow_duplicates {
+        action["dedupeOption"] = "DEDUPE_OPTION_SKIP".into();
+    }
+    action
+}
+
 /// `browse/edit_playlist` answers HTTP 200 even when it applies nothing: the refusal is
 /// `"status": "STATUS_FAILED"` in the body. Adding a track the playlist already holds is the
 /// common one, and YouTube marks it by offering an "Add anyway" button whose endpoint repeats the
@@ -1145,6 +1153,22 @@ fn edit_rejection(v: &serde_json::Value) -> Option<Error> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn add_video_action_json() {
+        assert_eq!(
+            add_video_action("dQw4w9WgXcQ", false),
+            json!({ "action": "ACTION_ADD_VIDEO", "addedVideoId": "dQw4w9WgXcQ" })
+        );
+        assert_eq!(
+            add_video_action("dQw4w9WgXcQ", true),
+            json!({
+                "action": "ACTION_ADD_VIDEO",
+                "addedVideoId": "dQw4w9WgXcQ",
+                "dedupeOption": "DEDUPE_OPTION_SKIP"
+            })
+        );
+    }
 
     #[test]
     fn strips_vl_prefix() {
