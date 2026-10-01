@@ -143,7 +143,9 @@
 		"unpin": "Desafixar",
 		"block_artist": "Bloquear artista",
 		"remove_from_this_playlist": "Remover desta playlist",
-		"back_to": "Voltar para {title}"
+		"back_to": "Voltar para {title}",
+		"mini_expand": "Expandir minirreprodutor",
+		"mini_shrink": "Recolher minirreprodutor"
 	},
 	"home": {
 		"good_morning": "Bom dia",
