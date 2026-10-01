@@ -1046,8 +1046,12 @@ fn spawn_event_pump(
                     // Keep the tray's toggle label honest — this arm is the same chokepoint
                     // MPRIS uses, so tray state can't drift from media-key state.
                     tray::set_playing(&app, playing);
-                    state.lt_on_play_state(playing).await; // Listen Together host → broadcast
                 }
+                // Listen Together host: broadcast a pause/resume. Not from `Playing`, which also
+                // flips when a track runs out, and that arrives here after the next track was
+                // announced (`on_track_ended` loads it on this pump), with the old track's end as
+                // the position. Guests then seek the new track to it, past the end of a shorter one.
+                PlayerEvent::Paused(paused) => state.lt_on_play_state(!paused).await,
                 PlayerEvent::TrackEnded => {
                     state.on_track_ended().await;
                 }

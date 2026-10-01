@@ -37,7 +37,6 @@ pub enum SyncCommand {
     },
     Play {
         position_ms: i64,
-        server_time_ms: i64,
     },
     Pause {
         position_ms: i64,
@@ -374,6 +373,7 @@ impl LtSession {
                         })
                     };
 
+                    let mut last_heard = std::time::Instant::now();
                     loop {
                         // Poll the cancel generation even when idle: `leave()` bumps it but the
                         // server doesn't close the socket on LeaveRoom, so we'd otherwise park here.
@@ -384,6 +384,13 @@ impl LtSession {
                                 if self.gen.load(Ordering::SeqCst) != gen {
                                     break;
                                 }
+                                // The server answers every ping, so this much silence is a dead
+                                // socket (sleep/resume, a network switch) that would otherwise
+                                // sit here, looking connected, until TCP gives up minutes later.
+                                if last_heard.elapsed() > SILENCE_LIMIT {
+                                    tracing::warn!("listen-together: server went silent, reconnecting");
+                                    break;
+                                }
                                 continue;
                             }
                         };
@@ -391,6 +398,7 @@ impl LtSession {
                             break;
                         }
                         let Some(next) = next else { break }; // stream ended
+                        last_heard = std::time::Instant::now();
                         match next {
                             Ok(Message::Text(t)) => {
                                 match serde_json::from_str::<ServerMessage>(&t) {
@@ -406,11 +414,20 @@ impl LtSession {
                             _ => {}
                         }
                     }
-                    writer.abort();
                     ping.abort();
                     // Only if we still own the session: a newer connection may have replaced us.
                     if self.gen.load(Ordering::SeqCst) == gen {
                         self.inner.lock().await.outbound = None;
+                    }
+                    // Let the writer send what is queued and stop once the last sender is gone.
+                    // `leave()` queues LeaveRoom right before cancelling us, and aborting could
+                    // lose it: the server then took the leave for a dropped socket, kept the room
+                    // up and handed the host role on instead of closing it. Bounded, because a
+                    // half-open socket can block a write.
+                    drop(otx);
+                    let mut writer = writer;
+                    if tokio::time::timeout(Duration::from_secs(2), &mut writer).await.is_err() {
+                        writer.abort();
                     }
                 }
                 Err(e) => {
@@ -543,6 +560,11 @@ impl LtSession {
                     let me = inner.my_id.clone();
                     let became = me.as_deref() == Some(host_id.as_str());
                     inner.role = if became { Role::Host } else { Role::Guest };
+                    if !became {
+                        // The server re-sends these to the new host; ours can't be acted on now.
+                        inner.pending_joins.clear();
+                        inner.suggestions.clear();
+                    }
                     became
                 };
                 if became_host {
@@ -629,10 +651,7 @@ impl LtSession {
             }
         }
         let cmd = match p.kind {
-            PlaybackKind::Play => Some(SyncCommand::Play {
-                position_ms: p.position_ms,
-                server_time_ms: p.server_time_ms,
-            }),
+            PlaybackKind::Play => Some(SyncCommand::Play { position_ms: p.position_ms }),
             PlaybackKind::Pause => Some(SyncCommand::Pause { position_ms: p.position_ms }),
             PlaybackKind::Seek => Some(SyncCommand::Seek { position_ms: p.position_ms }),
             PlaybackKind::ChangeTrack => p.track.map(|track| SyncCommand::ChangeTrack {
@@ -701,6 +720,10 @@ impl LtSession {
 
 /// How long one address gets to complete a TCP handshake before we move to the next.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(4);
+
+/// No frame from the server for this long means the connection is dead. Pings go out every 25s
+/// and each gets a Pong, so this is two missed answers plus slack.
+const SILENCE_LIMIT: Duration = Duration::from_secs(60);
 
 /// Open the WebSocket, giving every resolved address its own short deadline.
 ///

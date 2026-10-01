@@ -23,7 +23,21 @@ use tokio_tungstenite::tungstenite::Message;
 
 /// How long a dropped participant's slot (and session token) survives for reconnection.
 const RECONNECT_GRACE: Duration = Duration::from_secs(120);
+/// How long a dropped host keeps the role before it moves to someone connected. Long enough to
+/// ride out a network blip (the client reconnects within seconds), short enough that a room isn't
+/// left without anyone driving it.
+const HOST_GRACE: Duration = Duration::from_secs(20);
+/// How often expired slots and hosts are swept. Bounds how late a handoff can be.
+const SWEEP_EVERY: Duration = Duration::from_secs(5);
 const MAX_USERS_PER_ROOM: usize = 50;
+/// Rooms the server holds at once. The default server is public, and every room is memory.
+const MAX_ROOMS: usize = 1000;
+/// Upcoming tracks a room keeps. The client sends at most 50.
+const MAX_QUEUE: usize = 50;
+/// Largest message accepted. A full 50-track queue is ~40 KiB; tungstenite's default is 64 MiB.
+const MAX_MESSAGE: usize = 256 * 1024;
+/// A connection that sends nothing for this long is dropped. Clients ping every 25s.
+const IDLE_LIMIT: Duration = Duration::from_secs(90);
 /// Room code alphabet — no `I`/`O` to avoid confusion (context/19 §2.2).
 const CODE_ALPHABET: &[u8] = b"1234567890QWERTYUPASDFGHJKLZXCVBNM";
 
@@ -111,6 +125,42 @@ impl Room {
             .map(|(id, _)| id.clone())
     }
 
+    /// Hand the host role to `id` and tell everyone.
+    fn set_host(&mut self, id: String) {
+        self.host_id = id.clone();
+        self.broadcast(&ServerMessage::HostChanged { host_id: id }, None);
+        self.brief_host();
+    }
+
+    /// (Re)send the host everything only a host can act on. Join requests and guest adds are sent
+    /// to whoever was host when they arrived, so a host change, or a host whose socket was down,
+    /// would otherwise leave a joiner waiting forever and drop the add without a word. The client
+    /// ignores a join request it already lists, and a re-sent add lands on its earlier copy.
+    fn brief_host(&self) {
+        for (id, p) in &self.pending {
+            self.send_to(
+                &self.host_id,
+                ServerMessage::JoinRequest { user_id: id.clone(), username: p.username.clone() },
+            );
+        }
+        for s in self.suggestions.values() {
+            self.send_to(
+                &self.host_id,
+                ServerMessage::SuggestionReceived { suggestion: s.clone() },
+            );
+        }
+    }
+
+    /// A joiner gave up (cancelled, or their socket dropped) before the host answered. Without
+    /// this the host keeps a request row that approving can never clear.
+    fn drop_pending(&mut self, id: &str) -> bool {
+        if self.pending.remove(id).is_none() {
+            return false;
+        }
+        self.send_to(&self.host_id, ServerMessage::UserLeft { user_id: id.to_string() });
+        true
+    }
+
     /// Is there a host who can actually answer a join request right now?
     fn host_is_reachable(&self) -> bool {
         self.peers.get(&self.host_id).map(|p| p.connected).unwrap_or(false)
@@ -155,6 +205,20 @@ impl Server {
         uid: &mut Option<String>,
         room_code: &mut Option<String>,
     ) {
+        // One identity per connection. The client opens a fresh socket for every create, join and
+        // reconnect; a second one here would orphan the first: its slot stays `connected` and
+        // nothing ever closes that room.
+        if uid.is_some()
+            && matches!(
+                cm,
+                ClientMessage::CreateRoom { .. }
+                    | ClientMessage::JoinRoom { .. }
+                    | ClientMessage::Reconnect { .. }
+            )
+        {
+            let _ = tx.send(err("already_in_room", "Leave this room first."));
+            return;
+        }
         match cm {
             ClientMessage::Ping => {
                 let _ = tx.send(ServerMessage::Pong);
@@ -162,6 +226,10 @@ impl Server {
 
             ClientMessage::CreateRoom { username } => {
                 let mut rooms = self.rooms.lock().await;
+                if rooms.len() >= MAX_ROOMS {
+                    let _ = tx.send(err("server_full", "The server is full, try again later."));
+                    return;
+                }
                 let code = loop {
                     let c = gen_code();
                     if !rooms.contains_key(&c) {
@@ -302,6 +370,9 @@ impl Server {
                     let _ = tx.send(err("not_host", "Only the host controls playback."));
                     return;
                 }
+                if let Some(q) = p.queue.as_mut() {
+                    q.truncate(MAX_QUEUE);
+                }
                 let now = now_ms();
                 match p.kind {
                     PlaybackKind::Play => {
@@ -427,11 +498,12 @@ impl Server {
                 let (Some(me), Some(code)) = (uid.clone(), room_code.clone()) else { return };
                 let mut rooms = self.rooms.lock().await;
                 let Some(room) = rooms.get_mut(&code) else { return };
-                if !room.is_host(&me) || !room.peers.contains_key(&target) {
+                // Not to someone whose socket is down: the room would have a host nobody can
+                // reach, and joins are refused until they come back or their slot expires.
+                if !room.is_host(&me) || !room.peers.get(&target).is_some_and(|p| p.connected) {
                     return;
                 }
-                room.host_id = target.clone();
-                room.broadcast(&ServerMessage::HostChanged { host_id: target }, None);
+                room.set_host(target);
             }
 
             ClientMessage::Reconnect { session_token } => {
@@ -468,6 +540,9 @@ impl Server {
                     &ServerMessage::UserReconnected { user_id: user_id.clone() },
                     Some(&user_id),
                 );
+                if is_host {
+                    room.brief_host();
+                }
                 *uid = Some(user_id);
                 *room_code = Some(code);
             }
@@ -492,15 +567,14 @@ impl Server {
         graceful: bool,
     ) {
         let Some(room) = rooms.get_mut(code) else { return };
-        room.pending.remove(me);
+        room.drop_pending(me);
         if room.peers.remove(me).is_some() && graceful {
             room.broadcast(&ServerMessage::UserLeft { user_id: me.to_string() }, None);
         }
         // Host left → hand off to any connected peer.
         if room.host_id == me {
             if let Some(next) = room.any_connected_other(me) {
-                room.host_id = next.clone();
-                room.broadcast(&ServerMessage::HostChanged { host_id: next }, None);
+                room.set_host(next);
             }
         }
         // Last member gone: nobody holds a session token for this room anymore, so it can never be
@@ -516,34 +590,51 @@ impl Server {
         }
     }
 
-    /// A socket dropped without leaving. Keep the slot for reconnection, but hand off host now so
-    /// nobody is stuck (fixes Metrolist's up-to-15-min dead zone, context/19 §4.7).
-    async fn handle_disconnect(&self, uid: Option<String>, room_code: Option<String>) {
+    /// A socket dropped without leaving. Keep the slot for reconnection. A host keeps the role for
+    /// [`HOST_GRACE`] before `cleanup` hands it on: handing it off at once moved it to a random
+    /// guest on every network blip, and the host came back as a guest whose own playback was then
+    /// overridden. Still bounded, so Metrolist's up-to-15-min dead zone (context/19 §4.7) stays
+    /// fixed.
+    async fn handle_disconnect(&self, uid: Option<String>, room_code: Option<String>, tx: &Tx) {
         let (Some(me), Some(code)) = (uid, room_code) else { return };
         let mut rooms = self.rooms.lock().await;
         let Some(room) = rooms.get_mut(&code) else { return };
-        // A still-pending joiner just disappears.
-        if room.pending.remove(&me).is_some() {
+        if room.drop_pending(&me) {
             return;
         }
         let Some(peer) = room.peers.get_mut(&me) else { return };
+        // The user already reconnected on another socket, and this is the old one finally timing
+        // out. Marking them disconnected would hand off their host role and, after the grace,
+        // delete a live member who then silently stops getting the room's messages.
+        if !peer.tx.same_channel(tx) {
+            return;
+        }
         peer.connected = false;
         peer.disconnected_at = Some(Instant::now());
         room.broadcast(&ServerMessage::UserDisconnected { user_id: me.clone() }, Some(&me));
-        if room.host_id == me {
-            if let Some(next) = room.any_connected_other(&me) {
-                room.host_id = next.clone();
-                room.broadcast(&ServerMessage::HostChanged { host_id: next }, None);
-            }
-        }
     }
 
-    /// Sweep expired reconnection slots and empty rooms.
+    /// Sweep expired reconnection slots and empty rooms, and move the host role off a host who
+    /// has been gone longer than [`HOST_GRACE`].
     async fn cleanup(&self) {
         let mut rooms = self.rooms.lock().await;
         let now = Instant::now();
         let codes: Vec<String> = rooms.keys().cloned().collect();
         for code in codes {
+            {
+                let room = rooms.get_mut(&code).unwrap();
+                let host_gone = room
+                    .peers
+                    .get(&room.host_id)
+                    .and_then(|p| p.disconnected_at)
+                    .is_some_and(|t| now - t > HOST_GRACE);
+                if host_gone {
+                    let host = room.host_id.clone();
+                    if let Some(next) = room.any_connected_other(&host) {
+                        room.set_host(next);
+                    }
+                }
+            }
             // Collect peers past the grace window, then remove them via the shared path.
             let expired: Vec<String> = {
                 let room = &rooms[&code];
@@ -575,7 +666,12 @@ fn sanitize(s: &str) -> String {
 }
 
 async fn handle_conn(stream: TcpStream, server: Arc<Server>) {
-    let ws = match tokio_tungstenite::accept_async(stream).await {
+    let config = tokio_tungstenite::tungstenite::protocol::WebSocketConfig {
+        max_message_size: Some(MAX_MESSAGE),
+        max_frame_size: Some(MAX_MESSAGE),
+        ..Default::default()
+    };
+    let ws = match tokio_tungstenite::accept_async_with_config(stream, Some(config)).await {
         Ok(ws) => ws,
         Err(e) => {
             tracing::debug!(error = %e, "ws handshake failed");
@@ -597,7 +693,9 @@ async fn handle_conn(stream: TcpStream, server: Arc<Server>) {
     let mut uid: Option<String> = None;
     let mut room_code: Option<String> = None;
 
-    while let Some(next) = read.next().await {
+    // Clients ping every 25s, so this much silence is a dead socket. Without a limit a half-open
+    // one (the client slept or changed networks) holds its slot forever.
+    while let Ok(Some(next)) = tokio::time::timeout(IDLE_LIMIT, read.next()).await {
         match next {
             Ok(Message::Text(t)) => match serde_json::from_str::<ClientMessage>(&t) {
                 Ok(cm) => server.dispatch(cm, &tx, &mut uid, &mut room_code).await,
@@ -608,7 +706,7 @@ async fn handle_conn(stream: TcpStream, server: Arc<Server>) {
         }
     }
 
-    server.handle_disconnect(uid, room_code).await;
+    server.handle_disconnect(uid, room_code, &tx).await;
     writer.abort();
 }
 
@@ -633,7 +731,7 @@ async fn main() {
         let server = server.clone();
         tokio::spawn(async move {
             loop {
-                tokio::time::sleep(Duration::from_secs(30)).await;
+                tokio::time::sleep(SWEEP_EVERY).await;
                 server.cleanup().await;
             }
         });
@@ -657,6 +755,126 @@ mod tests {
 
     fn dummy_tx() -> (Tx, mpsc::UnboundedReceiver<ServerMessage>) {
         mpsc::unbounded_channel()
+    }
+
+    /// One connection as the dispatcher sees it: its channel plus the identity it has taken on.
+    struct Conn {
+        tx: Tx,
+        rx: mpsc::UnboundedReceiver<ServerMessage>,
+        uid: Option<String>,
+        code: Option<String>,
+    }
+
+    impl Conn {
+        fn new() -> Self {
+            let (tx, rx) = dummy_tx();
+            Conn { tx, rx, uid: None, code: None }
+        }
+        async fn send(&mut self, server: &Server, m: ClientMessage) {
+            server.dispatch(m, &self.tx, &mut self.uid, &mut self.code).await;
+        }
+        fn drain(&mut self) -> Vec<ServerMessage> {
+            std::iter::from_fn(|| self.rx.try_recv().ok()).collect()
+        }
+        fn id(&self) -> String {
+            self.uid.clone().unwrap()
+        }
+    }
+
+    /// A room with an approved guest. Returns (host, guest, guest's session token).
+    async fn room_with_guest(server: &Server) -> (Conn, Conn, String) {
+        let mut host = Conn::new();
+        host.send(server, ClientMessage::CreateRoom { username: "host".into() }).await;
+        let mut guest = Conn::new();
+        let room_code = host.code.clone().unwrap();
+        guest.send(server, ClientMessage::JoinRoom { room_code, username: "guest".into() }).await;
+        host.send(server, ClientMessage::ApproveJoin { user_id: guest.id() }).await;
+        let token = guest
+            .drain()
+            .into_iter()
+            .find_map(|m| match m {
+                ServerMessage::JoinApproved { session_token, .. } => Some(session_token),
+                _ => None,
+            })
+            .expect("guest approved");
+        host.drain();
+        (host, guest, token)
+    }
+
+    /// A join request and a guest add are sent to the host at the time. When the role moves, the
+    /// new host has to get them, and a joiner who gives up has to disappear from the host's list.
+    #[tokio::test]
+    async fn pending_requests_follow_the_host() {
+        let server = Server::default();
+        let (mut host, mut guest, _) = room_with_guest(&server).await;
+        let mut joiner = Conn::new();
+        let room_code = host.code.clone().unwrap();
+        joiner.send(&server, ClientMessage::JoinRoom { room_code, username: "j".into() }).await;
+        host.send(&server, ClientMessage::TransferHost { user_id: guest.id() }).await;
+        let got = guest.drain();
+        assert!(got.iter().any(|m| matches!(m, ServerMessage::JoinRequest { user_id, .. } if *user_id == joiner.id())), "{got:?}");
+
+        let track = Track {
+            id: "vid".into(),
+            title: "t".into(),
+            artist: "a".into(),
+            thumbnail: None,
+            duration_ms: 0,
+            queued_by: None,
+        };
+        host.send(&server, ClientMessage::Suggest { track }).await;
+        guest.drain();
+        // The new host's socket drops before answering; the add must reach it on reconnect.
+        let token = server.rooms.lock().await[&guest.code.clone().unwrap()].peers[&guest.id()]
+            .session_token
+            .clone();
+        server.handle_disconnect(guest.uid.clone(), guest.code.clone(), &guest.tx).await;
+        let mut back = Conn::new();
+        back.send(&server, ClientMessage::Reconnect { session_token: token }).await;
+        let got = back.drain();
+        assert!(
+            got.iter().any(|m| matches!(m, ServerMessage::SuggestionReceived { .. })),
+            "{got:?}"
+        );
+
+        let joiner_id = joiner.id();
+        joiner.send(&server, ClientMessage::LeaveRoom).await;
+        let got = back.drain();
+        assert!(
+            matches!(&got[..], [ServerMessage::UserLeft { user_id }] if *user_id == joiner_id),
+            "{got:?}"
+        );
+    }
+
+    /// A second create on one socket used to make a second room and orphan the first, which then
+    /// lived forever with a host marked connected.
+    #[tokio::test]
+    async fn one_room_per_connection() {
+        let server = Server::default();
+        let mut c = Conn::new();
+        c.send(&server, ClientMessage::CreateRoom { username: "a".into() }).await;
+        c.send(&server, ClientMessage::CreateRoom { username: "a".into() }).await;
+        assert_eq!(server.rooms.lock().await.len(), 1);
+        let got = c.drain();
+        assert!(
+            matches!(got.last(), Some(ServerMessage::Error { code, .. }) if code == "already_in_room"),
+            "{got:?}"
+        );
+    }
+
+    /// A user who reconnected on a new socket must not be marked gone when the old socket finally
+    /// times out, or they lose the host role and, after the grace, their place in the room.
+    #[tokio::test]
+    async fn old_socket_closing_after_a_reconnect_is_ignored() {
+        let server = Server::default();
+        let (_host, guest, token) = room_with_guest(&server).await;
+        let mut fresh = Conn::new();
+        fresh.send(&server, ClientMessage::Reconnect { session_token: token }).await;
+        assert!(matches!(fresh.drain()[..], [ServerMessage::Reconnected { .. }]));
+
+        server.handle_disconnect(guest.uid.clone(), guest.code.clone(), &guest.tx).await;
+        let rooms = server.rooms.lock().await;
+        assert!(rooms[&guest.code.unwrap()].peers[&guest.uid.unwrap()].connected);
     }
 
     #[tokio::test]
@@ -698,8 +916,23 @@ mod tests {
             )
             .await;
 
-        // Host drops → host role must move to the connected guest (no dead zone).
-        server.handle_disconnect(Some(host_id.clone()), Some(code.clone())).await;
+        // Host drops: a blip keeps the role, so a reconnect within the grace finds it unchanged.
+        server.handle_disconnect(Some(host_id.clone()), Some(code.clone()), &htx).await;
+        server.cleanup().await;
+        assert_eq!(server.rooms.lock().await[&code].host_id, host_id, "handed off on a blip");
+
+        // Past the grace the role must move to the connected guest (no dead zone).
+        server
+            .rooms
+            .lock()
+            .await
+            .get_mut(&code)
+            .unwrap()
+            .peers
+            .get_mut(&host_id)
+            .unwrap()
+            .disconnected_at = Some(Instant::now() - HOST_GRACE - Duration::from_secs(1));
+        server.cleanup().await;
         let rooms = server.rooms.lock().await;
         assert_eq!(rooms[&code].host_id, guest_id, "host should hand off to the connected guest");
     }
@@ -868,7 +1101,7 @@ mod tests {
             )
             .await;
         let code = hcode.clone().unwrap();
-        server.handle_disconnect(huid.clone(), hcode.clone()).await;
+        server.handle_disconnect(huid.clone(), hcode.clone(), &htx).await;
 
         let (jtx, mut jrx) = dummy_tx();
         let (mut juid, mut jcode) = (None, None);

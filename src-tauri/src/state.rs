@@ -1808,6 +1808,9 @@ impl AppState {
                     // — tell the OS widget + Discord ourselves or they show "playing" forever
                     // past the last song.
                     me.media_set_playing(false);
+                    // Same for a Listen Together room: running out isn't a pause press, so no
+                    // `Paused` event says it either.
+                    me.lt_on_play_state(false).await;
                 }
             });
             return;
@@ -1908,6 +1911,16 @@ impl AppState {
             // straight to the next song is the "long mixes just drop" report. Issue #188.
             // The `retried` marker is cleared on every queue pointer move, so this is once per
             // play of a track, not once ever.
+            if !already_retried && self.lt.is_guest().await {
+                // A guest's queue is the host's, so `start_current` is the wrong tool: on a failed
+                // resolve it skips ahead to a track the room isn't playing. Reload from the room
+                // instead. mpv went idle with the dead file, which is what makes the re-sync reload
+                // (fresh URL, the cached one was evicted above) at the live position.
+                self.queue.lock().await.retried = Some(vid.clone());
+                tracing::info!(video_id = %vid, "guest track failed, reloading from the room");
+                self.lt.request_sync().await;
+                return true;
+            }
             if !already_retried {
                 {
                     let mut q = self.queue.lock().await;
@@ -2084,6 +2097,10 @@ impl AppState {
             self.emit_error(&item.video_id, &e.to_string());
             return false;
         }
+        // Listen Together host: announce the track before `play`, whose pause-flag change is the
+        // room's Play. Sent after, a skip while paused reaches guests as "play" on the old track
+        // first. At the position mpv starts at, so a retry or a restored context isn't sent as 0.
+        self.lt_broadcast_current_track((seek.unwrap_or(0.0) * 1000.0) as i64, true).await;
         let _ = self.player.play();
         // Items played from cards/radio can arrive without a duration; the player response knows
         // the exact length of the cut we stream. Backfill before emitting — lyrics matching keys
@@ -2129,8 +2146,6 @@ impl AppState {
         self.media_set_playing(true);
         self.emit_queue().await;
         self.persist_queue().await;
-        // Listen Together host: announce the new track (fresh play → position 0, playing).
-        self.lt_broadcast_current_track(0, true).await;
         // Autoplay early trigger: extend the queue while the tail still plays, so the gapless
         // lookahead can prime into the continuation. The near-tail guard inside makes this a
         // no-op for almost every track start. Detached — never on the caller's path.
@@ -2146,6 +2161,11 @@ impl AppState {
     /// waterfall fails again on the event pump (and used to wedge until a manual skip).
     /// ponytail: at most 3 removals per prime so a network outage can't eat the whole queue.
     async fn prime_lookahead(self: &std::sync::Arc<Self>, gen: u64) {
+        // A guest plays whatever the host announces next, and a primed entry would let mpv move on
+        // by itself into a track the room may not be playing.
+        if self.lt.is_guest().await {
+            return;
+        }
         for _ in 0..3 {
             let next_idx = {
                 let q = self.queue.lock().await;
@@ -3103,7 +3123,13 @@ impl AppState {
             // Role already flipped; nothing to undo. Not always a *leave*: a promotion to host
             // sends one too, which is why `apply_crossfade` re-reads the role instead of
             // assuming this means the room is over.
-            SyncCommand::Release => self.apply_crossfade().await,
+            SyncCommand::Release => {
+                self.apply_crossfade().await;
+                // Guests never prime, so whoever stops being one (promoted, or out of the room)
+                // has no gapless next track, and a new host's first track change would otherwise
+                // be a reload with a gap.
+                self.prime_lookahead(self.generation.load(Ordering::SeqCst)).await;
+            }
             SyncCommand::ApplyState(state) => {
                 self.apply_crossfade().await;
                 self.lt_apply_state(state).await
@@ -3111,9 +3137,7 @@ impl AppState {
             SyncCommand::ChangeTrack { track, position_ms, playing, queue } => {
                 self.lt_apply_change_track(track, position_ms, playing, queue).await
             }
-            SyncCommand::Play { position_ms, server_time_ms } => {
-                self.lt_apply_play(position_ms, server_time_ms).await
-            }
+            SyncCommand::Play { position_ms } => self.lt_apply_play(position_ms).await,
             SyncCommand::Pause { position_ms } => self.lt_apply_pause(position_ms).await,
             SyncCommand::Seek { position_ms } => {
                 let _ = self.player.seek(position_ms as f64 / 1000.0);
@@ -3126,7 +3150,12 @@ impl AppState {
     /// Guest: apply a full room-state snapshot (join / reconnect / re-sync). If the current track is
     /// already loaded, just correct the position + play state (no reload blip); otherwise load it.
     async fn lt_apply_state(&self, state: listen_protocol::RoomState) {
-        let Some(track) = state.current_track else { return };
+        let Some(track) = state.current_track else {
+            // The host isn't playing anything yet. Whatever the guest had on would otherwise keep
+            // going, with every transport control locked while they're in the room.
+            let _ = self.player.pause();
+            return;
+        };
         let already_loaded = {
             let q = self.queue.lock().await;
             q.items.get(q.current).map(|i| i.video_id == track.id).unwrap_or(false)
@@ -3184,6 +3213,11 @@ impl AppState {
             q.radio_seed = None; // guests never autoplay — the host drives
             q.source_name = None; // the host's context isn't known — header falls back
             q.source_id = None;
+            // Once per play, like `seek_to`: a new track gets its own retry, the reload that is
+            // the retry (same track) doesn't get another.
+            if q.retried.as_deref() != Some(track.id.as_str()) {
+                q.retried = None;
+            }
         }
         // A Listen Together track is the host's; `Track` carries no upload flag and a guest could
         // not stream someone else's upload anyway.
@@ -3213,7 +3247,12 @@ impl AppState {
             return;
         }
         let _ = if playing { self.player.play() } else { self.player.pause() };
-        self.queue.lock().await.current_loudness_db = data.loudness_db;
+        {
+            let mut q = self.queue.lock().await;
+            q.current_loudness_db = data.loudness_db;
+            // What `on_track_failed` reads to evict and retry, and what the error toast names.
+            q.current_client = Some(data.stream_client.clone());
+        }
         if let Some(item) = self.current_item().await {
             self.emit_now_playing(&item, "listen-together");
             // `&self` here, and the attach outlives it: the managed Arc is the same state.
@@ -3234,18 +3273,30 @@ impl AppState {
                 lt.request_sync().await;
             });
         }
+        // Resolve the host's next track now, into the URL cache, so its ChangeTrack only has to
+        // load it. A guest never primes (the host decides what is next), so without this every
+        // track change waited on a full resolve, a gap of a second or more the host doesn't have.
+        if let Some(next) = upcoming.first() {
+            let st = tauri::Manager::state::<Arc<AppState>>(&self.app).inner().clone();
+            let (id, secs) = (next.id.clone(), next.duration_ms / 1000);
+            tauri::async_runtime::spawn(async move {
+                if st.generation.load(Ordering::SeqCst) == gen {
+                    let _ = st.resolve(&id, false, secs).await;
+                }
+            });
+        }
     }
 
-    /// Guest: apply a play, offsetting the target position by transit latency (context/19 §6.5).
-    async fn lt_apply_play(&self, position_ms: i64, server_time_ms: i64) {
-        let target = if server_time_ms > 0 {
-            position_ms + (now_ms() - server_time_ms).max(0)
-        } else {
-            position_ms
-        };
+    /// Guest: apply a play, correcting position if it drifted past tolerance.
+    ///
+    /// No latency offset. The server stamps `server_time_ms` for one, but subtracting it from this
+    /// machine's clock measures the clock difference between the two machines as much as the
+    /// transit, and a guest whose clock ran a few seconds fast landed that far ahead. The transit
+    /// itself is tens of ms, far inside the 2s tolerance.
+    async fn lt_apply_play(&self, position_ms: i64) {
         let cur_ms = (self.current_position() * 1000.0) as i64;
-        if (cur_ms - target).abs() > 2000 {
-            let _ = self.player.seek(target as f64 / 1000.0);
+        if (cur_ms - position_ms).abs() > 2000 {
+            let _ = self.player.seek(position_ms as f64 / 1000.0);
         }
         let _ = self.player.play();
     }
@@ -3306,8 +3357,8 @@ impl AppState {
         self.lt_broadcast_current_track(position_ms, playing).await;
     }
 
-    /// Host: broadcast play/pause with the live position (called from the event pump). No-op unless
-    /// host.
+    /// Host: broadcast play/pause with the live position. Called on a pause press (the pump's
+    /// `Paused` arm) and when the queue runs out, never on a track change. No-op unless host.
     pub async fn lt_on_play_state(&self, playing: bool) {
         if !self.lt.is_host().await {
             return;
@@ -3799,14 +3850,6 @@ impl AppState {
         }
         self.emit_queue().await;
     }
-}
-
-/// Current wall-clock in ms (for guest latency compensation).
-fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
 }
 
 pub(crate) fn song_to_track(s: &SongItem) -> Track {
