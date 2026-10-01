@@ -374,6 +374,7 @@ impl LtSession {
                         })
                     };
 
+                    let mut last_heard = std::time::Instant::now();
                     loop {
                         // Poll the cancel generation even when idle: `leave()` bumps it but the
                         // server doesn't close the socket on LeaveRoom, so we'd otherwise park here.
@@ -384,6 +385,13 @@ impl LtSession {
                                 if self.gen.load(Ordering::SeqCst) != gen {
                                     break;
                                 }
+                                // The server answers every ping, so this much silence is a dead
+                                // socket (sleep/resume, a network switch) that would otherwise
+                                // sit here, looking connected, until TCP gives up minutes later.
+                                if last_heard.elapsed() > SILENCE_LIMIT {
+                                    tracing::warn!("listen-together: server went silent, reconnecting");
+                                    break;
+                                }
                                 continue;
                             }
                         };
@@ -391,6 +399,7 @@ impl LtSession {
                             break;
                         }
                         let Some(next) = next else { break }; // stream ended
+                        last_heard = std::time::Instant::now();
                         match next {
                             Ok(Message::Text(t)) => {
                                 match serde_json::from_str::<ServerMessage>(&t) {
@@ -701,6 +710,10 @@ impl LtSession {
 
 /// How long one address gets to complete a TCP handshake before we move to the next.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(4);
+
+/// No frame from the server for this long means the connection is dead. Pings go out every 25s
+/// and each gets a Pong, so this is two missed answers plus slack.
+const SILENCE_LIMIT: Duration = Duration::from_secs(60);
 
 /// Open the WebSocket, giving every resolved address its own short deadline.
 ///

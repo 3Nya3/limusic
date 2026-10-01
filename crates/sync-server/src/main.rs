@@ -24,6 +24,8 @@ use tokio_tungstenite::tungstenite::Message;
 /// How long a dropped participant's slot (and session token) survives for reconnection.
 const RECONNECT_GRACE: Duration = Duration::from_secs(120);
 const MAX_USERS_PER_ROOM: usize = 50;
+/// A connection that sends nothing for this long is dropped. Clients ping every 25s.
+const IDLE_LIMIT: Duration = Duration::from_secs(90);
 /// Room code alphabet — no `I`/`O` to avoid confusion (context/19 §2.2).
 const CODE_ALPHABET: &[u8] = b"1234567890QWERTYUPASDFGHJKLZXCVBNM";
 
@@ -597,7 +599,9 @@ async fn handle_conn(stream: TcpStream, server: Arc<Server>) {
     let mut uid: Option<String> = None;
     let mut room_code: Option<String> = None;
 
-    while let Some(next) = read.next().await {
+    // Clients ping every 25s, so this much silence is a dead socket. Without a limit a half-open
+    // one (the client slept or changed networks) holds its slot forever.
+    while let Ok(Some(next)) = tokio::time::timeout(IDLE_LIMIT, read.next()).await {
         match next {
             Ok(Message::Text(t)) => match serde_json::from_str::<ClientMessage>(&t) {
                 Ok(cm) => server.dispatch(cm, &tx, &mut uid, &mut room_code).await,
