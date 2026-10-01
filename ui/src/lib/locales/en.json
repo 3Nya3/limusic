@@ -138,6 +138,8 @@
 		"queue": "Queue",
 		"lyrics": "Lyrics",
 		"mini_player": "Mini Player",
+		"mini_shrink": "Shrink mini player",
+		"mini_expand": "Expand mini player",
 		"theater_mode": "Theater mode",
 		"playing_from": "Playing from",
 		"exit_theater": "Exit theater mode",

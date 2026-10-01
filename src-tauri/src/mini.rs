@@ -23,9 +23,12 @@ use crate::state::AppState;
 
 pub const LABEL: &str = "mini";
 
-/// Logical size of the widget. Fixed: it's a pill, not a window you arrange.
-const W: f64 = 560.0;
-const H: f64 = 180.0;
+/// Logical sizes of the widget, full and compact (#301). Not user-resizable: it's a pill, not a
+/// window you arrange, and its own shrink/expand button is the only way between the two.
+const FULL: (f64, f64) = (560.0, 180.0);
+const COMPACT: (f64, f64) = (320.0, 88.0);
+/// `"true"` while the user wants it compact. Sticky: the widget reopens at the size it was left.
+const COMPACT_KEY: &str = "mini_compact";
 /// Inset from the screen edge the first time it opens.
 const MARGIN: f64 = 24.0;
 /// Where the user last dragged it, as physical `"x,y"`. Physical because monitor geometry is, and
@@ -41,9 +44,10 @@ pub fn open(app: &AppHandle) -> Result<(), String> {
         let _ = w.show();
         let _ = w.set_focus();
     } else {
+        let (w, h) = size(app);
         let win = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("index.html".into()))
             .title("Limusic")
-            .inner_size(W, H)
+            .inner_size(w, h)
             .resizable(false)
             .decorations(false)
             .transparent(true)
@@ -56,7 +60,16 @@ pub fn open(app: &AppHandle) -> Result<(), String> {
             .build()
             .map_err(|e| format!("couldn't open the mini player: {e}"))?;
 
-        if let Some(p) = placement(app, &win) {
+        // WebKitGTK's view keeps a 200px minimum height and GTK sizes the window to fit it, so on
+        // Linux the 180px widget came out 200 and the compact one couldn't shrink at all. Without
+        // the view's own size request, the window's size is the only one left. Synchronous here:
+        // this runs on the main thread, so it lands before the window is first shown.
+        #[cfg(target_os = "linux")]
+        let _ = win.with_webview(|wv| {
+            use gtk::prelude::WidgetExt;
+            wv.inner().set_size_request(1, 1);
+        });
+        if let Some(p) = placement(app, &win, (w, h)) {
             let _ = win.set_position(p);
         }
         // Same treatment as the main window: this is a second web process, and it needs the media
@@ -73,6 +86,68 @@ pub fn open(app: &AppHandle) -> Result<(), String> {
         crate::tray::set_main_visible(app, false);
     }
     Ok(())
+}
+
+/// Switch the widget between its full and compact size, and remember the choice. The widget's
+/// layout follows its window's width, so the resize is the whole switch: there is no second copy
+/// of the mode in the webview to disagree with this one.
+pub fn set_compact(app: &AppHandle, compact: bool) -> Result<(), String> {
+    let win = app.get_webview_window(LABEL).ok_or("the mini player isn't open")?;
+    let (w, h) = if compact { COMPACT } else { FULL };
+    let scale = win.scale_factor().map_err(|e| e.to_string())?;
+    let new = PhysicalSize::new((w * scale).round() as u32, (h * scale).round() as u32);
+    // Read before the resize: afterwards the old size may already be gone.
+    let to = match (win.outer_position(), win.outer_size(), win.current_monitor()) {
+        (Ok(pos), Ok(old), Ok(Some(m))) => Some(anchored(pos, old, new, *m.position(), *m.size())),
+        _ => None,
+    };
+    win.set_size(new).map_err(|e| e.to_string())?;
+    // A no-op on Wayland, where the compositor keeps the top-left corner where it was.
+    if let Some(p) = to {
+        let _ = win.set_position(p);
+    }
+    if let Some(state) = app.try_state::<Arc<AppState>>() {
+        state.db.set_setting(COMPACT_KEY, if compact { "true" } else { "false" });
+    }
+    Ok(())
+}
+
+/// The size to open at: whichever the user left it at.
+fn size(app: &AppHandle) -> (f64, f64) {
+    let compact = app
+        .try_state::<Arc<AppState>>()
+        .and_then(|s| s.db.get_setting(COMPACT_KEY))
+        .is_some_and(|v| v == "true");
+    if compact {
+        COMPACT
+    } else {
+        FULL
+    }
+}
+
+/// Top-left for a widget going from `old` to `new` size, so it stays against the screen edges it
+/// is parked near: shrunk in the bottom-right corner, it stays in that corner instead of leaving a
+/// gap below and to the right. Decided per axis by which half of the display its centre is in, so
+/// shrinking and growing back always returns it to the same spot.
+fn anchored(
+    pos: PhysicalPosition<i32>,
+    old: PhysicalSize<u32>,
+    new: PhysicalSize<u32>,
+    origin: PhysicalPosition<i32>,
+    display: PhysicalSize<u32>,
+) -> PhysicalPosition<i32> {
+    let axis = |p: i32, old: u32, new: u32, start: i32, len: u32| {
+        let far_half = 2 * p + old as i32 > 2 * start + len as i32;
+        if far_half {
+            p + old as i32 - new as i32
+        } else {
+            p
+        }
+    };
+    PhysicalPosition::new(
+        axis(pos.x, old.width, new.width, origin.x, display.width),
+        axis(pos.y, old.height, new.height, origin.y, display.height),
+    )
 }
 
 /// Remember where the widget currently sits. No-op when it isn't up. Its own function because
@@ -101,12 +176,16 @@ pub fn close(app: &AppHandle) {
 
 /// Where to put it: the last position if that spot still exists (a display can be unplugged
 /// between sessions), otherwise the bottom-right of whichever display the app is on.
-fn placement(app: &AppHandle, win: &WebviewWindow) -> Option<PhysicalPosition<i32>> {
+fn placement(
+    app: &AppHandle,
+    win: &WebviewWindow,
+    size: (f64, f64),
+) -> Option<PhysicalPosition<i32>> {
     app.try_state::<Arc<AppState>>()
         .and_then(|s| s.db.get_setting(POS_KEY))
         .and_then(|v| parse_pos(&v))
         .filter(|p| on_a_display(win, *p))
-        .or_else(|| bottom_right(app, win))
+        .or_else(|| bottom_right(app, win, size))
 }
 
 /// `"x,y"` in physical pixels, as [`close`] wrote it.
@@ -124,7 +203,11 @@ fn on_a_display(win: &WebviewWindow, p: PhysicalPosition<i32>) -> bool {
 
 /// Bottom-right of the display the main window is on, inside its *work area* so a taskbar or dock
 /// doesn't end up sitting on top of the widget.
-fn bottom_right(app: &AppHandle, win: &WebviewWindow) -> Option<PhysicalPosition<i32>> {
+fn bottom_right(
+    app: &AppHandle,
+    win: &WebviewWindow,
+    (w, h): (f64, f64),
+) -> Option<PhysicalPosition<i32>> {
     let anchor = app.get_webview_window("main").unwrap_or_else(|| win.clone());
     let m = anchor
         .current_monitor()
@@ -134,8 +217,8 @@ fn bottom_right(app: &AppHandle, win: &WebviewWindow) -> Option<PhysicalPosition
     let area = m.work_area();
     let px = |logical: f64| (logical * m.scale_factor()).round() as i32;
     Some(PhysicalPosition::new(
-        area.position.x + area.size.width as i32 - px(W + MARGIN),
-        area.position.y + area.size.height as i32 - px(H + MARGIN),
+        area.position.x + area.size.width as i32 - px(w + MARGIN),
+        area.position.y + area.size.height as i32 - px(h + MARGIN),
     ))
 }
 
@@ -152,7 +235,7 @@ fn contains(
 
 #[cfg(test)]
 mod tests {
-    use super::{contains, parse_pos};
+    use super::{anchored, contains, parse_pos};
     use tauri::{PhysicalPosition, PhysicalSize};
 
     #[test]
@@ -176,5 +259,31 @@ mod tests {
         // Right/bottom edges are exclusive — that pixel belongs to the next display.
         assert!(!contains(primary.0, primary.1, PhysicalPosition::new(1920, 500)));
         assert!(!contains(primary.0, primary.1, PhysicalPosition::new(500, 1080)));
+    }
+
+    #[test]
+    fn resizing_keeps_the_nearest_screen_edges() {
+        let full = PhysicalSize::new(560u32, 180);
+        let small = PhysicalSize::new(320u32, 88);
+        let at = |x, y| PhysicalPosition::new(x, y);
+        let shrink = |p, origin, display| anchored(p, full, small, origin, display);
+        let grow = |p, origin, display| anchored(p, small, full, origin, display);
+        let fhd = PhysicalSize::new(1920u32, 1080);
+
+        // Bottom-right (the default spot): right and bottom edges stay put.
+        assert_eq!(shrink(at(1336, 876), at(0, 0), fhd), at(1576, 968));
+        // Top-left: nothing moves.
+        assert_eq!(shrink(at(24, 24), at(0, 0), fhd), at(24, 24));
+        // Top-right: only the right edge is held.
+        assert_eq!(shrink(at(1336, 24), at(0, 0), fhd), at(1576, 24));
+        // Same corner on a display left of the primary, where the origin is negative.
+        assert_eq!(shrink(at(-584, 876), at(-1920, 0), fhd), at(-344, 968));
+
+        // Shrinking and growing back is a round trip, wherever it sits.
+        for (p, origin) in
+            [(at(1336, 876), at(0, 0)), (at(24, 24), at(0, 0)), (at(900, 300), at(0, 0))]
+        {
+            assert_eq!(grow(shrink(p, origin, fhd), origin, fhd), p);
+        }
     }
 }
