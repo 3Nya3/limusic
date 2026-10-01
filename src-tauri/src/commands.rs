@@ -367,15 +367,26 @@ pub async fn set_setting(
     if !UI_SETTINGS.contains(&key.as_str()) {
         return Err(format!("unknown setting: {key}"));
     }
-    // A login entry registered before `--autostart` existed doesn't carry it, and without it the
-    // setting never applies. `enable` rewrites the entry. Before the write, so a failure leaves the
-    // setting off.
-    if key == "start_minimized" && value == "true" {
+    // Registers/removes the login autostart entry on toggle; the OS persists it from there, and
+    // startup repoints an existing entry at the running binary (lib.rs). Before the write, so a
+    // failure leaves the setting as it was. A dev build would register itself, and at login its
+    // window needs a vite server that isn't running.
+    if key == "autostart" {
+        if tauri::is_dev() {
+            return Err(
+                "autostart: a dev build can't register itself, use an installed build".into()
+            );
+        }
         use tauri_plugin_autostart::ManagerExt;
         let al = app.autolaunch();
-        if al.is_enabled().unwrap_or(false) {
-            al.enable().map_err(|e| format!("autostart: {e}"))?;
-        }
+        let res = if value == "true" {
+            al.enable()
+        } else if al.is_enabled().unwrap_or(false) {
+            al.disable()
+        } else {
+            Ok(())
+        };
+        res.map_err(|e| format!("autostart: {e}"))?;
     }
     state.db.set_setting(&key, &value);
     // A music video track already playing gets its picture now rather than from the next track.
@@ -429,21 +440,6 @@ pub async fn set_setting(
         if let Some(w) = app.get_webview_window("main") {
             w.set_decorations(value == "true").map_err(|e| format!("decorations: {e}"))?;
         }
-    }
-    // Registers/removes the login autostart entry on toggle; the OS persists it from there.
-    // ponytail: no startup re-sync against the OS state — add reconciliation only if drift is
-    // ever reported.
-    if key == "autostart" {
-        use tauri_plugin_autostart::ManagerExt;
-        let al = app.autolaunch();
-        let res = if value == "true" {
-            al.enable()
-        } else if al.is_enabled().unwrap_or(false) {
-            al.disable()
-        } else {
-            Ok(())
-        };
-        res.map_err(|e| format!("autostart: {e}"))?;
     }
     Ok(())
 }

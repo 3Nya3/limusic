@@ -585,6 +585,22 @@ pub fn run() {
             // scope is empty — the folders it may read are the ones the user picked (local.rs).
             local::allow_music_paths(&handle, &app_state.db);
 
+            // The login entry runs whichever binary last wrote it. A dev build that wrote it leaves
+            // the login launch loading the vite server, which isn't running then: tray icon, no
+            // window, "Could not connect to localhost". An AppImage moved after enabling leaves it
+            // pointing at nothing. So an installed build repoints an existing entry at itself.
+            // Only an existing one: `is_enabled` is false after a Task Manager disable on Windows,
+            // and that choice is the user's.
+            if !tauri::is_dev() {
+                use tauri_plugin_autostart::ManagerExt;
+                let al = app.autolaunch();
+                if al.is_enabled().unwrap_or(false) {
+                    if let Err(e) = al.enable() {
+                        tracing::warn!(error = %e, "could not repoint the autostart entry");
+                    }
+                }
+            }
+
             // System tray: playback controls + show/quit while running in the background.
             if let Err(e) = tray::init(&handle) {
                 tracing::warn!(error = %e, "tray init failed (continuing without tray)");
