@@ -1808,6 +1808,9 @@ impl AppState {
                     // — tell the OS widget + Discord ourselves or they show "playing" forever
                     // past the last song.
                     me.media_set_playing(false);
+                    // Same for a Listen Together room: running out isn't a pause press, so no
+                    // `Paused` event says it either.
+                    me.lt_on_play_state(false).await;
                 }
             });
             return;
@@ -2084,6 +2087,10 @@ impl AppState {
             self.emit_error(&item.video_id, &e.to_string());
             return false;
         }
+        // Listen Together host: announce the track before `play`, whose pause-flag change is the
+        // room's Play. Sent after, a skip while paused reaches guests as "play" on the old track
+        // first. At the position mpv starts at, so a retry or a restored context isn't sent as 0.
+        self.lt_broadcast_current_track((seek.unwrap_or(0.0) * 1000.0) as i64, true).await;
         let _ = self.player.play();
         // Items played from cards/radio can arrive without a duration; the player response knows
         // the exact length of the cut we stream. Backfill before emitting — lyrics matching keys
@@ -2129,8 +2136,6 @@ impl AppState {
         self.media_set_playing(true);
         self.emit_queue().await;
         self.persist_queue().await;
-        // Listen Together host: announce the new track (fresh play → position 0, playing).
-        self.lt_broadcast_current_track(0, true).await;
         // Autoplay early trigger: extend the queue while the tail still plays, so the gapless
         // lookahead can prime into the continuation. The near-tail guard inside makes this a
         // no-op for almost every track start. Detached — never on the caller's path.
@@ -3306,8 +3311,8 @@ impl AppState {
         self.lt_broadcast_current_track(position_ms, playing).await;
     }
 
-    /// Host: broadcast play/pause with the live position (called from the event pump). No-op unless
-    /// host.
+    /// Host: broadcast play/pause with the live position. Called on a pause press (the pump's
+    /// `Paused` arm) and when the queue runs out, never on a track change. No-op unless host.
     pub async fn lt_on_play_state(&self, playing: bool) {
         if !self.lt.is_host().await {
             return;

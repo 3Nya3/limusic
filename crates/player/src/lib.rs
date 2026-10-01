@@ -39,6 +39,11 @@ pub enum PlayerEvent {
     /// file starts (and when the playlist runs dry). Anything reading playback state off `pause`
     /// alone never hears that a track began, and only recovers on a manual pause/unpause.
     Playing(bool),
+    /// mpv's `pause` flag changed: someone pressed pause or play. Unlike [`PlayerEvent::Playing`]
+    /// this says nothing when the playlist runs dry or a new file starts, which is what a Listen
+    /// Together host has to broadcast: a track change is announced on its own, and a "stopped"
+    /// from the gap between two tracks reaches the room after the next one has started.
+    Paused(bool),
     /// One track finished normally (EOF) — orchestrator advances the queue.
     TrackEnded,
     /// One track died (end-file with error, e.g. its URL 403'd). mpv may have auto-advanced
@@ -782,8 +787,9 @@ fn event_loop(mut ev: EventContext, deck: usize, decks: Arc<Decks>) {
                     Event::PropertyChange {
                         name: "pause", change: PropertyData::Flag(p), ..
                     } => {
+                        let changed = p != paused;
                         paused = p;
-                        None
+                        changed.then_some(PlayerEvent::Paused(p))
                     }
                     Event::PropertyChange {
                         name: "idle-active",
@@ -1362,5 +1368,48 @@ mod tests {
         // A dead or expired stream URL still has to reach the fallback clients.
         assert!(!is_ao_init_failed(&Error::Raw(mpv_error::LoadingFailed)));
         assert!(!is_ao_init_failed(&Error::Raw(mpv_error::NothingToPlay)));
+    }
+
+    /// A Listen Together host broadcasts `Paused`, so a track running out must not produce one:
+    /// it reached the room after the next track had started, with the old track's end as the
+    /// position, and guests seeked the new track past its own end.
+    #[test]
+    fn running_out_is_not_a_pause() {
+        use super::{Player, PlayerEvent};
+        use std::time::{Duration, Instant};
+
+        let dir = std::env::temp_dir().join("limusic-pause-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut p = Player::new(dir.to_str().unwrap()).expect("libmpv");
+        p.mpv().set_property("ao", "null").unwrap();
+        let mut rx = p.take_events().unwrap();
+        let mut until = |done: fn(&PlayerEvent) -> bool| {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let mut seen = Vec::new();
+            while Instant::now() < deadline {
+                match rx.try_recv() {
+                    Ok(e) => {
+                        let stop = done(&e);
+                        seen.push(e);
+                        if stop {
+                            return seen;
+                        }
+                    }
+                    Err(_) => std::thread::sleep(Duration::from_millis(10)),
+                }
+            }
+            panic!("timed out, saw {seen:?}");
+        };
+
+        p.load("av://lavfi:sine=duration=0.3", &Default::default(), None, None).unwrap();
+        let _ = p.play();
+        // Through the end of the file and mpv going idle, which is the `Playing(false)` that used
+        // to be broadcast as a pause.
+        let seen = until(|e| matches!(e, PlayerEvent::Playing(false)));
+        assert!(seen.iter().any(|e| matches!(e, PlayerEvent::TrackEnded)), "{seen:?}");
+        assert!(!seen.iter().any(|e| matches!(e, PlayerEvent::Paused(_))), "{seen:?}");
+
+        p.pause().unwrap();
+        until(|e| matches!(e, PlayerEvent::Paused(true)));
     }
 }
