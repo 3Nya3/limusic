@@ -3150,7 +3150,12 @@ impl AppState {
     /// Guest: apply a full room-state snapshot (join / reconnect / re-sync). If the current track is
     /// already loaded, just correct the position + play state (no reload blip); otherwise load it.
     async fn lt_apply_state(&self, state: listen_protocol::RoomState) {
-        let Some(track) = state.current_track else { return };
+        let Some(track) = state.current_track else {
+            // The host isn't playing anything yet. Whatever the guest had on would otherwise keep
+            // going, with every transport control locked while they're in the room.
+            let _ = self.player.pause();
+            return;
+        };
         let already_loaded = {
             let q = self.queue.lock().await;
             q.items.get(q.current).map(|i| i.video_id == track.id).unwrap_or(false)
