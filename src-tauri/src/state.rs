@@ -1911,6 +1911,16 @@ impl AppState {
             // straight to the next song is the "long mixes just drop" report. Issue #188.
             // The `retried` marker is cleared on every queue pointer move, so this is once per
             // play of a track, not once ever.
+            if !already_retried && self.lt.is_guest().await {
+                // A guest's queue is the host's, so `start_current` is the wrong tool: on a failed
+                // resolve it skips ahead to a track the room isn't playing. Reload from the room
+                // instead. mpv went idle with the dead file, which is what makes the re-sync reload
+                // (fresh URL, the cached one was evicted above) at the live position.
+                self.queue.lock().await.retried = Some(vid.clone());
+                tracing::info!(video_id = %vid, "guest track failed, reloading from the room");
+                self.lt.request_sync().await;
+                return true;
+            }
             if !already_retried {
                 {
                     let mut q = self.queue.lock().await;
@@ -2151,6 +2161,11 @@ impl AppState {
     /// waterfall fails again on the event pump (and used to wedge until a manual skip).
     /// ponytail: at most 3 removals per prime so a network outage can't eat the whole queue.
     async fn prime_lookahead(self: &std::sync::Arc<Self>, gen: u64) {
+        // A guest plays whatever the host announces next, and a primed entry would let mpv move on
+        // by itself into a track the room may not be playing.
+        if self.lt.is_guest().await {
+            return;
+        }
         for _ in 0..3 {
             let next_idx = {
                 let q = self.queue.lock().await;
@@ -3195,6 +3210,11 @@ impl AppState {
             q.radio_seed = None; // guests never autoplay — the host drives
             q.source_name = None; // the host's context isn't known — header falls back
             q.source_id = None;
+            // Once per play, like `seek_to`: a new track gets its own retry, the reload that is
+            // the retry (same track) doesn't get another.
+            if q.retried.as_deref() != Some(track.id.as_str()) {
+                q.retried = None;
+            }
         }
         // A Listen Together track is the host's; `Track` carries no upload flag and a guest could
         // not stream someone else's upload anyway.
@@ -3224,7 +3244,12 @@ impl AppState {
             return;
         }
         let _ = if playing { self.player.play() } else { self.player.pause() };
-        self.queue.lock().await.current_loudness_db = data.loudness_db;
+        {
+            let mut q = self.queue.lock().await;
+            q.current_loudness_db = data.loudness_db;
+            // What `on_track_failed` reads to evict and retry, and what the error toast names.
+            q.current_client = Some(data.stream_client.clone());
+        }
         if let Some(item) = self.current_item().await {
             self.emit_now_playing(&item, "listen-together");
             // `&self` here, and the attach outlives it: the managed Arc is the same state.
