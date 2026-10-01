@@ -46,7 +46,11 @@ pub fn open(app: &AppHandle) -> Result<(), String> {
     } else {
         let (w, h) = size(app);
         let win = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("index.html".into()))
-            .title("Limusic")
+            // Distinct from the main window's "Limusic" so compositor window rules (niri, KDE) can
+            // match it, and set here because they only read the title the window is created with
+            // (#362). Deliberately untranslated: a localised title breaks the rule on a language
+            // switch. The app_id can't differ instead, GTK sets that once per process.
+            .title("Limusic Mini Player")
             .inner_size(w, h)
             .resizable(false)
             .decorations(false)
