@@ -143,7 +143,8 @@
 		"pin_to_top": "Закріпити зверху",
 		"unpin": "Відкріпити",
 		"remove_from_this_playlist": "Видалити з цього плейлиста",
-		"back_to": "Повернутись до {title}"
+		"back_to": "Повернутись до {title}",
+		"mini_expand": "Розгорнути мініплеєр"
 	},
 	"home": {
 		"good_morning": "Доброго ранку",
