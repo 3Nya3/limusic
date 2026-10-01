@@ -202,7 +202,7 @@
 		"sections_hint": "拖曳區塊以移動它或使用方向鍵來改變順序。此變更不會影響到隱藏的區塊。",
 		"move_section": "移動 {title}",
 		"moved_section": "{title} 已被移動到 {position}，總共 {total}",
-		"new_section": "新增",
+		"new_section": "新",
 		"show_new": "顯示新區塊",
 		"show_new_desc": "YouTube 頻道和分類標籤會隨著時間而變化。關閉後，將不會隨著時間變化，直到您重新啟用。",
 		"all_hidden": "這邊一個區塊都沒有。"
@@ -446,7 +446,12 @@
 			"lyrics_move_source": "移動 {name}",
 			"lyrics_moved_source": "{name} 已被移動至 {position}，總共 {total}",
 			"lyrics_use_source": "使用 {name}",
-			"lyrics_sources_none": "所有歌詞來源已被關閉，因此沒有找到歌詞。"
+			"lyrics_sources_none": "所有歌詞來源已被關閉，因此沒有找到歌詞。",
+			"ambient_light_hint": "播放影片時，背景會呈現出與影片相同的色彩。",
+			"ambient_light_gpu_title": "為了確保流暢的運行，需要高性能的顯卡",
+			"ambient_light_gpu": "在 PassMark 的顯卡測試中，如果分數低於 1000 點，觀看影片時可能會出現卡頓現象，尤其是在播放 MV 時。",
+			"ambient_light_gpu_check": "查看您的顯卡",
+			"ambient_light": "沉浸式背景"
 		},
 		"data": {
 			"clear_cache": "清除縮圖與串流的快取",
