@@ -122,8 +122,6 @@
 		"share": "Paylaş",
 		"not_playing": "Çalmıyor",
 		"history": "Geçmiş",
-		"hide_history": "Geçmişi gizle",
-		"show_history": "Geçmişi göster",
 		"repeat_state": "Tekrar: {state}",
 		"seek": "Konum",
 		"open_player": "Oynatıcıyı aç",

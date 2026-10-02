@@ -122,8 +122,6 @@
 		"share": "Compartilhar",
 		"not_playing": "Nada tocando",
 		"history": "Histórico",
-		"hide_history": "Ocultar histórico",
-		"show_history": "Mostrar histórico",
 		"repeat_state": "Repetição: {state}",
 		"seek": "Posição",
 		"open_player": "Abrir player",

@@ -117,8 +117,6 @@
 		"share": "Поделиться",
 		"not_playing": "Не играет",
 		"history": "История",
-		"hide_history": "Скрыть историю",
-		"show_history": "Показать историю",
 		"repeat_state": "Повторить: {state}",
 		"seek": "Искать",
 		"open_player": "Открыть плеер",

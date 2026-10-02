@@ -146,8 +146,6 @@
 		"share": "分享",
 		"not_playing": "現正無播放的曲目",
 		"history": "歷史紀錄",
-		"hide_history": "隱藏歷史紀錄",
-		"show_history": "顯示歷史紀錄",
 		"repeat_state": "模式：{state}",
 		"seek": "尋找",
 		"open_player": "開啟播放器",

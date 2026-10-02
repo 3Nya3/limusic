@@ -122,8 +122,6 @@
 		"share": "Partager",
 		"not_playing": "Aucune lecture en cours",
 		"history": "Historique",
-		"hide_history": "Cacher l'historique",
-		"show_history": "Afficher l'historique",
 		"repeat_state": "Répéter : {state}",
 		"seek": "Naviguer",
 		"open_player": "Ouvrir le lecteur",

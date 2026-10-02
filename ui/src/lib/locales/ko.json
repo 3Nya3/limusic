@@ -145,8 +145,6 @@
 		"share": "공유",
 		"not_playing": "정지",
 		"history": "기록",
-		"hide_history": "기록 숨기기",
-		"show_history": "기록 표시하기",
 		"repeat_state": "반복: {state}",
 		"seek": "탐색",
 		"open_player": "플레이어 열기",
