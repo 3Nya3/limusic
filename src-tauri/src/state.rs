@@ -1359,7 +1359,7 @@ impl AppState {
                 if q.shuffle_orig.is_some() {
                     q.shuffle_orig = Some(q.items.clone());
                     let cur = q.current;
-                    shuffle_upcoming(&mut q.items, cur);
+                    shuffle_upcoming(&mut q.items, cur, self.shuffle_whole_queue());
                 }
                 drop(q);
                 self.emit_queue().await;
@@ -1448,7 +1448,12 @@ impl AppState {
             let (next, added): (Vec<_>, Vec<_>) = carried.into_iter().partition(|i| i.queued);
             let at = q.current + 1;
             q.items.splice(at..at, next);
+            let mix = keep_shuffled && !added.is_empty() && self.shuffle_whole_queue();
             q.items.extend(added);
+            if mix {
+                let cur = q.current;
+                shuffle_upcoming(&mut q.items, cur, true);
+            }
             q.epoch
         };
         // start_current emits now-playing + queue + persists; prime the gapless lookahead after.
@@ -1667,7 +1672,8 @@ impl AppState {
                     return; // another queue owns the state now: don't touch it, don't persist
                 }
                 let before = q.items.get(q.current + 1).map(|i| i.video_id.clone());
-                append_page(&mut q, items, matches!(fill, Fill::Playing));
+                let whole = self.shuffle_whole_queue();
+                append_page(&mut q, items, matches!(fill, Fill::Playing), whole);
                 // An append can retarget a primed repeat-all wrap (index 0 → the new tail), and a
                 // page landing in front of the tail adds can take the primed slot; drop the
                 // lookahead when it stops pointing at what plays next, same check as
@@ -2755,6 +2761,12 @@ impl AppState {
         self.db.get_setting("sticky_shuffle").as_deref() == Some("true")
     }
 
+    /// Shuffle mixes what was added with "Add to queue" into the playlist, instead of keeping it
+    /// behind the playlist in its own order. Default off.
+    fn shuffle_whole_queue(&self) -> bool {
+        self.db.get_setting("shuffle_whole_queue").as_deref() == Some("true")
+    }
+
     /// Autoplay enabled? Default on; only an explicit `"false"` disables it (mirrors
     /// `history_enabled`).
     fn autoplay_enabled(&self) -> bool {
@@ -3396,7 +3408,7 @@ impl AppState {
             } else {
                 q.shuffle_orig = Some(q.items.clone());
                 let current = q.current;
-                shuffle_upcoming(&mut q.items, current);
+                shuffle_upcoming(&mut q.items, current, self.shuffle_whole_queue());
             }
             // The primed lookahead almost certainly points at the wrong song now — drop it
             // unconditionally (cheap; re-primed below).
@@ -3599,7 +3611,19 @@ impl AppState {
                     items.shuffle(&mut rand::thread_rng());
                 }
             }
-            q.items.splice(at..at, items);
+            if !next && q.shuffle_orig.is_some() && self.shuffle_whole_queue() {
+                // Shuffling the whole queue: an add made while shuffled lands somewhere random in
+                // the mix, between the Play next tracks and autoplay, like the rest of it.
+                use rand::Rng;
+                let lo = guest_insert_index(&q.items, q.current);
+                for item in items {
+                    let hi = enqueue_at(&q).max(lo);
+                    let to = rand::thread_rng().gen_range(lo..=hi);
+                    q.items.insert(to, item);
+                }
+            } else {
+                q.items.splice(at..at, items);
+            }
             // Drop the primed lookahead when what plays next moved (an append past the tail
             // retargets a primed repeat-all wrap from index 0 to the new item) or when a different
             // song now sits in the primed slot — otherwise the gapless advance plays the wrong one.
@@ -4004,7 +4028,8 @@ fn splice_radio_into(
     if q.shuffle_orig.is_some() {
         q.shuffle_orig = Some(q.items.clone());
         let cur = q.current;
-        shuffle_upcoming(&mut q.items, cur);
+        // A radio's adds already sit right behind the playing track, pinned either way.
+        shuffle_upcoming(&mut q.items, cur, false);
     }
 }
 
@@ -4139,15 +4164,20 @@ fn upcoming_queued(items: &[SongItem], current: usize) -> Vec<SongItem> {
 /// next regardless of shuffle (Spotify semantics). Autoplay tracks stay *behind* the remaining
 /// queue tracks (each section shuffled within itself) — shuffle never promotes radio filler ahead
 /// of the playlist.
-fn shuffle_upcoming(items: &mut [SongItem], current: usize) {
+fn shuffle_upcoming(items: &mut [SongItem], current: usize, whole: bool) {
     use rand::seq::SliceRandom;
     let first = (current + 1).min(items.len());
     let mut start = first;
-    while items.get(start).map(|i| i.queued || i.queued_end).unwrap_or(false) {
+    while items.get(start).is_some_and(|i| i.queued || (!whole && i.queued_end)) {
         start += 1;
     }
     shuffle_added_runs(&mut items[first..start]);
-    if start < items.len() {
+    if whole && start < items.len() {
+        // "Shuffle the whole queue": the playlist and what was added to it are one mix. Play next
+        // stays next (pinned above), autoplay stays last: it is filler that tops up from the end.
+        items[start..].shuffle(&mut rand::thread_rng());
+        items[start..].sort_by_key(|i| i.autoplay);
+    } else if start < items.len() {
         // The playlist, then what was added at the tail (#369), then autoplay. Each group stays
         // where it is and is shuffled within itself: an add plays after the playlist, shuffled or
         // not. Stable, so the adds keep their order through the sort.
@@ -4195,7 +4225,7 @@ fn shuffle_added_runs(items: &mut [SongItem]) {
 /// which plays when the playlist is done. A page walked in for "Add to queue" passes
 /// `playing: false` and goes right behind its own block, so a second add made while the first is
 /// still loading stays behind all of it.
-fn append_page(q: &mut QueueState, page: Vec<SongItem>, playing: bool) {
+fn append_page(q: &mut QueueState, page: Vec<SongItem>, playing: bool, whole: bool) {
     if let Some(orig) = q.shuffle_orig.as_mut() {
         orig.extend(page.iter().cloned());
     }
@@ -4204,7 +4234,7 @@ fn append_page(q: &mut QueueState, page: Vec<SongItem>, playing: bool) {
         q.items.splice(at..at, page);
         if q.shuffle_orig.is_some() {
             let pivot = q.lookahead_loaded.filter(|&i| i > q.current).unwrap_or(q.current);
-            shuffle_upcoming(&mut q.items, pivot);
+            shuffle_upcoming(&mut q.items, pivot, whole);
         }
     } else {
         let from = page.first().and_then(|i| i.queued_from.clone());
@@ -4232,7 +4262,7 @@ fn is_mix(source_id: Option<&str>) -> bool {
 fn shuffle_new_queue(items: &mut [SongItem], start: usize) -> usize {
     if !items.is_empty() {
         items.swap(0, start.min(items.len() - 1));
-        shuffle_upcoming(items, 0);
+        shuffle_upcoming(items, 0, false); // a fresh queue holds no adds yet
     }
     0
 }
@@ -4835,7 +4865,7 @@ mod tests {
                 lookahead_loaded: Some(1), // "b" is already loaded into mpv
                 ..QueueState::default()
             };
-            append_page(&mut q, page(), true);
+            append_page(&mut q, page(), true, false);
 
             assert_eq!(q.items.len(), 103);
             assert_eq!(q.items[0].video_id, "a"); // playing
@@ -4864,7 +4894,7 @@ mod tests {
             current: 0,
             ..QueueState::default()
         };
-        append_page(&mut q, vec![song("c", None), song("d", None)], true);
+        append_page(&mut q, vec![song("c", None), song("d", None)], true, false);
         let ids: Vec<_> = q.items.iter().map(|i| i.video_id.as_str()).collect();
         assert_eq!(ids, ["a", "b", "c", "d"]);
         assert!(q.shuffle_orig.is_none());
@@ -4889,7 +4919,7 @@ mod tests {
             current: 0,
             ..QueueState::default()
         };
-        append_page(&mut q, vec![from("x2", "X"), from("x3", "X")], false);
+        append_page(&mut q, vec![from("x2", "X"), from("x3", "X")], false, false);
         let ids: Vec<_> = q.items.iter().map(|i| i.video_id.as_str()).collect();
         assert_eq!(ids, ["a", "b", "x1", "x2", "x3", "y1"]);
         // Still on the snapshot, so un-shuffle keeps them.
@@ -5002,7 +5032,7 @@ mod tests {
             current: 0,
             ..QueueState::default()
         };
-        append_page(&mut q, vec![song("a3", None), song("a4", None)], true);
+        append_page(&mut q, vec![song("a3", None), song("a4", None)], true, false);
         assert_eq!(ids(&q), ["a1", "p", "a2", "a3", "a4", "x1", "r1"]);
 
         // Nothing of the playlist left upcoming, only an add: the page still goes in front of it.
@@ -5011,7 +5041,7 @@ mod tests {
             current: 0,
             ..QueueState::default()
         };
-        append_page(&mut q, vec![song("a2", None)], true);
+        append_page(&mut q, vec![song("a2", None)], true, false);
         assert_eq!(ids(&q), ["a1", "a2", "x1"]);
     }
 
@@ -5077,7 +5107,7 @@ mod tests {
     fn shuffle_preserves_prefix_and_multiset() {
         let ids: Vec<String> = (0..10).map(|i| format!("t{i}")).collect();
         let mut items: Vec<_> = ids.iter().map(|id| song(id, None)).collect();
-        shuffle_upcoming(&mut items, 2);
+        shuffle_upcoming(&mut items, 2, false);
         // The playing track and the already-played prefix stay put…
         for (i, id) in ids.iter().take(3).enumerate() {
             assert_eq!(&items[i].video_id, id);
@@ -5128,7 +5158,7 @@ mod tests {
         let solo = |id: &str| innertube::SongItem { queued: true, ..song(id, None) };
         let mut items = vec![song("now", None), solo("q1"), solo("q2")];
         items.extend((0..8).map(|i| song(&format!("t{i}"), None)));
-        shuffle_upcoming(&mut items, 0);
+        shuffle_upcoming(&mut items, 0, false);
         // The manual "Next in queue" block still plays next, in order.
         assert_eq!(items[1].video_id, "q1");
         assert_eq!(items[2].video_id, "q2");
@@ -5152,7 +5182,7 @@ mod tests {
             let mut items = vec![song("now", None), solo("q1"), solo("q2")];
             items.extend((0..12).map(|i| from(&format!("a{i}"), "Album")));
             items.extend((0..4).map(|i| song(&format!("t{i}"), None)));
-            shuffle_upcoming(&mut items, 0);
+            shuffle_upcoming(&mut items, 0, false);
             // The loose adds stay where they were, in order, ahead of the album block.
             assert_eq!(items[1].video_id, "q1");
             assert_eq!(items[2].video_id, "q2");
@@ -5175,7 +5205,7 @@ mod tests {
         let mut items = vec![song("now", None)];
         items.extend((0..4).map(|i| song(&format!("p{i}"), None)));
         items.extend((0..4).map(|i| auto(&format!("a{i}"))));
-        shuffle_upcoming(&mut items, 0);
+        shuffle_upcoming(&mut items, 0, false);
         // Every playlist track still comes before every autoplay track.
         let flags: Vec<bool> = items[1..].iter().map(|i| i.autoplay).collect();
         assert_eq!(flags, [false, false, false, false, true, true, true, true]);
@@ -5192,13 +5222,33 @@ mod tests {
         items.extend((0..6).map(|i| song(&format!("p{i}"), None)));
         items.extend((0..4).map(|i| added(&format!("x{i}"))));
         items.extend((0..2).map(|i| auto(&format!("a{i}"))));
-        shuffle_upcoming(&mut items, 0);
+        shuffle_upcoming(&mut items, 0, false);
         let ids: Vec<_> = items.iter().map(|i| i.video_id.as_str()).collect();
         let mut playlist = ids[1..7].to_vec();
         playlist.sort_unstable();
         assert_eq!(playlist, ["p0", "p1", "p2", "p3", "p4", "p5"]);
         assert_eq!(ids[7..11], ["x0", "x1", "x2", "x3"]);
         assert!(items[11..].iter().all(|i| i.autoplay));
+    }
+
+    // "Shuffle the whole queue": adds are mixed in with the playlist. Play next still plays next
+    // and autoplay still comes last.
+    #[test]
+    fn shuffling_the_whole_queue_mixes_the_adds_in() {
+        let queued = |id: &str| innertube::SongItem { queued: true, ..song(id, None) };
+        let added = |id: &str| innertube::SongItem { queued_end: true, ..song(id, None) };
+        let auto = |id: &str| innertube::SongItem { autoplay: true, ..song(id, None) };
+        let mut items = vec![song("now", None), queued("next")];
+        items.extend((0..20).map(|i| song(&format!("p{i}"), None)));
+        items.extend((0..20).map(|i| added(&format!("x{i}"))));
+        items.extend((0..2).map(|i| auto(&format!("a{i}"))));
+        let before: HashSet<String> = items.iter().map(|i| i.video_id.clone()).collect();
+        shuffle_upcoming(&mut items, 0, true);
+        assert_eq!(items[1].video_id, "next");
+        assert!(items[42..].iter().all(|i| i.autoplay));
+        assert_eq!(items.iter().map(|i| i.video_id.clone()).collect::<HashSet<_>>(), before);
+        // The odds of all twenty adds still sitting behind the playlist are 1 in 40 choose 20.
+        assert!(items[2..22].iter().any(|i| i.queued_end), "adds are mixed into the playlist");
     }
 
     #[test]

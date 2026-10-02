@@ -352,6 +352,8 @@
 	const preventDuplicatesOn = $derived(settings.prevent_duplicates === 'true');
 	// Off by default: shuffle applies to the queue it was turned on for (issue #117).
 	const stickyShuffleOn = $derived(settings.sticky_shuffle === 'true');
+	// Off by default: shuffle keeps what was added with Add to queue behind the playlist (#369).
+	const shuffleWholeOn = $derived(settings.shuffle_whole_queue === 'true');
 	const updateBannerOn = $derived(settings.update_banner !== 'false');
 	const betaOn = $derived(settings.update_channel === 'beta');
 	const trayOn = $derived(settings.close_to_tray !== 'false');
@@ -444,6 +446,11 @@
 	async function setStickyShuffle(on: boolean) {
 		settings.sticky_shuffle = on ? 'true' : 'false';
 		await api.setSetting('sticky_shuffle', settings.sticky_shuffle);
+	}
+
+	async function setShuffleWhole(on: boolean) {
+		settings.shuffle_whole_queue = on ? 'true' : 'false';
+		await api.setSetting('shuffle_whole_queue', settings.shuffle_whole_queue);
 	}
 
 	async function setUpdateBanner(on: boolean) {
@@ -843,6 +850,12 @@
 									control: stickyShuffleSwitch,
 									tall: true
 								})}
+								{@render row({
+									title: t('settings.playback.shuffle_whole_queue'),
+									desc: t('settings.playback.shuffle_whole_queue_hint'),
+									control: shuffleWholeSwitch,
+									tall: true
+								})}
 							</div>
 						</section>
 						<section class={GROUP}>
@@ -1107,6 +1120,10 @@
 {#snippet stickyShuffleSwitch()}<Switch
 		checked={stickyShuffleOn}
 		onCheckedChange={setStickyShuffle}
+	/>{/snippet}
+{#snippet shuffleWholeSwitch()}<Switch
+		checked={shuffleWholeOn}
+		onCheckedChange={setShuffleWhole}
 	/>{/snippet}
 {#snippet normalizeSwitch()}<Switch checked={normalizeOn} onCheckedChange={setNormalize} />{/snippet}
 {#snippet musicVideoSwitch()}<Switch checked={musicVideosOn} onCheckedChange={setMusicVideos} />{/snippet}

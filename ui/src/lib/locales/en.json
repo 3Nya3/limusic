@@ -455,6 +455,8 @@
 			"prevent_duplicates_hint": "Avoid adding songs that are already in the current queue.",
 			"sticky_shuffle": "Keep shuffle on across queues",
 			"sticky_shuffle_hint": "Leave off and shuffle applies only to what's playing: opening an album or playlist afterwards plays it in order.",
+			"shuffle_whole_queue": "Shuffle the whole queue",
+			"shuffle_whole_queue_hint": "Shuffle mixes the songs you added with Add to queue in with the playlist. Leave off and they play after it, in the order you added them. Play next always plays next.",
 			"play_history_hint": "Remember recently played tracks for personalized recommendations.",
 			"music_videos": "Enable music videos",
 			"music_videos_hint": "Show video stream when available instead of audio only.",
