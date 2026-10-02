@@ -2438,6 +2438,13 @@ impl AppState {
         self.last_media_push.store(0, Ordering::Relaxed);
     }
 
+    /// Push the volume to MPRIS (#220). Called after every change, wherever it came from.
+    pub fn media_set_volume(&self, volume: i64) {
+        if let Some(m) = &self.media {
+            m.set_volume(volume);
+        }
+    }
+
     /// Push play/pause state + the current position to the OS media controls (context/16) and
     /// Discord. The single choke point for play/pause, so both stay in step with mpv. Discord gets
     /// the flag only — its position flows exclusively through the ticks, so a stale

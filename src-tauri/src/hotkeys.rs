@@ -222,7 +222,7 @@ pub fn execute_action(app: &AppHandle, action: HotkeyAction) {
 
 /// Read, change, set, persist and echo the volume, the same as a slider commit. Serialized: each
 /// press is its own task, so a held key would otherwise lose steps and two mutes could both mute.
-fn change_volume(state: &AppState, app: &AppHandle, f: impl FnOnce(i64) -> i64) {
+pub(crate) fn change_volume(state: &AppState, app: &AppHandle, f: impl FnOnce(i64) -> i64) {
     static LOCK: Mutex<()> = Mutex::new(());
     let _guard = LOCK.lock().unwrap();
     let volume = f(state.player.volume()).clamp(0, 100);
@@ -232,6 +232,7 @@ fn change_volume(state: &AppState, app: &AppHandle, f: impl FnOnce(i64) -> i64) 
         }
         state.db.set_setting("volume", &volume.to_string());
         let _ = app.emit("volume", volume);
+        state.media_set_volume(volume);
     }
 }
 

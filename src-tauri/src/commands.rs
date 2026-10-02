@@ -198,6 +198,7 @@ pub async fn set_volume(state: St<'_>, volume: i64) -> Result<(), String> {
     // There is one volume and there can be two windows (the mini player). Without this the one
     // that didn't move the slider keeps showing the old level and lies about what you're hearing.
     let _ = state.app.emit("volume", volume);
+    state.media_set_volume(volume);
     Ok(())
 }
 
