@@ -3792,27 +3792,35 @@ impl AppState {
         self.lt_broadcast_queue().await;
     }
 
-    /// Remove every upcoming track the user queued by hand — both blocks, "Play next" and
-    /// "Add to queue" (the panel's Clear queue). Played/playing items and the playlist context
-    /// stay. Guests: add-only, no clearing.
+    /// Remove every upcoming track the user queued by hand, both "Play next" and "Add to queue"
+    /// (the panel's Clear queue). Played/playing items and the playlist context stay.
     pub async fn clear_queued(self: &std::sync::Arc<Self>) {
+        self.drop_upcoming(|item| item.queued || item.queued_end).await;
+    }
+
+    /// The Autoplay switch flipped. Off: the upcoming tracks autoplay brought in go, so the queue
+    /// shows what will actually play. On: a tail that has already run low is topped up now, rather
+    /// than when the next track starts and notices.
+    pub async fn autoplay_changed(self: &std::sync::Arc<Self>, on: bool) {
+        if on {
+            let gen = self.generation.load(Ordering::SeqCst);
+            self.extend_queue_radio(gen).await;
+        } else {
+            self.drop_upcoming(|item| item.autoplay).await;
+        }
+    }
+
+    /// Remove every upcoming track `pick` matches. Guests: add-only, no clearing.
+    async fn drop_upcoming(self: &std::sync::Arc<Self>, pick: impl Fn(&SongItem) -> bool) {
         if self.lt.is_guest().await {
             return;
         }
         {
             let mut q = self.queue.lock().await;
-            let cur = q.current;
-            let before = q.items.len();
-            let mut i = 0;
-            q.items.retain(|item| {
-                let keep = i <= cur || !(item.queued || item.queued_end);
-                i += 1;
-                keep
-            });
-            if q.items.len() == before {
-                return; // nothing was queued — don't touch the lookahead
+            if !retain_upcoming(&mut q, |item| !pick(item)) {
+                return; // nothing matched, don't touch the lookahead
             }
-            // Indices shifted — a primed lookahead may point at the wrong slot. Drop it
+            // Indices shifted, so a primed lookahead may point at the wrong slot. Drop it
             // unconditionally (cheap; re-primed below), same as toggle_shuffle.
             if q.lookahead_loaded.take().is_some() {
                 let _ = self.player.clear_playlist();
@@ -3932,6 +3940,28 @@ fn drop_duplicates(
         }
     }
     removed
+}
+
+/// Keep only the upcoming tracks `keep` accepts; played and playing ones always stay. Returns
+/// whether anything went. The pre-shuffle snapshot loses the same tracks, or turning shuffle off
+/// would bring them back.
+fn retain_upcoming(q: &mut QueueState, keep: impl Fn(&SongItem) -> bool) -> bool {
+    let cur = q.current;
+    let before = q.items.len();
+    let mut i = 0;
+    q.items.retain(|item| {
+        let k = i <= cur || keep(item);
+        i += 1;
+        k
+    });
+    if q.items.len() == before {
+        return false;
+    }
+    if let Some(orig) = q.shuffle_orig.as_mut() {
+        let left: HashSet<&str> = q.items.iter().map(|i| i.video_id.as_str()).collect();
+        orig.retain(|item| keep(item) || left.contains(item.video_id.as_str()));
+    }
+    true
 }
 
 /// Where a "Play next" track goes: right after the current song, behind any earlier "Play next"
@@ -4408,9 +4438,9 @@ mod tests {
         append_page, backfill_metadata, cache_horizon, drop_duplicates, enqueue_at,
         format_duration, get_url, guest_insert_index, history_threshold, is_mix, loudness_gain,
         merge_radio, next_index, parse_duration_ms, persist_fingerprint, prev_track_title, put_url,
-        queue_fingerprint, radio_seed_for, shuffle_new_queue, shuffle_upcoming, splice_radio_into,
-        trim_played, unshuffled, upcoming_queued, QueueState, RepeatMode, VideoUrls, KEEP_PLAYED,
-        LOCAL_PLAYLIST_PREFIX, MAX_BOOST_DB,
+        queue_fingerprint, radio_seed_for, retain_upcoming, shuffle_new_queue, shuffle_upcoming,
+        splice_radio_into, trim_played, unshuffled, upcoming_queued, QueueState, RepeatMode,
+        VideoUrls, KEEP_PLAYED, LOCAL_PLAYLIST_PREFIX, MAX_BOOST_DB,
     };
 
     /// The whole point of the video-URL map is answering a reopen without a round trip, so a live
@@ -4653,6 +4683,39 @@ mod tests {
             assert_eq!(items[current].video_id, playing);
             assert!(items.len() <= KEEP_PLAYED + 21, "grew to {}", items.len());
         }
+    }
+
+    // Autoplay switched off (or Clear queue): only what is still to come goes, and the pre-shuffle
+    // snapshot loses the same tracks, or turning shuffle off would put them back.
+    #[test]
+    fn dropping_upcoming_keeps_history_and_the_shuffle_snapshot_in_step() {
+        let auto = |id: &str| innertube::SongItem { autoplay: true, ..song(id, None) };
+        let ids = |v: &[innertube::SongItem]| {
+            v.iter().map(|i| i.video_id.as_str()).collect::<Vec<_>>().join(",")
+        };
+        let mut q = QueueState {
+            items: vec![
+                auto("played"),
+                song("now", None),
+                auto("r1"),
+                song("a1", None),
+                auto("r2"),
+            ],
+            current: 1,
+            shuffle_orig: Some(vec![
+                auto("played"),
+                song("now", None),
+                song("a1", None),
+                auto("r1"),
+                auto("r2"),
+            ]),
+            ..Default::default()
+        };
+        assert!(retain_upcoming(&mut q, |i| !i.autoplay));
+        assert_eq!(ids(&q.items), "played,now,a1");
+        assert_eq!(ids(q.shuffle_orig.as_deref().unwrap()), "played,now,a1");
+        assert_eq!(q.current, 1);
+        assert!(!retain_upcoming(&mut q, |i| !i.autoplay), "nothing left to drop");
     }
 
     #[test]

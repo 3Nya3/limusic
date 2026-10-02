@@ -421,6 +421,12 @@ pub async fn set_setting(
     if key == "normalize_volume" {
         state.reapply_gain().await;
     }
+    // The queue panel's switch sits right above the tracks it adds, so they come and go with it.
+    // Spawned: turning it on can mean a radio fetch, and the switch shouldn't wait on the network.
+    if key == "autoplay" {
+        let (state, on) = (state.inner().clone(), value != "false");
+        tauri::async_runtime::spawn(async move { state.autoplay_changed(on).await });
+    }
     // Both halves are one player setting. Applies from the next track change: the transition the
     // user is already hearing keeps the length it started with.
     if key == "crossfade" || key == "crossfade_secs" {
