@@ -21,8 +21,7 @@ use windows::core::w;
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DestroyWindow, SetWindowPos, HWND_BOTTOM, SWP_HIDEWINDOW, SWP_NOACTIVATE,
-    SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, WS_CHILD, WS_CLIPSIBLINGS,
-    WS_EX_NOACTIVATE,
+    SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, WS_CHILD, WS_EX_NOACTIVATE,
 };
 
 use crate::state::AppState;
@@ -54,6 +53,10 @@ pub fn install(win: &tauri::WebviewWindow, state: Arc<AppState>) {
     };
     // A plain STATIC control: a system class, so nothing to register, and it never takes input
     // (WebView2 is on top of it anyway). Hidden until the page has a hole for it.
+    // No WS_CLIPSIBLINGS: WebView2's window is above this one and covers all of it, so clipping
+    // to siblings left this window, and mpv's window inside it, no visible region at all. mpv
+    // drew every frame and the hole showed the desktop (rc.6). mpv's own embedded window is
+    // `WS_CHILD | WS_VISIBLE` for the same reason.
     // SAFETY: a child of a live top-level window, made on the thread that owns that window
     // (setup runs on the main thread).
     let child = unsafe {
@@ -61,7 +64,7 @@ pub fn install(win: &tauri::WebviewWindow, state: Arc<AppState>) {
             WS_EX_NOACTIVATE,
             w!("STATIC"),
             None,
-            WS_CHILD | WS_CLIPSIBLINGS,
+            WS_CHILD,
             0,
             0,
             0,

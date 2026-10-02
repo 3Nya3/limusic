@@ -113,7 +113,9 @@ impl Player {
     pub fn video_thumbnail(&self, max_width: usize, unless_at: Option<f64>) -> Option<Thumbnail> {
         let mpv = self.mpv();
         let pts = mpv.get_property::<f64>("time-pos").ok()?;
-        if unless_at == Some(pts) {
+        // No picture out yet (the video track is still being added): mpv would refuse the
+        // screenshot and log an error for every ask.
+        if unless_at == Some(pts) || mpv.get_property::<i64>("video-out-params/w").is_err() {
             return None;
         }
         let (width, height, rgba) = screenshot_shrunk(mpv, max_width)?;
