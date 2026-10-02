@@ -138,8 +138,11 @@
 	// autoplay topping up or switched off). A new queue would fade hundreds of rows at once, a
 	// windowed list mounts and drops rows as it scrolls, and a skip adds nothing. Read by the
 	// transitions when they start, which is after this has run for the same change. Not $state:
-	// nothing should re-render because of it.
-	const motion = { rows: 0 };
+	// nothing should re-render because of it. `flip` is how long a reordered row slides for.
+	const motion = {
+		rows: 0,
+		flip: untrack(() => playback.queue.items.length) > WINDOW_ABOVE ? 0 : 200
+	};
 	// Svelte's own `fly`/`fade` read getComputedStyle before they look at the duration, and the
 	// window mounts and drops rows on every scroll frame. Off means no transition object at all.
 	// `ui/perf/scroll.mjs --target=queue --playing --rows=400` (Chromium, 4x), frames over 20 ms:
@@ -155,17 +158,52 @@
 			const prev = motionSeen;
 			motionSeen = q;
 			const delta = Math.abs(q.items.length - prev.items.length);
+			const sameTrack =
+				q.items[q.currentIndex]?.video_id === prev.items[prev.currentIndex]?.video_id;
+			const reshuffled = q.items !== prev.items && !!q.shuffle !== !!prev.shuffle && sameTrack;
+			const still = reducedMotion.current;
 			motion.rows =
 				q.items !== prev.items &&
+				!reshuffled &&
 				delta <= 25 &&
 				prev.items.length > 0 &&
 				Math.max(q.items.length, prev.items.length) <= WINDOW_ABOVE &&
-				q.items[q.currentIndex]?.video_id === prev.items[prev.currentIndex]?.video_id &&
-				!reducedMotion.current
+				sameTrack &&
+				!still
 					? 180
 					: 0;
+			motion.flip = reshuffled || still || q.items.length > WINDOW_ABOVE ? 0 : 200;
+			// After the DOM update, and after the follow scroll above has moved the window: the
+			// scroll event and its re-render both land before the next frame's callbacks.
+			if (reshuffled && !still) requestAnimationFrame(settle);
 		});
 	});
+
+	/** Shuffle reorders every upcoming row at once: too far for each to slide to its new place, and
+	 *  a windowed list doesn't hold most of them to slide. So the rows on screen below the playing
+	 *  one settle in instead, top to bottom: at most a screenful, opacity and transform only, once
+	 *  per press. Rows above the playing one never moved, so they hold still.
+	 *  Chromium 4x, a shuffle then an unshuffle (scratch probe built on `ui/perf/scroll.mjs`):
+	 *  400 rows unchanged at 1% of frames over 20 ms; 150 rows 494-513 ms of long tasks with every
+	 *  row sliding, 388-462 ms with this. The cost there is re-rendering the reordered rows. */
+	function settle() {
+		if (!el?.isConnected) return;
+		const { top, bottom } = el.getBoundingClientRect();
+		let k = 0;
+		for (const row of el.querySelectorAll<HTMLElement>('[data-row]')) {
+			if (Number(row.dataset.i) <= playback.queue.currentIndex) continue;
+			const r = row.getBoundingClientRect();
+			if (r.bottom <= top) continue;
+			if (r.top >= bottom || k === 12) break;
+			row.animate(
+				[
+					{ opacity: 0, transform: 'translateY(8px)' },
+					{ opacity: 1, transform: 'none' }
+				],
+				{ duration: 240, delay: k++ * 30, easing: 'cubic-bezier(0.2, 0, 0, 1)', fill: 'backwards' }
+			);
+		}
+	}
 
 	onMount(() => {
 		toPlaying();
@@ -217,9 +255,10 @@
 			<!-- data-row: what the scroller measures a row's real height from. -->
 			<div
 				data-row
+				data-i={i}
 				role="listitem"
 				class="relative {dragFrom === i ? 'opacity-40' : ''}"
-				animate:flip={{ duration: windowed || reducedMotion.current ? 0 : 200, easing: cubicOut }}
+				animate:flip={{ duration: motion.flip, easing: cubicOut }}
 				in:arrive={motion.rows}
 				out:leave={motion.rows}
 				draggable={canDrag(i)}
