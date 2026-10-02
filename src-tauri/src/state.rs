@@ -2844,6 +2844,11 @@ impl AppState {
         if self.generation.load(Ordering::SeqCst) != gen {
             return 0; // user moved on while we fetched
         }
+        // Switched off while we fetched: `autoplay_changed` has already cleared the tail, and
+        // appending now would put back the tracks the switch just took away.
+        if !self.autoplay_enabled() {
+            return 0;
+        }
         let (added, trimmed) = {
             let mut q = self.queue.lock().await;
             // Against the queue as it is *now*, not a snapshot from before the fetch: a playlist
@@ -3539,6 +3544,8 @@ impl AppState {
             item.queued = next;
             item.queued_end = !next;
             item.queued_from = from.clone();
+            // Queued by hand, so it is the user's: switching Autoplay off leaves it be.
+            item.autoplay = false;
         }
         let dedupe = self.db.get_setting("prevent_duplicates").as_deref() == Some("true");
         let was_empty = {

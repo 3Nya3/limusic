@@ -141,15 +141,27 @@
 	// conditions are and why is in `removableFromPlaylist` (queue.ts), where they are checkable.
 	const removable = $derived(removableFromPlaylist(song, playlistId, savedIn.map));
 
-	// "Play next" on a track that is already coming up in the queue moves it there. Queueing a second
-	// copy of a row you can see would leave the first one to play again later. A guest owns no queue
-	// to move things in, so theirs stays a suggestion.
-	function playNext() {
-		const cur = playback.queue.currentIndex;
-		if (queueIndex !== undefined && queueIndex > cur && lt.role !== 'guest') {
-			if (queueIndex > cur + 1) api.moveInQueue(queueIndex, cur + 1);
-			toast.success(t('toasts.playing_next_one'));
-		} else enqueue([song], true);
+	// "Play next" on a track that is already coming up in the queue moves it into the Play next block
+	// rather than queueing a second copy. A row the user queued, the backend moves by itself
+	// (`insert_queued`). Any other row comes out first and goes back in as a real Play next: dropped
+	// at `current + 1` unmarked, it would cut the manual block in two, and later adds scan that block
+	// from the front (`enqueue_at`). A guest owns no queue, so theirs stays a suggestion.
+	async function playNext() {
+		const q = playback.queue;
+		// Checked again by id: the index is from when the menu opened, and an autoplay trim since
+		// then shifts every row.
+		const row = queueIndex !== undefined ? q.items[queueIndex] : undefined;
+		const upcoming =
+			row?.video_id === song.video_id && queueIndex! > q.currentIndex && lt.role !== 'guest';
+		if (upcoming && !row.queued && !row.queued_end) {
+			try {
+				await api.removeFromQueue(queueIndex!);
+			} catch (e) {
+				toast.error(String(e));
+				return;
+			}
+		}
+		enqueue([song], true);
 	}
 
 	async function removeFromPlaylist() {
