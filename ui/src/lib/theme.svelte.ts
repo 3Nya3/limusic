@@ -114,8 +114,6 @@ export const appearance = $state({
 	openPlayerOnPlay: true,
 	/** Take the accent colour from the playing track's cover, crossfading on each change. */
 	artworkAccent: false,
-	/** Remember the queue history toggle across views and restarts (#119). */
-	queueHistoryVisible: false,
 	/** Theater mode's second and third columns (#297). Sticky, like every view toggle. */
 	theaterLyrics: true,
 	theaterQueue: false
@@ -458,7 +456,6 @@ export function initTheme(): void {
 			'tabbedPlayer',
 			'openPlayerOnPlay',
 			'artworkAccent',
-			'queueHistoryVisible',
 			'theaterLyrics',
 			'theaterQueue'
 		] as const) {

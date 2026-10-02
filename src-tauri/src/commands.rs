@@ -221,7 +221,7 @@ pub async fn get_queue(state: St<'_>) -> Result<serde_json::Value, String> {
 /// `visitor_data`) and internal blobs (`queue_json`, `queue_index`, `queue_position`) never cross
 /// into the webview: they'd otherwise ship the login credential to the renderer on every open, and
 /// the webview can't overwrite them either.
-const UI_SETTINGS: [&str; 27] = [
+const UI_SETTINGS: [&str; 28] = [
     "volume",
     "proxy",
     "quality",
@@ -243,6 +243,7 @@ const UI_SETTINGS: [&str; 27] = [
     "music_videos",
     "ambient_light",
     "sticky_shuffle",
+    "shuffle_whole_queue",
     "system_titlebar",
     "lastfm_primary_artist",
     "lastfm_primary_strict",
@@ -420,6 +421,12 @@ pub async fn set_setting(
     // user is hearing right now: the switch exists so they can A/B the same loud section (#298).
     if key == "normalize_volume" {
         state.reapply_gain().await;
+    }
+    // The queue panel's switch sits right above the tracks it adds, so they come and go with it.
+    // Spawned: turning it on can mean a radio fetch, and the switch shouldn't wait on the network.
+    if key == "autoplay" {
+        let (state, on) = (state.inner().clone(), value != "false");
+        tauri::async_runtime::spawn(async move { state.autoplay_changed(on).await });
     }
     // Both halves are one player setting. Applies from the next track change: the transition the
     // user is already hearing keeps the length it started with.

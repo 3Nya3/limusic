@@ -50,6 +50,7 @@
 		toggleRating,
 		toggleSongLibrary
 	} from '$lib/player.svelte';
+	import { lt } from '$lib/lt.svelte';
 	import { t } from '$lib/i18n.svelte';
 	import { invalidateCachedPrefix } from '$lib/pagecache';
 	import TempoPitchDialog from './TempoPitchDialog.svelte';
@@ -140,6 +141,29 @@
 	// conditions are and why is in `removableFromPlaylist` (queue.ts), where they are checkable.
 	const removable = $derived(removableFromPlaylist(song, playlistId, savedIn.map));
 
+	// "Play next" on a track that is already coming up in the queue moves it into the Play next block
+	// rather than queueing a second copy. A row the user queued, the backend moves by itself
+	// (`insert_queued`). Any other row comes out first and goes back in as a real Play next: dropped
+	// at `current + 1` unmarked, it would cut the Play next run in two, and later Play nexts scan that
+	// run from the front (`guest_insert_index`). A guest owns no queue, so theirs stays a suggestion.
+	async function playNext() {
+		const q = playback.queue;
+		// Checked again by id: the index is from when the menu opened, and an autoplay trim since
+		// then shifts every row.
+		const row = queueIndex !== undefined ? q.items[queueIndex] : undefined;
+		const upcoming =
+			row?.video_id === song.video_id && queueIndex! > q.currentIndex && lt.role !== 'guest';
+		if (upcoming && !row.queued && !row.queued_end) {
+			try {
+				await api.removeFromQueue(queueIndex!);
+			} catch (e) {
+				toast.error(String(e));
+				return;
+			}
+		}
+		enqueue([song], true);
+	}
+
 	async function removeFromPlaylist() {
 		if (!playlistId || !song.set_video_id) return;
 		const setVideoId = song.set_video_id;
@@ -216,7 +240,7 @@
 		{#if !linksOnly}
 			<button
 				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
-				onclick={(e) => run(e, () => enqueue([song], true))}
+				onclick={(e) => run(e, playNext)}
 			>
 				<HugeiconsIcon icon={ArrowUpNarrowWideIcon} class="h-4 w-4" /> {t('player.play_next')}
 			</button>

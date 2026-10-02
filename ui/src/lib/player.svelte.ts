@@ -63,8 +63,18 @@ export const prefs = $state({
 	 *  element. Cleared if it turns out there is no GL surface, which hands the picture back. */
 	nativeVideo: false,
 	/** `ambient_light`: the player view glows with the music video's colours (Ambient.svelte). */
-	ambient: false
+	ambient: false,
+	/** `autoplay`: the queue keeps going with similar songs. Switched from the queue panel as well
+	 *  as Settings, so both read it here. */
+	autoplay: true
 });
+
+/** Rust drops the upcoming autoplay tracks when this goes off, and tops a short queue up when it
+ *  comes on, so the queue shows what will actually play. */
+export function setAutoplay(on: boolean): void {
+	prefs.autoplay = on;
+	api.setSetting('autoplay', on ? 'true' : 'false').catch((e) => toast.error(String(e)));
+}
 
 /** Linux: the tracks mpv has the music video for (`video-ready`), so the view knows a picture is
  *  coming rather than showing a black box for a track with none.
@@ -1483,7 +1493,6 @@ export function initApp(mini = false): () => void {
 				...playback.queue,
 				items,
 				currentIndex: q.currentIndex,
-				playedFrom: q.playedFrom,
 				shuffle: q.shuffle,
 				repeat: q.repeat,
 				sourceName: q.sourceName,
@@ -1503,8 +1512,7 @@ export function initApp(mini = false): () => void {
 			playback.queue = {
 				...playback.queue,
 				items,
-				currentIndex: q.currentIndex,
-				playedFrom: q.playedFrom
+				currentIndex: q.currentIndex
 			};
 		}),
 		api.onPosition((p) => {
@@ -1581,6 +1589,7 @@ export function initApp(mini = false): () => void {
 			prefs.nativeVideo = s.native_video === 'true';
 			prefs.ambient = s.ambient_light === 'true';
 			prefs.discordRpc = s.discord_rpc === 'true';
+			prefs.autoplay = s.autoplay !== 'false';
 			// Half of what the app shows is YouTube's own text, and Rust asks for it in the language
 			// this setting holds (#274). It reads the setting at startup, before the SPA exists to
 			// tell it anything, so the two disagree on a fresh install, on a language taken from the

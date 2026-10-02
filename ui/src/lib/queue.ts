@@ -1,141 +1,108 @@
-// How the queue panel cuts one flat queue into blocks. Kept out of the component so it can be
-// checked without a DOM (`queue.check.ts`) — the ordering bug it exists to prevent (an added
-// playlist drawn under the playing playlist's name) is invisible until you look at real data.
+// How the queue panel lays one flat queue out. Kept out of the component so it can be checked
+// without a DOM (`queue.check.ts`).
 import type { QueueState, SongItem } from './api';
 
 export interface QueueRow {
 	item: SongItem;
 	/** video_id + occurrence, so `animate:flip` slides rows instead of recreating them. */
 	key: string;
-	/** Index in the backend queue — what play/remove act on, and what the row is numbered by. */
+	/** Index in the backend queue: what play/remove act on, and what the row is numbered by. */
 	i: number;
 }
 
-export interface QueueBlock {
-	/** Stable id for keyed rendering: the block's kind plus its ordinal among blocks of that kind.
-	 *  Deliberately not the first row's key. That changes on every track advance (the row it names
-	 *  is the one that just started playing), which changed the block's key, which made Svelte tear
-	 *  down and rebuild the entire block, every track, for as long as the panel stayed open. WebKit
-	 *  does not give all of that back: it cost ~40 KB per rendered row per track, which is how a
-	 *  two-hour listen reached 3.5 GB. */
-	key: string;
-	/** What groups a run: same kind ⇒ same block. */
-	kind: string;
-	heading: string;
-	autoplay: boolean;
-	/** The "Clear queue" button goes on the first manual block only. */
-	clearable: boolean;
+export interface QueueView {
+	/** Everything up to autoplay's continuation, in play order: what was played or passed over,
+	 *  the playing track, and what is queued after it. */
 	rows: QueueRow[];
+	/** Autoplay's continuation, from its first upcoming track on. Drawn under its own divider,
+	 *  because that is the part the panel's Autoplay switch takes away. */
+	autoplay: QueueRow[];
+	/** Upcoming tracks added by hand ("Play next" / "Add to queue"): what Clear queue removes. */
+	queued: number;
 }
 
 /**
- * Everything in front of the playing track, then the playing track, then the upcoming queue in play
- * order, split wherever the tracks change origin: a manual block ("Play next" / "Add to queue",
- * headed by what it was added from), the playing context ("Next from: …"), autoplay's continuation.
+ * The queue as one list, in the order it plays. No sections: the panel opens on the playing row
+ * (highlighted) with what comes next directly under it, and what came before sits above it in its
+ * real place, a scroll away. Splitting that into Earlier / History / Now playing / per-origin
+ * blocks made a long playlist read like several lists, with the headings shifting on every track.
  *
- * What sits in front of the playing track is two different things, and `playedFrom` is the border
- * (`state.rs`). `prev` is the history: what was actually heard or skipped past, oldest first, so the
- * last thing heard sits directly above the playing track. `earlier` is the rest of the queue in
- * front of it, which playback never reached: start an album at track 4 and the backend still queues
- * tracks 1-3, untouched. The panel draws `earlier` and hides `prev` behind a toggle, because the
- * prefix is bounded by the playlist and shrinks every time you press previous, while history is
- * unbounded and grows all session.
- *
- * Play order, not kind order: grouping by kind would draw an "Add to queue" block that sits at the
- * tail under the playing playlist's heading, naming a playlist those tracks never came from.
- *
- * Shuffle collapses that split. The backend deliberately interleaves everything it shuffles, so
- * origins alternate track by track and a per-origin split degenerates into one heading per row —
- * the shuffled run becomes a single block instead. What shuffle leaves alone keeps its own: the
- * pinned "Play next" block ahead of it, autoplay's filler behind it. Turning shuffle off restores
- * the real order, and with it the blocks.
+ * Autoplay is the one split, and only ahead of the playing track: tracks autoplay brought in that
+ * have already played are ordinary rows of what was played.
  */
-export function queueBlocks(q: QueueState): {
-	earlier: QueueRow[];
-	earlierHeading: string;
-	prev: QueueRow[];
-	now: QueueRow | null;
-	blocks: QueueBlock[];
-} {
-	const { items, currentIndex, sourceName } = q;
-	const playedFrom = Math.min(q.playedFrom ?? currentIndex, currentIndex);
+export function queueView(q: QueueState): QueueView {
+	const { items, currentIndex } = q;
 	const seen = new Map<string, number>();
-	const row = (i: number): QueueRow => {
+	const rows: QueueRow[] = [];
+	const autoplay: QueueRow[] = [];
+	let queued = 0;
+	for (let i = 0; i < items.length; i++) {
 		const item = items[i];
 		const occ = seen.get(item.video_id) ?? 0;
 		seen.set(item.video_id, occ + 1);
-		return { item, key: `${item.video_id}:${occ}`, i };
-	};
-	// Occurrence counting must walk the whole prefix, not just the played part of it, or a repeated
-	// track's key would collide with an earlier copy that isn't on screen.
-	const earlier: QueueRow[] = [];
-	const prev: QueueRow[] = [];
-	for (let i = 0; i < currentIndex; i++) {
-		const r = row(i);
-		(i >= playedFrom ? prev : earlier).push(r);
+		const upcoming = i > currentIndex;
+		if (upcoming && (item.queued || item.queued_end)) queued++;
+		// Once autoplay starts, the rest goes with it: a row dragged in among its tracks is still
+		// drawn where it will play.
+		const into = autoplay.length || (upcoming && item.autoplay) ? autoplay : rows;
+		into.push({ item, key: `${item.video_id}:${occ}`, i });
 	}
-	// Rows are drawn in queue order throughout, so the number is the queue index and nothing else:
-	// counting per run restarted the playing track at 1 under the two tracks already heard (#25).
-	const now = items[currentIndex] ? row(currentIndex) : null;
+	return { rows, autoplay, queued };
+}
 
-	// Where the shuffled run starts: shuffle pins the leading "Play next" block in place and
-	// shuffles everything after it.
-	let shuffledFrom = items.length;
-	if (q.shuffle) {
-		shuffledFrom = currentIndex + 1;
-		while (items[shuffledFrom]?.queued) shuffledFrom++;
+/** What is left to play before autoplay takes over: tracks after the playing one, and their total
+ *  length in seconds (rows with no readable duration count as zero). */
+export function queueLeft(view: QueueView, currentIndex: number): { count: number; secs: number } {
+	let count = 0;
+	let secs = 0;
+	for (const r of view.rows) {
+		if (r.i <= currentIndex) continue;
+		count++;
+		secs += clockSecs(r.item.duration);
 	}
+	return { count, secs };
+}
 
-	const blocks: QueueBlock[] = [];
-	const kindSeen = new Map<string, number>();
-	let cleared = false;
-	for (let i = currentIndex + 1; i < items.length; i++) {
-		const r = row(i);
-		const it = r.item;
-		const manual = !!(it.queued || it.queued_end);
-		// `queued_from` splits two albums added back to back, and keeps a continuation walked in
-		// later with the block it belongs to. "Play next" and "Add to queue" do *not* split: they
-		// fill the two ends of one block, and splitting drew "Next in queue" twice in a row.
-		const kind = it.autoplay
-			? 'auto'
-			: i >= shuffledFrom
-				? 'shuffled'
-				: manual
-					? `manual:${it.queued_from ?? ''}`
-					: 'context';
-		const last = blocks.at(-1);
-		if (last?.kind === kind) {
-			last.rows.push(r);
-			continue;
-		}
-		const ord = kindSeen.get(kind) ?? 0;
-		kindSeen.set(kind, ord + 1);
-		blocks.push({
-			key: `${kind}#${ord}`,
-			kind,
-			heading: '',
-			autoplay: !!it.autoplay,
-			clearable: false,
-			rows: [r]
-		});
-	}
-	// Both need the whole block, not its first row: a shuffled run only has one origin to name if
-	// every track in it agrees, and "Clear queue" belongs on the first block holding anything the
-	// user queued — under shuffle that's a mixed block whose first row may well be a playlist track.
-	for (const block of blocks) {
-		block.heading = headingFor(block, sourceName);
-		const manual = block.rows.some((r) => r.item.queued || r.item.queued_end);
-		block.clearable = manual && !cleared;
-		if (block.clearable) cleared = true;
-	}
-	const earlierName = sharedOrigin(earlier, sourceName);
-	return {
-		earlier,
-		earlierHeading: earlierName ? `Earlier from: ${earlierName}` : 'Earlier',
-		prev,
-		now,
-		blocks
-	};
+/** "3:45" or "1:02:03" in seconds; 0 for anything else. */
+export function clockSecs(s: string | undefined): number {
+	if (!s || !/^\d+(:\d{1,2}){1,2}$/.test(s)) return 0;
+	return s.split(':').reduce((acc, part) => acc * 60 + Number(part), 0);
+}
+
+/** "1 hr 23 min" / "48 min" in the UI's language, rounded to the minute; '' under a minute.
+ *  `locale` is a catalog id: `pt_BR` and `zh_Hant` need their hyphen back, or Intl throws. */
+export function formatLeft(secs: number, locale: string): string {
+	const mins = Math.round(secs / 60);
+	if (mins < 1) return '';
+	const tag = locale.replace('_', '-');
+	const unit = (unit: string, n: number) =>
+		new Intl.NumberFormat(tag, { style: 'unit', unit, unitDisplay: 'short' }).format(n);
+	const h = Math.floor(mins / 60);
+	const m = mins % 60;
+	return [h && unit('hour', h), m && unit('minute', m)].filter(Boolean).join(' ');
+}
+
+/**
+ * Where the list should scroll to after the play pointer moved from row `from` to row `to`, or
+ * null to leave it alone. `rowTop` is where row 0 sits in the scroll content, px.
+ *
+ * The playing row keeps its place on screen: a track change scrolls the list by exactly the rows
+ * the pointer moved, so what is up next stays where the eye already is. Only while the playing row
+ * was in view, though. Someone scrolled off reading the far end of a playlist is not dragged back
+ * to the top every three minutes.
+ */
+export function followPlaying(
+	scrollTop: number,
+	viewportPx: number,
+	rowPx: number,
+	rowTop: number,
+	from: number,
+	to: number
+): number | null {
+	if (from === to) return null;
+	const y = rowTop + from * rowPx - scrollTop;
+	if (y + rowPx <= 0 || y >= viewportPx) return null;
+	return Math.max(0, scrollTop + (to - from) * rowPx);
 }
 
 /**
@@ -147,30 +114,6 @@ export function queueBlocks(q: QueueState): {
 export function moveTarget(from: number, dropAt: number): number | null {
 	const to = dropAt > from ? dropAt - 1 : dropAt;
 	return to === from ? null : to;
-}
-
-/**
- * The one origin a run of rows shares, or null when they disagree (or have none to give).
- *
- * What a single row offers: what it was added from, the queue's own source for a plain context
- * track, nothing for a single-song add.
- */
-function sharedOrigin(rows: QueueRow[], sourceName?: string | null): string | null {
-	const names = new Set(
-		rows.map(
-			(r) => r.item.queued_from ?? (r.item.queued || r.item.queued_end ? '' : (sourceName ?? ''))
-		)
-	);
-	const [name] = names;
-	return names.size === 1 && name ? name : null;
-}
-
-/** The name a block goes under: its one origin if its tracks share one, else a neutral label. */
-function headingFor(block: QueueBlock, sourceName?: string | null): string {
-	if (block.autoplay) return 'Autoplay';
-	const name = sharedOrigin(block.rows, sourceName);
-	if (name) return `Queue: ${name}`;
-	return block.rows.every((r) => r.item.queued || r.item.queued_end) ? 'Next in queue' : 'Next up';
 }
 
 /**

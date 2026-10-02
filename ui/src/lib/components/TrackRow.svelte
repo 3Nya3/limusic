@@ -6,7 +6,8 @@
 		PlayIcon,
 		PlayListAddIcon,
 		ThumbsDownIcon,
-		ThumbsUpIcon
+		ThumbsUpIcon,
+		VolumeHighIcon
 	} from '@hugeicons/core-free-icons';
 	import * as api from '$lib/api';
 	import type { SongItem } from '$lib/api';
@@ -266,7 +267,18 @@
 						? 'text-primary'
 						: 'text-muted-foreground'}"
 				>
-					<span class={selectable ? '' : 'group-hover:invisible'}>{index + 1}</span>
+					<!-- Kept in flow on the playing row too, invisible: it is what sizes the column. -->
+					<span class={active ? 'invisible' : selectable ? '' : 'group-hover:invisible'}>
+						{index + 1}
+					</span>
+					{#if active}
+						<!-- The playing row's mark in place of its number. Still, on purpose: anything that
+						     loops keeps the compositor from ever idling while a track plays. -->
+						<HugeiconsIcon
+							icon={VolumeHighIcon}
+							class="absolute inset-0 m-auto h-3.5 w-3.5 {selectable ? '' : 'group-hover:invisible'}"
+						/>
+					{/if}
 					<HugeiconsIcon
 						icon={guestAdd ? PlayListAddIcon : PlayIcon}
 						class="invisible absolute inset-0 m-auto h-3.5 w-3.5 {selectable ? '' : 'group-hover:visible'}"

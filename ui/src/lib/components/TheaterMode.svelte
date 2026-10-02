@@ -56,7 +56,6 @@
 	import ArtistLine from './ArtistLine.svelte';
 	import LyricsView from './LyricsView.svelte';
 	import QueueList from './QueueList.svelte';
-	import type { QueueScrollMemory } from '$lib/queue-history';
 
 	const close = () => (ui.theaterOpen = false);
 
@@ -297,9 +296,6 @@
 					? 'gap-10 xl:gap-20 lg:grid-cols-[minmax(20rem,32rem)_minmax(0,36rem)] lg:justify-center'
 					: 'gap-10 xl:gap-20'
 	);
-	// Survives the queue being toggled off and on; the view itself starts fresh each time it opens.
-	const queueScrollMemory: QueueScrollMemory = {};
-
 	let justLiked = $state(false);
 	function toggleLike() {
 		if (playback.rating !== 'like') justLiked = true;
@@ -637,7 +633,7 @@
 				in:fly={{ y: 24, duration: 400, easing: cubicOut }}
 				class="relative z-0 hidden h-full min-h-0 flex-col overflow-hidden lg:flex"
 			>
-				<QueueList scrollMemory={queueScrollMemory} />
+				<QueueList />
 			</div>
 		{/if}
 	</div>

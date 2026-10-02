@@ -31,7 +31,7 @@
 	import { HELP_COMBO } from '$lib/shortcuts';
 	import { copyText } from '$lib/clipboard';
 	import * as api from '$lib/api';
-	import { blocked, prefs, refreshView, ui, toast, unblockArtist } from '$lib/player.svelte';
+	import { blocked, prefs, refreshView, setAutoplay, ui, toast, unblockArtist } from '$lib/player.svelte';
 	import { win } from '$lib/win.svelte';
 	import { lt } from '$lib/lt.svelte';
 	import ColorPicker from '$lib/components/ColorPicker.svelte';
@@ -322,7 +322,6 @@
 
 	const quality = $derived(settings.quality ?? 'HIGH');
 	const historyOn = $derived(settings.enable_history !== 'false');
-	const autoplayOn = $derived(settings.autoplay !== 'false');
 	// On unless turned off: loudness matching is what YTM does, and it's what most people want.
 	// Off gives the untouched master, limiter included (#298, #300).
 	const normalizeOn = $derived(settings.normalize_volume !== 'false');
@@ -353,6 +352,8 @@
 	const preventDuplicatesOn = $derived(settings.prevent_duplicates === 'true');
 	// Off by default: shuffle applies to the queue it was turned on for (issue #117).
 	const stickyShuffleOn = $derived(settings.sticky_shuffle === 'true');
+	// Off by default: shuffle keeps what was added with Add to queue behind the playlist (#369).
+	const shuffleWholeOn = $derived(settings.shuffle_whole_queue === 'true');
 	const updateBannerOn = $derived(settings.update_banner !== 'false');
 	const betaOn = $derived(settings.update_channel === 'beta');
 	const trayOn = $derived(settings.close_to_tray !== 'false');
@@ -389,11 +390,6 @@
 	async function setHistory(on: boolean) {
 		settings.enable_history = on ? 'true' : 'false';
 		await api.setSetting('enable_history', settings.enable_history);
-	}
-
-	async function setAutoplay(on: boolean) {
-		settings.autoplay = on ? 'true' : 'false';
-		await api.setSetting('autoplay', settings.autoplay);
 	}
 
 	// Rust retunes the track that's already playing, so the difference is audible immediately.
@@ -450,6 +446,11 @@
 	async function setStickyShuffle(on: boolean) {
 		settings.sticky_shuffle = on ? 'true' : 'false';
 		await api.setSetting('sticky_shuffle', settings.sticky_shuffle);
+	}
+
+	async function setShuffleWhole(on: boolean) {
+		settings.shuffle_whole_queue = on ? 'true' : 'false';
+		await api.setSetting('shuffle_whole_queue', settings.shuffle_whole_queue);
 	}
 
 	async function setUpdateBanner(on: boolean) {
@@ -849,6 +850,12 @@
 									control: stickyShuffleSwitch,
 									tall: true
 								})}
+								{@render row({
+									title: t('settings.playback.shuffle_whole_queue'),
+									desc: t('settings.playback.shuffle_whole_queue_hint'),
+									control: shuffleWholeSwitch,
+									tall: true
+								})}
 							</div>
 						</section>
 						<section class={GROUP}>
@@ -1086,7 +1093,7 @@
 		checked={systemTitlebarOn}
 		onCheckedChange={setSystemTitlebar}
 	/>{/snippet}
-{#snippet autoplaySwitch()}<Switch checked={autoplayOn} onCheckedChange={setAutoplay} />{/snippet}
+{#snippet autoplaySwitch()}<Switch checked={prefs.autoplay} onCheckedChange={setAutoplay} />{/snippet}
 
 {#snippet crossfadeSwitch()}<Switch checked={crossfadeOn} onCheckedChange={setCrossfade} />{/snippet}
 
@@ -1113,6 +1120,10 @@
 {#snippet stickyShuffleSwitch()}<Switch
 		checked={stickyShuffleOn}
 		onCheckedChange={setStickyShuffle}
+	/>{/snippet}
+{#snippet shuffleWholeSwitch()}<Switch
+		checked={shuffleWholeOn}
+		onCheckedChange={setShuffleWhole}
 	/>{/snippet}
 {#snippet normalizeSwitch()}<Switch checked={normalizeOn} onCheckedChange={setNormalize} />{/snippet}
 {#snippet musicVideoSwitch()}<Switch checked={musicVideosOn} onCheckedChange={setMusicVideos} />{/snippet}
