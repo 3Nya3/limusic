@@ -1493,7 +1493,6 @@ export function initApp(mini = false): () => void {
 				...playback.queue,
 				items,
 				currentIndex: q.currentIndex,
-				playedFrom: q.playedFrom,
 				shuffle: q.shuffle,
 				repeat: q.repeat,
 				sourceName: q.sourceName,
@@ -1513,8 +1512,7 @@ export function initApp(mini = false): () => void {
 			playback.queue = {
 				...playback.queue,
 				items,
-				currentIndex: q.currentIndex,
-				playedFrom: q.playedFrom
+				currentIndex: q.currentIndex
 			};
 		}),
 		api.onPosition((p) => {

@@ -85,9 +85,6 @@ export type RepeatMode = 'off' | 'all' | 'one';
 export interface QueueState {
 	items: SongItem[];
 	currentIndex: number;
-	/** Start of the previously-played run: `items[playedFrom..currentIndex]` has actually been
-	 *  heard. Not `0..currentIndex`: a playlist opened at track 7 has six untouched tracks first. */
-	playedFrom?: number;
 	shuffle?: boolean;
 	repeat?: RepeatMode;
 	/** What seeded the queue (playlist/album title, "<song> Radio") — the "Next from" header. */
@@ -744,7 +741,6 @@ export const onQueueChanged = (cb: (q: QueueState) => void): Promise<UnlistenFn>
  */
 export interface QueueIndex {
 	currentIndex: number;
-	playedFrom?: number;
 	shuffle?: boolean;
 	repeat?: RepeatMode;
 	sourceName?: string | null;
@@ -765,7 +761,6 @@ export interface QueueAppended {
 	items: SongItem[];
 	len: number;
 	currentIndex: number;
-	playedFrom?: number;
 }
 
 export const onQueueAppended = (cb: (q: QueueAppended) => void): Promise<UnlistenFn> =>
