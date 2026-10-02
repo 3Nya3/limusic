@@ -6,13 +6,14 @@
 		PlayIcon,
 		PlayListAddIcon,
 		ThumbsDownIcon,
-		ThumbsUpIcon
+		ThumbsUpIcon,
+		VolumeHighIcon
 	} from '@hugeicons/core-free-icons';
 	import * as api from '$lib/api';
 	import type { SongItem } from '$lib/api';
 	import { thumb } from '$lib/thumb';
 	import { lt } from '$lib/lt.svelte';
-	import { anySaved, isLiked, openAddManyToPlaylist, playback, ratingOf, savedPlaylists, toast, toggleRating } from '$lib/player.svelte';
+	import { anySaved, isLiked, openAddManyToPlaylist, ratingOf, savedPlaylists, toast, toggleRating } from '$lib/player.svelte';
 	import SavedInPlaylists from './SavedInPlaylists.svelte';
 	import TrackMenu from './TrackMenu.svelte';
 	import ArtistLine from './ArtistLine.svelte';
@@ -271,12 +272,12 @@
 						{index + 1}
 					</span>
 					{#if active}
-						<!-- The playing row's mark in place of its number (`.np-bars` in layout.css). -->
-						<span
-							class="np-bars {selectable ? '' : 'group-hover:invisible'}"
-							data-paused={playback.paused || undefined}
-							aria-hidden="true"><span></span><span></span><span></span></span
-						>
+						<!-- The playing row's mark in place of its number. Still, on purpose: anything that
+						     loops keeps the compositor from ever idling while a track plays. -->
+						<HugeiconsIcon
+							icon={VolumeHighIcon}
+							class="absolute inset-0 m-auto h-3.5 w-3.5 {selectable ? '' : 'group-hover:invisible'}"
+						/>
 					{/if}
 					<HugeiconsIcon
 						icon={guestAdd ? PlayListAddIcon : PlayIcon}
