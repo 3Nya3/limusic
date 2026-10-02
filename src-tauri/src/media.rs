@@ -22,6 +22,7 @@ enum MediaUpdate {
     Metadata { title: String, artist: String, album: Option<String>, cover: Option<String> },
     Duration(f64),
     Playback { playing: bool, pos: f64 },
+    Volume(i64), // slider percent, 0-100
 }
 
 /// App-side handle to the media-controls thread. Cheap to clone-send into. `None` when the OS
@@ -52,6 +53,10 @@ impl MediaHandle {
 
     pub fn set_playback(&self, playing: bool, pos: f64) {
         let _ = self.tx.send(MediaUpdate::Playback { playing, pos });
+    }
+
+    pub fn set_volume(&self, volume: i64) {
+        let _ = self.tx.send(MediaUpdate::Volume(volume));
     }
 }
 
@@ -110,6 +115,8 @@ fn run(app: AppHandle, rx: std::sync::mpsc::Receiver<MediaUpdate>) {
     let mut album: Option<String> = None;
     let mut cover: Option<String> = None;
     let mut duration: Option<f64> = None;
+    #[cfg(target_os = "linux")]
+    let mut volume: Option<i64> = None;
 
     // `recv` blocks until the sender drops (app shutdown), keeping `controls` alive.
     while let Ok(update) = rx.recv() {
@@ -135,6 +142,17 @@ fn run(app: AppHandle, rx: std::sync::mpsc::Receiver<MediaUpdate>) {
                 };
                 let _ = controls.set_playback(state);
             }
+            // MPRIS only: SMTC and NowPlaying have no per-app volume. Skipped when unchanged, as
+            // every push is a D-Bus broadcast and a slider release repeats the drag's last value.
+            #[cfg(target_os = "linux")]
+            MediaUpdate::Volume(v) => {
+                if volume != Some(v) {
+                    volume = Some(v);
+                    let _ = controls.set_volume(v as f64 / 100.0);
+                }
+            }
+            #[cfg(not(target_os = "linux"))]
+            MediaUpdate::Volume(_) => {}
         }
     }
 }
@@ -206,6 +224,11 @@ pub(crate) fn handle_event(app: &AppHandle, event: MediaControlEvent) {
             MediaControlEvent::Seek(dir) => {
                 let delta = if matches!(dir, SeekDirection::Forward) { 10.0 } else { -10.0 };
                 let _ = state.player.seek((state.current_position() + delta).max(0.0));
+            }
+            // An MPRIS widget or KDE Connect (#220). Same path as a volume hotkey, which also
+            // pushes the new level back: without that the widget snaps to the old one.
+            MediaControlEvent::SetVolume(v) => {
+                crate::hotkeys::change_volume(&state, &app, |_| (v * 100.0).round() as i64)
             }
             _ => {}
         }

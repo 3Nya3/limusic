@@ -537,6 +537,10 @@ pub fn run() {
             // OS media controls (MPRIS/SMTC/NowPlaying). Its callback resolves AppState lazily, so
             // it's fine to spawn before AppState is managed. context/16, D11.
             let media = media::spawn(handle.clone());
+            // MPRIS starts at 1.0 and would show 100% until the first change.
+            if let Some(m) = &media {
+                m.set_volume(volume);
+            }
             // Taskbar preview buttons (#47). Windows-only, and a different API from the SMTC
             // session above.
             #[cfg(target_os = "windows")]
