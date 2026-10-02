@@ -50,6 +50,38 @@ export function queueView(q: QueueState): QueueView {
 	return { rows, autoplay, queued };
 }
 
+/** What is left to play before autoplay takes over: tracks after the playing one, and their total
+ *  length in seconds (rows with no readable duration count as zero). */
+export function queueLeft(view: QueueView, currentIndex: number): { count: number; secs: number } {
+	let count = 0;
+	let secs = 0;
+	for (const r of view.rows) {
+		if (r.i <= currentIndex) continue;
+		count++;
+		secs += clockSecs(r.item.duration);
+	}
+	return { count, secs };
+}
+
+/** "3:45" or "1:02:03" in seconds; 0 for anything else. */
+export function clockSecs(s: string | undefined): number {
+	if (!s || !/^\d+(:\d{1,2}){1,2}$/.test(s)) return 0;
+	return s.split(':').reduce((acc, part) => acc * 60 + Number(part), 0);
+}
+
+/** "1 hr 23 min" / "48 min" in the UI's language, rounded to the minute; '' under a minute.
+ *  `locale` is a catalog id: `pt_BR` and `zh_Hant` need their hyphen back, or Intl throws. */
+export function formatLeft(secs: number, locale: string): string {
+	const mins = Math.round(secs / 60);
+	if (mins < 1) return '';
+	const tag = locale.replace('_', '-');
+	const unit = (unit: string, n: number) =>
+		new Intl.NumberFormat(tag, { style: 'unit', unit, unitDisplay: 'short' }).format(n);
+	const h = Math.floor(mins / 60);
+	const m = mins % 60;
+	return [h && unit('hour', h), m && unit('minute', m)].filter(Boolean).join(' ');
+}
+
 /**
  * Where the list should scroll to after the play pointer moved from row `from` to row `to`, or
  * null to leave it alone. `rowTop` is where row 0 sits in the scroll content, px.

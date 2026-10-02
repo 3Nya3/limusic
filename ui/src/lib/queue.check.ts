@@ -5,7 +5,15 @@
 //
 // Prints "ok" and exits 0, or throws on the first broken invariant.
 import type { QueueState, SongItem } from './api.ts';
-import { followPlaying, moveTarget, queueView, removableFromPlaylist } from './queue.ts';
+import {
+	clockSecs,
+	followPlaying,
+	formatLeft,
+	moveTarget,
+	queueLeft,
+	queueView,
+	removableFromPlaylist
+} from './queue.ts';
 
 function ok(cond: boolean, what: string): void {
 	if (!cond) throw new Error(`FAIL: ${what}`);
@@ -77,6 +85,24 @@ ok(
 
 v = queueView(q([], 0));
 ok(v.rows.length === 0 && v.autoplay.length === 0 && v.queued === 0, 'empty queue');
+
+// --- what is left ------------------------------------------------------------------------------
+ok(clockSecs('3:45') === 225 && clockSecs('1:02:03') === 3723, 'clock strings');
+ok(clockSecs(undefined) === 0 && clockSecs('Cast of EPIC: The Musical') === 0, 'junk is zero');
+const timed = (id: string, duration: string, extra: Partial<SongItem> = {}) =>
+	song(id, { duration, ...extra });
+let left = queueLeft(
+	queueView(q([timed('a', '9:00'), timed('now', '3:00'), timed('b', '2:30'), timed('c', '1:30'), timed('r', '4:00', { autoplay: true })], 1)),
+	1
+);
+ok(left.count === 2 && left.secs === 240, 'only what follows the playing track, autoplay aside');
+left = queueLeft(queueView(q([timed('now', '3:00')], 0)), 0);
+ok(left.count === 0 && left.secs === 0, 'nothing after the last track');
+ok(formatLeft(240, 'en') === '4 min', 'minutes');
+ok(formatLeft(3723, 'en') === '1 hr 2 min', 'hours and minutes');
+ok(formatLeft(3600, 'en') === '1 hr', 'no zero minutes');
+ok(formatLeft(20, 'en') === '', 'under a minute says nothing');
+ok(formatLeft(240, 'pt_BR').length > 0, 'catalog ids with an underscore do not throw');
 
 // --- following the playing row ------------------------------------------------------------------
 // 60px rows starting 8px into the content, a 600px viewport scrolled so row 10 is at the top.
