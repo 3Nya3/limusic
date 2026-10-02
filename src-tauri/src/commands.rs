@@ -286,11 +286,11 @@ pub async fn video_stream(
 /// second. Raw bytes, so the ~22 KB a frame skips JSON both ways.
 #[tauri::command]
 pub async fn ambient_frame(after: u32) -> tauri::ipc::Response {
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", windows))]
     let frame = crate::nativevideo::next_frame(after).await.map(|f| f.to_vec());
-    // Typed: off Linux a bare `None` leaves nothing to infer from, and the PR checks only build on
+    // Typed: on macOS a bare `None` leaves nothing to infer from, and the PR checks only build on
     // Linux, so this broke rc.3's Windows and macOS builds with every check green.
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", windows)))]
     let frame: Option<Vec<u8>> = {
         let _ = after;
         None
@@ -300,19 +300,28 @@ pub async fn ambient_frame(after: u32) -> tauri::ipc::Response {
 
 /// Where the page's hole for the music video is (`[x, y, w, h]`, CSS pixels, viewport-relative),
 /// or `None` when it has none. mpv draws the picture there, underneath the webview
-/// (nativevideo.rs). `false` means no picture is up, and for a rect that there never will be: the
-/// page falls back to the `<video>` element.
+/// (nativevideo.rs, nativevideo_windows.rs). `false` means no picture is up, and for a rect that
+/// there never will be: the page falls back to the `<video>` element. `dpr` is the page's
+/// `devicePixelRatio`, which Windows needs for the page zoom; Linux reads the zoom off the webview.
 #[tauri::command]
 pub async fn native_video_rect(
     app: tauri::AppHandle,
     state: St<'_>,
     rect: Option<[f64; 4]>,
+    dpr: Option<f64>,
 ) -> Result<bool, String> {
     #[cfg(target_os = "linux")]
-    return Ok(crate::nativevideo::set_rect(&app, state.inner().clone(), rect).await);
-    #[cfg(not(target_os = "linux"))]
     {
-        let _ = (app, state, rect);
+        let _ = dpr;
+        Ok(crate::nativevideo::set_rect(&app, state.inner().clone(), rect).await)
+    }
+    #[cfg(windows)]
+    return Ok(
+        crate::nativevideo::set_rect(&app, state.inner().clone(), rect, dpr.unwrap_or(1.0)).await
+    );
+    #[cfg(not(any(target_os = "linux", windows)))]
+    {
+        let _ = (app, state, rect, dpr);
         Ok(false)
     }
 }

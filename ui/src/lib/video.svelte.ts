@@ -58,14 +58,15 @@ export function parkVideo() {
 	video.shown = false;
 }
 
-// --- Linux: mpv draws the picture under the page (src-tauri/src/nativevideo.rs) ----------------
-// The window is transparent, so a hole with nothing under it shows the desktop. GTK draws each frame
-// with whatever the webview last presented, and a page change takes a frame or two to get there,
-// while Rust moves the picture on its very next one. So the hole never gets ahead of the picture:
-// it shrinks at once to what the picture covers both before and after, Rust moves the picture only
-// once that has been painted, and the hole opens the rest once Rust says the picture is there.
-// Moving them together showed the desktop for a frame whenever the picture went away (an opened
-// link, whose video is not resolved yet) or moved.
+// --- Linux and Windows: mpv draws the picture under the page ------------------------------------
+// (src-tauri/src/nativevideo.rs, nativevideo_windows.rs). The window is transparent, so a hole with
+// nothing under it shows the desktop. GTK draws each frame with whatever the webview last
+// presented, and a page change takes a frame or two to get there, while Rust moves the picture on
+// its very next one. So the hole never gets ahead of the picture: it shrinks at once to what the
+// picture covers both before and after, Rust moves the picture only once that has been painted, and
+// the hole opens the rest once Rust says the picture is there. Moving them together showed the
+// desktop for a frame whenever the picture went away (an opened link, whose video is not resolved
+// yet) or moved.
 
 let holeSeq = 0;
 let holeSent: string | null = null;

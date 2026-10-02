@@ -13,7 +13,7 @@ use libmpv2::{Format, Mpv};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
 mod video;
-pub use video::{GlDisplay, VideoRenderer};
+pub use video::{GlDisplay, Thumbnail, VideoRenderer};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -167,6 +167,9 @@ struct Decks {
     /// Set by the video renderer: deck b needs a render context of its own before it can show a
     /// picture, and only the GL thread can make one.
     on_new_deck: OnceLock<Box<dyn Fn() + Send + Sync>>,
+    /// The native window mpv draws the picture into, 0 for none (the render API). See
+    /// [`Player::set_video_window`].
+    wid: AtomicI64,
 }
 
 impl Decks {
@@ -340,6 +343,7 @@ impl Player {
             videos: Mutex::new(video::Videos::default()),
             video_visible: AtomicBool::new(false),
             on_new_deck: OnceLock::new(),
+            wid: AtomicI64::new(0),
         });
         spawn_deck_events(&a, 0, decks.clone())?;
         Ok(Player { decks, events: Some(rx), af: Mutex::new((None, 0)) })
@@ -358,6 +362,14 @@ impl Player {
             return Ok(m.clone());
         }
         let m = Arc::new(new_mpv(&self.decks.cache_dir)?);
+        let wid = self.decks.wid.load(Ordering::SeqCst);
+        if wid != 0 {
+            // Safe to carry on without it: a refused `wid` leaves the render API output, which
+            // has no context here and so shows nothing, rather than a window of mpv's own.
+            if let Err(e) = video::embed(&m, wid) {
+                tracing::warn!(error = %e, "video: the crossfade deck refused the video window");
+            }
+        }
         spawn_deck_events(&m, deck, self.decks.clone())?;
         let _ = self.decks.b.set(m);
         if let Some(wake) = self.decks.on_new_deck.get() {

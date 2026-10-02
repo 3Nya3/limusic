@@ -20,6 +20,9 @@ mod media;
 mod mini;
 #[cfg(target_os = "linux")]
 mod nativevideo;
+#[cfg(windows)]
+#[path = "nativevideo_windows.rs"]
+mod nativevideo;
 mod notify;
 mod orchestrator;
 mod potoken;
@@ -715,7 +718,7 @@ pub fn run() {
             }
 
             // Pump mpv events → UI events + queue advance. context/11 events, context/14 §TrackEnded.
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", windows))]
             let video_state = app_state.clone();
             spawn_event_pump(app_state, handle, events);
 
@@ -799,6 +802,12 @@ pub fn run() {
                     nativevideo::install(&w, video_state);
                 }
                 spawn_heap_trimmer();
+            }
+            #[cfg(windows)]
+            {
+                if let Some(w) = app.get_webview_window("main") {
+                    nativevideo::install(&w, video_state);
+                }
             }
             Ok(())
         })
