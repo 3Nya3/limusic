@@ -31,7 +31,6 @@
 	import { t } from '$lib/i18n.svelte';
 	import { thumb } from '$lib/thumb';
 	import QueueList from './QueueList.svelte';
-	import type { QueueScrollMemory } from '$lib/queue-history';
 	import LyricsView from './LyricsView.svelte';
 	import Ambient from './Ambient.svelte';
 
@@ -41,8 +40,6 @@
 	// a scrimmed overlay and there's nothing to shrink into. In tabbed mode both are always closed.
 	let { queueOpen, lyricsOpen }: { queueOpen: boolean; lyricsOpen: boolean } = $props();
 	const tabbed = $derived(appearance.tabbedPlayer);
-	// Survives queue/lyrics tab switches without keeping an inactive queue mounted.
-	const queueScrollMemory: QueueScrollMemory = {};
 	// ponytail: mirrors QueuePanel / LyricsPanel's w-80, keep in sync if those change.
 	const panels = $derived(Number(queueOpen) + Number(lyricsOpen));
 	const inset = $derived(['', 'lg:right-80', 'lg:right-[40rem]'][panels]);
@@ -405,7 +402,7 @@
 					     leave LyricsView fetching lyrics for every track you never asked to see. -->
 					{#if np.tab === 'queue'}
 						<Tabs.Content value="queue" class="flex min-h-0 flex-col">
-							<QueueList scrollMemory={queueScrollMemory} />
+							<QueueList />
 						</Tabs.Content>
 					{:else}
 						<Tabs.Content value="lyrics" class="flex min-h-0 flex-col">
