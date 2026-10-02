@@ -4324,9 +4324,9 @@ fn loudness_gain(loudness_db: Option<f64>) -> Option<f64> {
 
 /// This window draws music videos with mpv (nativevideo.rs) rather than a `<video>` element.
 pub fn native_video() -> bool {
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", windows))]
     return crate::nativevideo::available();
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", windows)))]
     false
 }
 
