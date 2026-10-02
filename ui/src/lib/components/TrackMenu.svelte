@@ -144,8 +144,8 @@
 	// "Play next" on a track that is already coming up in the queue moves it into the Play next block
 	// rather than queueing a second copy. A row the user queued, the backend moves by itself
 	// (`insert_queued`). Any other row comes out first and goes back in as a real Play next: dropped
-	// at `current + 1` unmarked, it would cut the manual block in two, and later adds scan that block
-	// from the front (`enqueue_at`). A guest owns no queue, so theirs stays a suggestion.
+	// at `current + 1` unmarked, it would cut the Play next run in two, and later Play nexts scan that
+	// run from the front (`guest_insert_index`). A guest owns no queue, so theirs stays a suggestion.
 	async function playNext() {
 		const q = playback.queue;
 		// Checked again by id: the index is from when the menu opened, and an autoplay trim since

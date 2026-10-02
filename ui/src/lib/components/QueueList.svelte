@@ -351,7 +351,7 @@
 				</Button>
 			{/if}
 			{#if canEdit && view.queued}
-				<!-- Only what was added by hand, which always sits right under the playing track. -->
+				<!-- Only what was added by hand: Play next and Add to queue, not the playlist. -->
 				<Button
 					variant="ghost"
 					size="xs"
