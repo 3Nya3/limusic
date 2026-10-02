@@ -3753,9 +3753,9 @@ impl AppState {
     /// upcoming tracks move, and only among themselves — the playing track and the history stay
     /// where they are (both indices are clamped past `current`). Guests own no queue.
     ///
-    /// ponytail: a pure move, markers untouched. A playlist track dragged into the manual block is
-    /// still a playlist track, so the panel re-splits its headings around where it landed, which is
-    /// the truth. Adopt-the-block-you-land-in only if that reads wrong in practice.
+    /// ponytail: the other markers stay. A playlist track dragged in among the manual adds is still
+    /// a playlist track, so Clear queue leaves it. Adopt-the-block-you-land-in only if that reads
+    /// wrong in practice.
     pub async fn move_in_queue(self: &std::sync::Arc<Self>, from: usize, to: usize) {
         if self.lt.is_guest().await {
             return;
@@ -3770,7 +3770,10 @@ impl AppState {
                 return;
             }
             let before = q.items.get(first).map(|i| i.video_id.clone());
-            let item = q.items.remove(from);
+            let mut item = q.items.remove(from);
+            // A track you put somewhere yourself is yours: switching Autoplay off no longer takes
+            // it, and the panel stops drawing it under the Autoplay divider.
+            item.autoplay = false;
             q.items.insert(to, item);
             // Only what plays *next* can invalidate the primed gapless slot; a move deeper in the
             // queue leaves it alone rather than paying for a re-resolve on every drag.

@@ -50,6 +50,7 @@
 		toggleRating,
 		toggleSongLibrary
 	} from '$lib/player.svelte';
+	import { lt } from '$lib/lt.svelte';
 	import { t } from '$lib/i18n.svelte';
 	import { invalidateCachedPrefix } from '$lib/pagecache';
 	import TempoPitchDialog from './TempoPitchDialog.svelte';
@@ -140,6 +141,17 @@
 	// conditions are and why is in `removableFromPlaylist` (queue.ts), where they are checkable.
 	const removable = $derived(removableFromPlaylist(song, playlistId, savedIn.map));
 
+	// "Play next" on a track that is already coming up in the queue moves it there. Queueing a second
+	// copy of a row you can see would leave the first one to play again later. A guest owns no queue
+	// to move things in, so theirs stays a suggestion.
+	function playNext() {
+		const cur = playback.queue.currentIndex;
+		if (queueIndex !== undefined && queueIndex > cur && lt.role !== 'guest') {
+			if (queueIndex > cur + 1) api.moveInQueue(queueIndex, cur + 1);
+			toast.success(t('toasts.playing_next_one'));
+		} else enqueue([song], true);
+	}
+
 	async function removeFromPlaylist() {
 		if (!playlistId || !song.set_video_id) return;
 		const setVideoId = song.set_video_id;
@@ -216,7 +228,7 @@
 		{#if !linksOnly}
 			<button
 				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
-				onclick={(e) => run(e, () => enqueue([song], true))}
+				onclick={(e) => run(e, playNext)}
 			>
 				<HugeiconsIcon icon={ArrowUpNarrowWideIcon} class="h-4 w-4" /> {t('player.play_next')}
 			</button>
