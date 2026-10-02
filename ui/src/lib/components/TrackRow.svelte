@@ -12,7 +12,7 @@
 	import type { SongItem } from '$lib/api';
 	import { thumb } from '$lib/thumb';
 	import { lt } from '$lib/lt.svelte';
-	import { anySaved, isLiked, openAddManyToPlaylist, ratingOf, savedPlaylists, toast, toggleRating } from '$lib/player.svelte';
+	import { anySaved, isLiked, openAddManyToPlaylist, playback, ratingOf, savedPlaylists, toast, toggleRating } from '$lib/player.svelte';
 	import SavedInPlaylists from './SavedInPlaylists.svelte';
 	import TrackMenu from './TrackMenu.svelte';
 	import ArtistLine from './ArtistLine.svelte';
@@ -266,7 +266,18 @@
 						? 'text-primary'
 						: 'text-muted-foreground'}"
 				>
-					<span class={selectable ? '' : 'group-hover:invisible'}>{index + 1}</span>
+					<!-- Kept in flow on the playing row too, invisible: it is what sizes the column. -->
+					<span class={active ? 'invisible' : selectable ? '' : 'group-hover:invisible'}>
+						{index + 1}
+					</span>
+					{#if active}
+						<!-- The playing row's mark in place of its number (`.np-bars` in layout.css). -->
+						<span
+							class="np-bars {selectable ? '' : 'group-hover:invisible'}"
+							data-paused={playback.paused || undefined}
+							aria-hidden="true"><span></span><span></span><span></span></span
+						>
+					{/if}
 					<HugeiconsIcon
 						icon={guestAdd ? PlayListAddIcon : PlayIcon}
 						class="invisible absolute inset-0 m-auto h-3.5 w-3.5 {selectable ? '' : 'group-hover:visible'}"

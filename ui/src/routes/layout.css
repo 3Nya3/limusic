@@ -973,6 +973,51 @@ html.art-tint.dark {
    not hit-testable and hovering it would never reach the track itself. */
 .marquee-box:hover .marquee { animation-play-state: paused; }
 
+/* The playing row's mark, in place of its track number. Finite on purpose, like `.marquee`: the
+   bars bounce once when the track starts or resumes and then hold still, so the compositor still
+   reaches idle frames while a track plays. Paused, they sink to a flat line. Each bar animates
+   only `transform`, on a 12px box, once per track. */
+.np-bars {
+	position: absolute;
+	inset: 0;
+	margin: auto;
+	display: flex;
+	align-items: flex-end;
+	justify-content: center;
+	gap: 2px;
+	width: 12px;
+	height: 12px;
+}
+.np-bars > span {
+	width: 3px;
+	height: 100%;
+	border-radius: 1px;
+	background: currentColor;
+	transform-origin: bottom;
+	transform: scaleY(var(--h));
+	transition: transform 250ms ease-out;
+	animation: np-bounce 1.4s ease-in-out backwards;
+}
+.np-bars > span:nth-child(1) { --h: 0.6; }
+.np-bars > span:nth-child(2) { --h: 1; animation-delay: 120ms; }
+.np-bars > span:nth-child(3) { --h: 0.4; animation-delay: 240ms; }
+/* `animation: none` also re-arms the bounce, so resuming plays it again. */
+.np-bars[data-paused] > span {
+	transform: scaleY(0.2);
+	animation: none;
+}
+@keyframes np-bounce {
+	0% { transform: scaleY(0.2); }
+	20% { transform: scaleY(1); }
+	40% { transform: scaleY(0.45); }
+	60% { transform: scaleY(0.9); }
+	80% { transform: scaleY(0.5); }
+	100% { transform: scaleY(var(--h)); }
+}
+@media (prefers-reduced-motion: reduce) {
+	.np-bars > span { animation: none; transition: none; }
+}
+
 /* A small "pop" for the like button when a track is favourited. */
 @keyframes heart-pop {
 	0% { transform: scale(1); }
