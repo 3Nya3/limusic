@@ -166,7 +166,11 @@
 		"remove_from_this_playlist": "從此播放清單移除",
 		"back_to": "回到 {title}",
 		"mini_shrink": "縮小迷你播放器",
-		"mini_expand": "展開迷你播放器"
+		"mini_expand": "展開迷你播放器",
+		"songs_left_one": "剩餘 1 首歌",
+		"queue_ends": "這是待播清單中的最後一首。",
+		"autoplay": "自動播放",
+		"songs_left": "剩餘 {count} 首歌"
 	},
 	"home": {
 		"good_morning": "讓今天從旋律開始",
@@ -452,7 +456,9 @@
 			"ambient_light_gpu_title": "為了確保流暢的運行，需要高性能的顯卡",
 			"ambient_light_gpu": "在 PassMark 的顯卡測試中，如果分數低於 1000 點，觀看影片時可能會出現卡頓現象，尤其是在播放 MV 時。",
 			"ambient_light_gpu_check": "查看您的顯卡",
-			"ambient_light": "流光溢彩"
+			"ambient_light": "流光溢彩",
+			"shuffle_whole_queue": "隨機播放整個待播清單",
+			"shuffle_whole_queue_hint": "將在待播清單中新添加的歌曲隨機播放，關閉則按照您添加的順序播放。而“稍後播放”功能則不受影響。"
 		},
 		"data": {
 			"clear_cache": "清除縮圖與串流的快取",
