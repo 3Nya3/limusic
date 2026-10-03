@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use libmpv2::events::{Event, EventContext, PropertyData};
+use libmpv2::mpv_node::MpvNode;
 use libmpv2::{Format, Mpv};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
@@ -422,7 +423,7 @@ impl Player {
         }
         self.apply_headers(headers)?;
         self.set_gain(gain_db)?;
-        let args = loadfile_args(url, start);
+        let args = loadfile_args(url, start, loadfile_has_index(self.mpv()));
         let refs: Vec<&str> = args.iter().map(String::as_str).collect();
         self.mpv().command("loadfile", &refs)?;
         Ok(())
@@ -1115,17 +1116,42 @@ fn quoted(arg: &str) -> String {
 
 /// The `loadfile` argument list for [`Player::load`], with an optional start position passed
 /// through the file-local `start=` option. Split out from the FFI call so the argument list is
-/// testable without libmpv, the same way `quoted` is. `loadfile`'s third positional (`index`) must
-/// be supplied before the options string, so `-1` (auto) rides along whenever `start` is present.
+/// testable without libmpv, the same way `quoted` is. On mpv 0.38+ `loadfile`'s third positional
+/// (`index`) must be supplied before the options string, so `-1` (auto) rides along whenever
+/// `start` is present; older mpv reads the options as argument 3 (see [`loadfile_has_index`]).
 /// A non-finite or non-positive start is dropped: `start=0` is the default anyway, and a NaN would
 /// poison the load.
-fn loadfile_args(url: &str, start: Option<f64>) -> Vec<String> {
+fn loadfile_args(url: &str, start: Option<f64>, has_index: bool) -> Vec<String> {
     let mut args = vec![quoted(url), "replace".to_owned()];
     if let Some(pos) = start.filter(|p| p.is_finite() && *p > 0.0) {
-        args.push("-1".to_owned());
+        if has_index {
+            args.push("-1".to_owned());
+        }
         args.push(quoted(&format!("start={pos}")));
     }
     args
+}
+
+/// Whether this libmpv's `loadfile` has the `index` positional that mpv 0.38 put in front of the
+/// options. The AppImage bundles Ubuntu 24.04's libmpv 0.37, where a `-1` there is parsed as the
+/// options string and fails the whole load with INVALID_PARAMETER, so every resume and retry
+/// failed on the first press (issue #384). Asked of mpv's own `command-list` rather than parsed
+/// out of `mpv-version`, which a git build (the Windows one) doesn't keep to a release number.
+fn loadfile_has_index(mpv: &Mpv) -> bool {
+    static HAS: OnceLock<bool> = OnceLock::new();
+    *HAS.get_or_init(|| {
+        let Some(cmds) = mpv.get_property::<MpvNode>("command-list").ok().and_then(MpvNode::array)
+        else {
+            return true; // what every current mpv speaks
+        };
+        let is_named = |node: MpvNode, name: &str| {
+            node.map().is_some_and(|mut m| m.any(|(k, v)| k == "name" && v.str() == Some(name)))
+        };
+        cmds.filter(|c| is_named(c.clone(), "loadfile")).any(|c| {
+            let args = c.map().and_then(|mut m| m.find(|(k, _)| k == "args"));
+            args.and_then(|(_, a)| a.array()).is_some_and(|mut a| a.any(|a| is_named(a, "index")))
+        })
+    })
 }
 
 /// Slider percent → mpv `volume` value, over a 60 dB range. mpv applies gain = (v/100)³,
@@ -1333,20 +1359,29 @@ mod tests {
     #[test]
     fn loadfile_start_is_a_file_local_option() {
         // No start: the plain 2-argument loadfile, unchanged.
-        assert_eq!(loadfile_args("u", None), vec!["\"u\"", "replace"]);
+        assert_eq!(loadfile_args("u", None, true), vec!["\"u\"", "replace"]);
         // Anything at or below 0 is the default position, so it is not worth the option, and a
         // NaN or infinity must never reach mpv.
         for bad in [0.0, -1.0, f64::NAN, f64::INFINITY] {
-            assert_eq!(loadfile_args("u", Some(bad)), vec!["\"u\"", "replace"], "start={bad}");
+            assert_eq!(
+                loadfile_args("u", Some(bad), true),
+                vec!["\"u\"", "replace"],
+                "start={bad}"
+            );
         }
-        // The `index` positional has to be present for `options` to be read.
+        // On mpv 0.38+ the `index` positional has to be present for `options` to be read, and
+        // before 0.38 it doesn't exist (issue #384).
         assert_eq!(
-            loadfile_args("u", Some(605.0)),
+            loadfile_args("u", Some(605.0), true),
             vec!["\"u\"", "replace", "-1", "\"start=605\""]
+        );
+        assert_eq!(
+            loadfile_args("u", Some(605.0), false),
+            vec!["\"u\"", "replace", "\"start=605\""]
         );
         // Fractional resume positions are what `state::pending_seek` actually carries.
         assert_eq!(
-            loadfile_args("u", Some(8.6155624669999)),
+            loadfile_args("u", Some(8.6155624669999), true),
             vec!["\"u\"", "replace", "-1", "\"start=8.6155624669999\""]
         );
     }
@@ -1478,5 +1513,29 @@ mod tests {
 
         p.pause().unwrap();
         until(|e| matches!(e, PlayerEvent::Paused(true)));
+    }
+
+    /// A resume rides `loadfile`'s `start=`, whose position in the argument list moved in mpv
+    /// 0.38. The AppImage bundles 0.37, so run this against that library too (issue #384):
+    /// `LD_LIBRARY_PATH=<extracted AppImage>/usr/lib cargo test -p player start_lands`.
+    #[test]
+    fn start_lands_on_this_libmpv() {
+        use super::Player;
+        use std::time::{Duration, Instant};
+
+        let dir = std::env::temp_dir().join("limusic-start-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = Player::new(dir.to_str().unwrap()).expect("libmpv");
+        p.mpv().set_property("ao", "null").unwrap();
+        p.load("av://lavfi:sine=duration=5", &Default::default(), None, Some(2.0)).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let pos = loop {
+            if let Ok(pos) = p.mpv().get_property::<f64>("time-pos") {
+                break pos;
+            }
+            assert!(Instant::now() < deadline, "file never loaded");
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        assert!((1.9..3.0).contains(&pos), "started at {pos}");
     }
 }
