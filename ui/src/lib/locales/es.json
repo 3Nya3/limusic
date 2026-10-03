@@ -143,7 +143,11 @@
 		"remove_from_this_playlist": "Quitar de esta playlist",
 		"back_to": "Volver a {title}",
 		"mini_shrink": "Encoger el mini reproductor",
-		"mini_expand": "Expandir el mini reproductor"
+		"mini_expand": "Expandir el mini reproductor",
+		"autoplay": "Autoplay",
+		"songs_left": "{count} canciones restantes",
+		"songs_left_one": "1 canción restante",
+		"queue_ends": "La cola termina después de esta canción."
 	},
 	"home": {
 		"good_morning": "Buenos días",
@@ -420,7 +424,9 @@
 			"ambient_light_hint": "La vista del reproductor alrededor de un video musical brilla con los colores del video.",
 			"ambient_light_gpu_title": "Requiere una tarjeta gráfica adecuada",
 			"ambient_light_gpu": "Por debajo de los 1000 puntos en la prueba de rendimiento de PassMark, la vista del reproductor podría dar tirones mientras se reproduce un video musical.",
-			"ambient_light_gpu_check": "Busca tu tarjeta gráfica"
+			"ambient_light_gpu_check": "Busca tu tarjeta gráfica",
+			"shuffle_whole_queue": "Mezclar toda la cola",
+			"shuffle_whole_queue_hint": "\"Aleatorio\" mezcla las canciones agregadas con \"Agregar a la cola\" junto con la lista actual. Si la desactivas, se reproducirán al final en el orden en que las añadiste. \"Agregar a continuación\" siempre se reproduce justo después."
 		},
 		"data": {
 			"clear_cache": "Limpiar caché de imágenes y streams",
