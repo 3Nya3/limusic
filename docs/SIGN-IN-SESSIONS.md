@@ -64,6 +64,12 @@ a later plain "Sign in with Google" returns to whichever account the store now h
 just added), so use Add account when you want a different one, and the automatic session healing
 below can only re-mint that same account.
 
+On Linux and macOS the webview identifies itself as **Safari on a Mac** (`session.rs::LOGIN_UA`),
+because Google refuses sign-ins from embedded browsers it doesn't recognise and WebKitGTK is the
+same engine as Safari. Google's "new sign-in" email repeats that user agent, so a Linux sign-in
+shows up as macOS / Safari (#382). The IP and location in the alert are still yours. Windows sends
+WebView2's own Edge user agent (#152).
+
 ## 3. What never leaves Rust
 
 Auth material (`session_cookie`, `selected_identity_json`, `data_sync_id`, `account_json`,
