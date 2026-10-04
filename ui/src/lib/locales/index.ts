@@ -1,10 +1,13 @@
 // Catalogs are plain JSON so Weblate can read and write them directly; see CONTRIBUTING.md.
 // English is the source of truth and the only complete one: `t()` falls back to it per key, so a
 // half-finished catalog renders English for what it is missing rather than a raw key.
+import de from './de.json';
 import en from './en.json';
 import es from './es.json';
 import fr from './fr.json';
 import id from './id.json';
+import it from './it.json';
+import ja from './ja.json';
 import ko from './ko.json';
 import pl from './pl.json';
 import ptBR from './pt_BR.json';
@@ -31,7 +34,10 @@ export type LocaleId =
 	| 'ru'
 	| 'uk'
 	| 'zh-Hant'
-	| 'pl';
+	| 'pl'
+	| 'de'
+	| 'it'
+	| 'ja';
 
 export interface LocaleInfo {
 	id: LocaleId;
@@ -48,9 +54,12 @@ export interface LocaleInfo {
 
 export const LOCALES: LocaleInfo[] = [
 	{ id: 'en', nativeLabel: 'English', englishLabel: 'English' },
+	{ id: 'de', nativeLabel: 'Deutsch', englishLabel: 'German' },
 	{ id: 'es', nativeLabel: 'Español', englishLabel: 'Spanish' },
 	{ id: 'fr', nativeLabel: 'Français', englishLabel: 'French' },
 	{ id: 'id', nativeLabel: 'Bahasa Indonesia', englishLabel: 'Indonesian' },
+	{ id: 'it', nativeLabel: 'Italiano', englishLabel: 'Italian' },
+	{ id: 'ja', nativeLabel: '日本語', englishLabel: 'Japanese' },
 	{ id: 'ko', nativeLabel: '한국어', englishLabel: 'Korean' },
 	{ id: 'pl', nativeLabel: 'Polski', englishLabel: 'Polish' },
 	{ id: 'pt-BR', nativeLabel: 'Português (Brasil)', englishLabel: 'Portuguese (Brazil)' },
@@ -79,5 +88,8 @@ export const translations: Record<LocaleId, DeepPartial<Translations>> = {
 	ru,
 	uk,
 	'zh-Hant': zhHant,
-	pl
+	pl,
+	de,
+	it,
+	ja
 };
