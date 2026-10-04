@@ -15,6 +15,8 @@
 //! from getting the user's IP or account flagged. See "staying welcome on YouTube" below.
 //!
 //! The UI follows along through `import-progress` events, each carrying a [`Snapshot`].
+//!
+//! Thanks to @Tomjerri1, who asked for this in #375 and wrote the first version of it in #378.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicI64, Ordering};
