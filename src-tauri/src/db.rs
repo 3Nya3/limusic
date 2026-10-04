@@ -55,6 +55,17 @@ pub fn now_secs() -> i64 {
         .unwrap_or(0)
 }
 
+/// One row of `import_matches`: a Spotify track and what it is on YouTube Music. `video_id` is
+/// `None` for a track that wasn't found. The JSON columns are whole `SongItem`s.
+pub struct ImportMatch {
+    pub video_id: Option<String>,
+    pub song_json: Option<String>,
+    pub tier: String,
+    pub candidates_json: Option<String>,
+    pub manual: bool,
+    pub updated_at: i64,
+}
+
 /// A cached stream URL with its expiry. Never a source of truth — purely a latency cache.
 pub struct CachedStream {
     pub url: String,
@@ -231,6 +242,19 @@ impl Db {
             );
             CREATE INDEX IF NOT EXISTS local_playlist_tracks_video
                 ON local_playlist_tracks(video_id);
+            -- Spotify import (#375): what each Spotify track turned out to be on YouTube Music,
+            -- keyed by Spotify's track id. A cache, apart from the `manual` rows: those are the
+            -- user's own picks, which every later import and "Update from Spotify" reuses.
+            -- `candidates_json` is kept only for rows that still need a look.
+            CREATE TABLE IF NOT EXISTS import_matches (
+                key             TEXT PRIMARY KEY,
+                video_id        TEXT,
+                song_json       TEXT,
+                tier            TEXT NOT NULL,
+                candidates_json TEXT,
+                manual          INTEGER NOT NULL DEFAULT 0,
+                updated_at      INTEGER NOT NULL
+            );
             "#,
         )?;
         // Migrate pre-Phase-4 DBs that predate the loudness_db column. Errors ("duplicate column")
@@ -697,6 +721,49 @@ impl Db {
         let conn = self.0.lock().unwrap();
         let _ = conn.execute("DELETE FROM stream_url_cache", []);
         let _ = conn.execute(CLEAR_LYRICS, []);
+        // Spared like a pinned lyrics source: a pick made by hand is the user's, not a cache.
+        let _ = conn.execute("DELETE FROM import_matches WHERE manual = 0", []);
+    }
+
+    pub fn get_import_match(&self, key: &str) -> Option<ImportMatch> {
+        let conn = self.0.lock().unwrap();
+        conn.query_row(
+            "SELECT video_id, song_json, tier, candidates_json, manual, updated_at
+             FROM import_matches WHERE key = ?1",
+            [key],
+            |r| {
+                Ok(ImportMatch {
+                    video_id: r.get(0)?,
+                    song_json: r.get(1)?,
+                    tier: r.get(2)?,
+                    candidates_json: r.get(3)?,
+                    manual: r.get::<_, i64>(4)? != 0,
+                    updated_at: r.get(5)?,
+                })
+            },
+        )
+        .ok()
+    }
+
+    pub fn put_import_match(&self, key: &str, m: &ImportMatch) {
+        let conn = self.0.lock().unwrap();
+        let _ = conn.execute(
+            "INSERT INTO import_matches(key, video_id, song_json, tier, candidates_json, manual,
+                updated_at) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT(key) DO UPDATE SET video_id = excluded.video_id,
+                song_json = excluded.song_json, tier = excluded.tier,
+                candidates_json = excluded.candidates_json, manual = excluded.manual,
+                updated_at = excluded.updated_at",
+            rusqlite::params![
+                key,
+                m.video_id,
+                m.song_json,
+                m.tier,
+                m.candidates_json,
+                m.manual as i64,
+                m.updated_at
+            ],
+        );
     }
 
     /// Drop cached lyrics only, leaving stream URLs alone. Changing which providers are allowed
