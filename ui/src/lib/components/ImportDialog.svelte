@@ -27,7 +27,6 @@
 	import * as RadioGroup from '$lib/components/ui/radio-group';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
-	import { Switch } from '$lib/components/ui/switch';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import * as api from '$lib/api';
 	import { copyText } from '$lib/clipboard';
@@ -37,6 +36,8 @@
 	import { t } from '$lib/i18n.svelte';
 	import { auth, toast } from '$lib/player.svelte';
 	import {
+		clockTime,
+		cooldownUntil,
 		dismissImport,
 		imp,
 		importError,
@@ -95,9 +96,6 @@
 	const pickedIdx = $derived(picked.flatMap((p, i) => (p ? [i] : [])));
 	const pickedSongs = $derived(
 		pickedIdx.reduce((n, i) => n + (imp.preview?.lists[i]?.count ?? 0), 0)
-	);
-	const extrasOnly = $derived(
-		!pickedIdx.length && !!imp.preview && imp.preview.artists + imp.preview.albums > 0
 	);
 
 	// --- matching --------------------------------------------------------------------------------
@@ -186,11 +184,6 @@
 
 	let name = $state('');
 	let where = $state<'account' | 'device'>('account');
-	let like = $state(false);
-	let follow = $state(true);
-	let saveAlbums = $state(true);
-	const hasLiked = $derived(!!job?.lists.some((l) => l.kind === 'liked'));
-	const likedCount = $derived(job?.lists.find((l) => l.kind === 'liked')?.count ?? 0);
 	$effect(() => {
 		if (view === 'review') untrack(() => (name = job?.lists.length === 1 ? listName(job.lists[0]) : ''));
 	});
@@ -203,13 +196,7 @@
 		});
 		if (job.lists.length === 1 && name.trim()) names[0] = name.trim();
 		try {
-			await api.importCreate({
-				names,
-				local: !signedIn || where === 'device',
-				like: signedIn && like,
-				follow: signedIn && follow,
-				saveAlbums: signedIn && saveAlbums
-			});
+			await api.importCreate({ names, local: !signedIn || where === 'device' });
 		} catch (e) {
 			toast.error(importError(e));
 		}
@@ -235,6 +222,15 @@
 		imp.open = false;
 		dismissImport();
 	}
+
+	// The failed view's clock, so "Try again at 18:40" turns back into "Try again" on its own.
+	let now = $state(Date.now());
+	$effect(() => {
+		if (view !== 'failed') return;
+		now = Date.now();
+		const timer = setInterval(() => (now = Date.now()), 15_000);
+		return () => clearInterval(timer);
+	});
 
 	const wide = $derived(view === 'review');
 </script>
@@ -379,15 +375,10 @@
 					{/each}
 				</div>
 			{/if}
-			{#if p.artists || p.albums}
-				<p class="text-xs text-muted-foreground">
-					{t('import.extras_found', { artists: p.artists, albums: p.albums })}
-				</p>
-			{/if}
 			<Dialog.Footer>
 				<Button variant="outline" onclick={() => (imp.preview = null)}>{t('common.back')}</Button>
-				<Button onclick={() => startImport(pickedIdx)} disabled={!pickedIdx.length && !extrasOnly}>
-					{extrasOnly ? t('import.continue') : t('import.start_count', { count: pickedSongs })}
+				<Button onclick={() => startImport(pickedIdx)} disabled={!pickedIdx.length}>
+					{t('import.start_count', { count: pickedSongs })}
 				</Button>
 			</Dialog.Footer>
 		{:else if job && view === 'matching'}
@@ -395,7 +386,7 @@
 				<div class="flex items-baseline justify-between">
 					<span class="text-2xl font-semibold tabular-nums">{t('import.progress', { done: job.done, total: job.total })}</span>
 					<span class="text-xs text-muted-foreground">
-						{minutesLeft ? t('import.eta', { minutes: minutesLeft }) : ''}
+						{minutesLeft && !job.waitingUntil ? t('import.eta', { minutes: minutesLeft }) : ''}
 					</span>
 				</div>
 				{@render bar(job.done, job.total)}
@@ -418,6 +409,13 @@
 						<p class="px-2 py-1.5 text-xs text-muted-foreground">{t('import.reading')}</p>
 					{/each}
 				</div>
+				{#if job.waitingUntil}
+					<p class="flex items-start gap-2 text-xs text-muted-foreground">
+						<HugeiconsIcon icon={AlertCircleIcon} class="mt-px h-3.5 w-3.5 shrink-0" />
+						{t('import.waiting', { time: clockTime(job.waitingUntil) })}
+					</p>
+				{/if}
+				<p class="text-xs text-muted-foreground">{t('import.pace_hint')}</p>
 				<p class="text-xs text-muted-foreground">{t('import.keep_browsing_hint')}</p>
 			</div>
 			<Dialog.Footer>
@@ -550,33 +548,6 @@
 							</label>
 						{/each}
 					</RadioGroup.Root>
-					{#if hasLiked}
-						<label class="flex items-start justify-between gap-4">
-							<span>
-								<span class="block text-sm">{t('import.like_label')}</span>
-								<span class="block text-xs text-muted-foreground">{t('import.like_desc', { count: likedCount })}</span>
-							</span>
-							<Switch checked={like} onCheckedChange={(v) => (like = v)} />
-						</label>
-					{/if}
-					{#if job.artists}
-						<label class="flex items-start justify-between gap-4">
-							<span>
-								<span class="block text-sm">{t('import.follow_label', { count: job.artists })}</span>
-								<span class="block text-xs text-muted-foreground">{t('import.follow_desc')}</span>
-							</span>
-							<Switch checked={follow} onCheckedChange={(v) => (follow = v)} />
-						</label>
-					{/if}
-					{#if job.albums}
-						<label class="flex items-start justify-between gap-4">
-							<span>
-								<span class="block text-sm">{t('import.albums_label', { count: job.albums })}</span>
-								<span class="block text-xs text-muted-foreground">{t('import.albums_desc')}</span>
-							</span>
-							<Switch checked={saveAlbums} onCheckedChange={(v) => (saveAlbums = v)} />
-						</label>
-					{/if}
 				{:else}
 					<p class="flex items-start gap-2 text-xs text-muted-foreground">
 						<HugeiconsIcon icon={ComputerIcon} class="mt-px h-3.5 w-3.5 shrink-0" />
@@ -589,9 +560,7 @@
 				<Button onclick={create}>
 					{job.lists.length > 1
 						? t('import.create_many', { count: job.lists.length })
-						: job.lists.length
-							? t('import.create')
-							: t('import.continue')}
+						: t('import.create')}
 				</Button>
 			</Dialog.Footer>
 		{:else if job && view === 'creating'}
@@ -624,11 +593,6 @@
 					{/each}
 				</div>
 			{/if}
-			{#if job.extras.liked || job.extras.followed || job.extras.saved}
-				<p class="text-sm text-muted-foreground">
-					{t('import.extras_done', { liked: job.extras.liked, followed: job.extras.followed, saved: job.extras.saved })}
-				</p>
-			{/if}
 			<Dialog.Footer>
 				{#if job.missing}
 					<Button variant="outline" class="gap-2" onclick={copyMissing}>
@@ -639,11 +603,17 @@
 				<Button onclick={finish}>{t('common.done')}</Button>
 			</Dialog.Footer>
 		{:else if job && view === 'failed'}
+			{@const until = cooldownUntil(job.message)}
+			{@const waiting = !!until && until * 1000 > now}
 			<p class="text-sm">{importError(job.message)}</p>
 			<p class="text-xs text-muted-foreground">{t('import.failed_hint')}</p>
 			<Dialog.Footer>
 				<Button variant="outline" onclick={finish}>{t('common.close')}</Button>
-				<Button onclick={() => startImport(imp.picked)}>{t('import.try_again')}</Button>
+				<!-- Not before the cooldown is over: someone pressing it again and again is exactly the
+				     traffic it is there to stop. -->
+				<Button onclick={() => startImport(imp.picked)} disabled={waiting}>
+					{waiting && until ? t('import.try_again_at', { time: clockTime(until) }) : t('import.try_again')}
+				</Button>
 			</Dialog.Footer>
 		{/if}
 	</Dialog.Content>

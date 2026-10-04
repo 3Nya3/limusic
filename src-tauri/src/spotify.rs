@@ -8,8 +8,7 @@
 //!   tracks and an anonymous token. That token is spent on `api.spotify.com` (429 for everyone),
 //!   but `pathfinder`, the GraphQL API Spotify's own web player pages playlists out of, takes it.
 //! - **the data export** ("Account data" on spotify.com/account/privacy). A zip of JSON with every
-//!   playlist, private ones included, plus Liked Songs, saved albums and followed artists. Read
-//!   entirely offline.
+//!   playlist, private ones included, and Liked Songs. Read entirely offline.
 //! - **a CSV** from Exportify, TuneMyMusic, Soundiiz and the like.
 //!
 //! `pathfinder` is private the way InnerTube is, so it is treated the same way: the one value that
@@ -72,18 +71,17 @@ pub struct SourceList {
     pub truncated: bool,
 }
 
+/// An album by name, for matching a pasted album link to its YouTube Music page.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct SavedAlbum {
     pub title: String,
     pub artist: String,
 }
 
-/// Everything one source holds. A link fills `lists` with one entry; the export fills all three.
+/// Everything one source holds: one list for a link, every playlist and Liked Songs for the export.
 #[derive(Debug, Clone, Default)]
 pub struct Library {
     pub lists: Vec<SourceList>,
-    pub artists: Vec<String>,
-    pub albums: Vec<SavedAlbum>,
 }
 
 // --- links ---------------------------------------------------------------------------------------
@@ -391,6 +389,10 @@ async fn pathfinder_playlist(token: &str, id: &str) -> Option<(Vec<SourceTrack>,
     let mut skipped = 0;
     let mut offset = 0;
     loop {
+        // Paced like the web player paging as you scroll, not as fast as the network allows.
+        if offset > 0 {
+            tokio::time::sleep(Duration::from_millis(400 + rand::random::<u64>() % 400)).await;
+        }
         let page = match pathfinder_page(token, &uri, offset, &hash).await {
             Some(p) => p,
             // Once per read, and only before anything came back: a failure halfway through a
@@ -400,7 +402,12 @@ async fn pathfinder_playlist(token: &str, id: &str) -> Option<(Vec<SourceTrack>,
                 hash = fresh;
                 pathfinder_page(token, &uri, offset, &hash).await?
             }
-            None => return None,
+            // One more try after a pause, so a single dropped page doesn't cut a long playlist
+            // down to the embed's 100.
+            None => {
+                tokio::time::sleep(Duration::from_secs(3)).await;
+                pathfinder_page(token, &uri, offset, &hash).await?
+            }
         };
         let (total, rows) = parse_page(&page)?;
         let got = rows.len();
@@ -507,14 +514,13 @@ struct ExportLocal {
     uri: String,
 }
 
+/// `YourLibrary.json`. It also lists saved albums and followed artists, which are deliberately
+/// not brought over: following or saving hundreds at once is the bulk engagement YouTube's spam
+/// filters look for (see `import.rs`, "staying welcome on YouTube").
 #[derive(Deserialize)]
 struct ExportLibrary {
     #[serde(default)]
     tracks: Vec<LibraryTrack>,
-    #[serde(default)]
-    albums: Vec<LibraryAlbum>,
-    #[serde(default)]
-    artists: Vec<LibraryArtist>,
 }
 
 #[derive(Deserialize)]
@@ -527,20 +533,6 @@ struct LibraryTrack {
     track: String,
     #[serde(default)]
     uri: String,
-}
-
-#[derive(Deserialize)]
-struct LibraryAlbum {
-    #[serde(default)]
-    artist: String,
-    #[serde(default)]
-    album: String,
-}
-
-#[derive(Deserialize)]
-struct LibraryArtist {
-    #[serde(default)]
-    name: String,
 }
 
 fn non_empty(s: &str) -> Option<String> {
@@ -628,12 +620,6 @@ fn read_library_json(bytes: &[u8], lib: &mut Library) -> Result<(), String> {
         // First, ahead of the playlists: it's the list someone switching cares about most.
         lib.lists.insert(0, export_list(ListKind::Liked, "Liked Songs".into(), rows));
     }
-    lib.artists = parsed.artists.into_iter().filter_map(|a| non_empty(&a.name)).collect();
-    lib.albums = parsed
-        .albums
-        .into_iter()
-        .filter_map(|a| Some(SavedAlbum { title: non_empty(&a.album)?, artist: a.artist }))
-        .collect();
     Ok(())
 }
 
@@ -767,7 +753,7 @@ pub fn read_file(bytes: &[u8], file_name: &str) -> Result<Library, String> {
         read_json(bytes, &mut lib)?;
     }
     lib.lists.retain(|l| !l.tracks.is_empty());
-    if lib.lists.is_empty() && lib.artists.is_empty() && lib.albums.is_empty() {
+    if lib.lists.is_empty() {
         return Err("empty".into());
     }
     Ok(lib)
@@ -924,8 +910,6 @@ mod tests {
         assert_eq!(road.tracks.len(), 2);
         assert_eq!(road.skipped, 1);
         assert_eq!(road.tracks[1].title, "One More Time");
-        assert_eq!(lib.artists, ["Van Halen"]);
-        assert_eq!(lib.albums, [SavedAlbum { title: "1984".into(), artist: "Van Halen".into() }]);
     }
 
     #[test]

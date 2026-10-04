@@ -4,22 +4,24 @@
 //! the writing. One import at a time, in the background, in three phases:
 //!
 //! 1. **Matching.** One `FILTER_SONG` search per distinct track (a song in five playlists is one
-//!    search), scored by [`score`], plus a video search when no song scores well. The searches
-//!    are unrecorded, so a 2,000-track import doesn't bury the user's search history, and paced,
-//!    because they leave from the user's own IP and a burst is what gets an IP bot-flagged. Every
-//!    answer lands in `import_matches`, so a second import, a retry after a failure and "Update
+//!    search), scored by [`score`], plus a video search when no song is even a plausible guess.
+//!    The searches are unrecorded, so a 2,000-track import doesn't bury the user's search
+//!    history. Every answer lands in `import_matches`, so a second import, a retry and "Update
 //!    from Spotify" only search for what is new.
 //! 2. **Review.** The job waits while the user changes any pick. Nothing has been written yet.
-//! 3. **Creating.** One playlist per list, on the account or on this machine, then the opt-in
-//!    extras: likes for Liked Songs, follows for followed artists, saves for saved albums.
+//! 3. **Creating.** One playlist per list, on the account or on this machine.
+//!
+//! Every request to YouTube goes through [`before_youtube`] first, which is what keeps an import
+//! from getting the user's IP or account flagged. See "staying welcome on YouTube" below.
 //!
 //! The UI follows along through `import-progress` events, each carrying a [`Snapshot`].
 
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use innertube::{BrowseItem, Rating, SongItem};
+use innertube::{BrowseItem, SongItem};
 use serde::{Deserialize, Serialize};
 use tauri::Emitter;
 use unicode_normalization::{char::is_combining_mark, UnicodeNormalization};
@@ -229,41 +231,241 @@ fn rank(src: &SourceTrack, items: Vec<SongItem>, out: &mut Vec<(f64, SongItem)>)
     }
 }
 
-/// Between two searches. The same rhythm as someone working through a list by hand.
-fn pace() -> Duration {
-    Duration::from_millis(450 + rand::random::<u64>() % 300)
-}
-
 fn metadata_client(state: &AppState) -> Result<&innertube::YouTubeClient, String> {
     state.clients.get(innertube::METADATA_CLIENT).ok_or_else(|| "metadata client missing".into())
 }
 
-/// Search for one track: songs first, then videos when no song scored well (covers, live sets
-/// and releases that never got an official upload only exist as videos; the video search answers
-/// nothing when the user hides music videos). Best first, at most six.
+// --- staying welcome on YouTube ------------------------------------------------------------------
+//
+// Every request an import sends leaves from the user's own IP and, for the writes, from their own
+// Google account. YouTube flags both for volume, and a flagged IP is "Sign in to confirm you're
+// not a bot" on every song the app plays afterwards, not only on the import. Nobody controls when
+// that lifts. So an import goes slower than it could, on purpose, and stops at the first sign that
+// YouTube minds:
+//
+// - one request at a time: a search every 1.2 to 2 s, a write every 3 to 5 s, never in lockstep;
+// - a 15 to 25 s break after every 40 requests;
+// - at most 600 searches in any hour, counted across restarts; past that the import waits and
+//   says until when;
+// - a 429 or 403 from YouTube, or a bot check anywhere in the app (`note_playability`), stops the
+//   import and keeps every import off YouTube for an hour, also across restarts;
+// - no bulk likes, follows or album saves. Mass engagement from one account is what YouTube's spam
+//   filters look for, and the playlists are the migration. Liked Songs comes over as a playlist.
+//
+// ponytail: fixed numbers, chosen conservative with no published limit to aim at. If users report
+// pushback below them, lower them here; there is no setting on purpose.
+
+const SEARCH_GAP_MS: (u64, u64) = (1_200, 2_000);
+const WRITE_GAP_MS: (u64, u64) = (3_000, 5_000);
+const BREAK_EVERY: u32 = 40;
+const BREAK_MS: (u64, u64) = (15_000, 25_000);
+const SEARCHES_PER_HOUR: i64 = 600;
+const HOUR: i64 = 3_600;
+const COOLDOWN_SECS: i64 = HOUR;
+/// `settings` rows: "<window start> <searches in it>", and the unix second the cooldown ends.
+const BUDGET_KEY: &str = "import_search_budget";
+const COOLDOWN_KEY: &str = "import_cooldown_until";
+
+fn between((lo, hi): (u64, u64)) -> Duration {
+    Duration::from_millis(lo + rand::random::<u64>() % (hi - lo))
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Ask {
+    Search,
+    Write,
+}
+
+struct Pacer {
+    last: Option<Instant>,
+    since_break: u32,
+}
+
+static PACER: Mutex<Pacer> = Mutex::new(Pacer { last: None, since_break: 0 });
+
+/// Take the next request slot: `gap` after the last one, or `now` if that has passed. Taken under
+/// the lock, so two callers at once (an import and a pasted link) queue one behind the other
+/// instead of firing together; time already spent since the last request counts toward the gap.
+fn reserve(p: &mut Pacer, now: Instant, gap: Duration) -> Instant {
+    let at = p.last.map_or(now, |t| (t + gap).max(now));
+    p.last = Some(at);
+    at
+}
+
+/// Unix second of the last bot check the player saw, 0 for none.
+static BOT_CHECK_AT: AtomicI64 = AtomicI64::new(0);
+
+/// The orchestrator's hook: every playback YouTube refused passes its reason through here. A bot
+/// check means the IP is already on thin ice, whatever the import is doing.
+///
+/// Matched on words because the status is a plain `LOGIN_REQUIRED`, which a region lock answers
+/// too. The reason comes in the app's language; these words cover English, German, Spanish,
+/// Italian, Dutch, French, Portuguese and Russian. The import's own 429/403 check is the guard
+/// that doesn't depend on wording.
+pub fn note_playability(reason: Option<&str>) {
+    if reason.is_some_and(is_bot_check) {
+        BOT_CHECK_AT.store(now_secs(), Ordering::Relaxed);
+    }
+}
+
+fn is_bot_check(reason: &str) -> bool {
+    reason
+        .to_lowercase()
+        .split(|c: char| !c.is_alphanumeric())
+        .any(|w| matches!(w, "bot" | "bots" | "robot" | "robô" | "робот"))
+}
+
+/// Why a step stopped short.
+enum Halt {
+    /// Stopped by the user, or replaced by a newer import: nothing to say.
+    Cancelled,
+    /// YouTube pushed back, now or within the cooldown. The unix second it ends.
+    Cooldown(i64),
+    Failed(String),
+}
+
+impl Halt {
+    /// What the UI is told: a code it words (`cooldown:<until>`), or the message as it is.
+    fn code(self) -> String {
+        match self {
+            Halt::Cancelled => "gone".into(),
+            Halt::Cooldown(until) => format!("cooldown:{until}"),
+            Halt::Failed(m) => m,
+        }
+    }
+}
+
+/// YouTube telling us to slow down: a 429, or the 403 it answers an anonymous search with.
+fn pushed_back(e: &innertube::Error) -> bool {
+    matches!(e, innertube::Error::Http(h) if matches!(h.status().map(|s| s.as_u16()), Some(429 | 403)))
+}
+
+/// What an error from YouTube means for the import. Pushback starts the cooldown.
+fn halt_for(state: &AppState, e: innertube::Error) -> Halt {
+    if pushed_back(&e) {
+        tracing::warn!(error = %e, "import: YouTube pushed back, cooling down");
+        Halt::Cooldown(start_cooldown(state, now_secs()))
+    } else {
+        Halt::Failed(e.to_string())
+    }
+}
+
+fn cooldown_setting(state: &AppState) -> i64 {
+    state.db.get_setting(COOLDOWN_KEY).and_then(|v| v.parse().ok()).unwrap_or(0)
+}
+
+/// Start the cooldown, or stretch one already running, from `from`. Answers when it ends.
+fn start_cooldown(state: &AppState, from: i64) -> i64 {
+    let until = from + COOLDOWN_SECS;
+    let current = cooldown_setting(state);
+    if until > current {
+        state.db.set_setting(COOLDOWN_KEY, &until.to_string());
+    }
+    until.max(current)
+}
+
+/// When the cooldown ends, if one is running.
+fn cooldown(state: &AppState) -> Option<i64> {
+    let seen = BOT_CHECK_AT.load(Ordering::Relaxed);
+    let until = if seen > 0 { start_cooldown(state, seen) } else { cooldown_setting(state) };
+    (until > now_secs()).then_some(until)
+}
+
+/// When the hourly search budget frees up again, if it is spent. `(window start, searches)`.
+fn over_budget((start, count): (i64, i64), now: i64) -> Option<i64> {
+    (now - start < HOUR && count >= SEARCHES_PER_HOUR).then_some(start + HOUR)
+}
+
+/// The budget after one more search.
+fn spend((start, count): (i64, i64), now: i64) -> (i64, i64) {
+    if now - start >= HOUR {
+        (now, 1)
+    } else {
+        (start, count + 1)
+    }
+}
+
+fn budget(state: &AppState) -> (i64, i64) {
+    state
+        .db
+        .get_setting(BUDGET_KEY)
+        .and_then(|v| {
+            let (a, b) = v.split_once(' ')?;
+            Some((a.parse().ok()?, b.parse().ok()?))
+        })
+        .unwrap_or((0, 0))
+}
+
+/// Wait until the next request to YouTube is welcome, or say why there won't be one. Every
+/// import request goes through here: the matching searches, the playlist writes, an update, a
+/// pasted Spotify link. `gen` ties the wait to a job, so a stopped import stops waiting.
+async fn before_youtube(state: &AppState, gen: Option<u64>, ask: Ask) -> Result<(), Halt> {
+    let check = || -> Result<(), Halt> {
+        if let Some(until) = cooldown(state) {
+            return Err(Halt::Cooldown(until));
+        }
+        if gen.is_some_and(|g| !alive(g)) {
+            return Err(Halt::Cancelled);
+        }
+        Ok(())
+    };
+    check()?;
+    if ask == Ask::Search {
+        while let Some(at) = over_budget(budget(state), now_secs()) {
+            if let Some(g) = gen {
+                set_waiting(state, g, Some(at));
+            }
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            check()?;
+        }
+        if let Some(g) = gen {
+            set_waiting(state, g, None);
+        }
+    }
+    let at = {
+        let mut p = PACER.lock().unwrap();
+        let mut gap = between(if ask == Ask::Search { SEARCH_GAP_MS } else { WRITE_GAP_MS });
+        if p.since_break >= BREAK_EVERY {
+            p.since_break = 0;
+            gap += between(BREAK_MS);
+        }
+        p.since_break += 1;
+        reserve(&mut p, Instant::now(), gap)
+    };
+    tokio::time::sleep_until(at.into()).await;
+    check()?;
+    if ask == Ask::Search {
+        let (start, count) = spend(budget(state), now_secs());
+        state.db.set_setting(BUDGET_KEY, &format!("{start} {count}"));
+    }
+    Ok(())
+}
+
+/// Search for one track: songs first, then videos when no song is even a plausible guess
+/// (covers, live sets and releases that never got an official upload only exist as videos; the
+/// video search answers nothing when the user hides music videos). Best first, at most six.
 async fn search(
     state: &AppState,
+    gen: Option<u64>,
     src: &SourceTrack,
-) -> Result<Vec<(f64, SongItem)>, innertube::Error> {
-    let client = metadata_client(state).map_err(innertube::Error::Other)?;
+) -> Result<Vec<(f64, SongItem)>, Halt> {
+    let client = metadata_client(state).map_err(Halt::Failed)?;
     let q = query(src);
     let mut out = Vec::new();
-    rank(src, state.it.search_songs(client, &q, false).await?.items, &mut out);
-    if out.iter().all(|(s, _)| *s < MATCHED) {
-        tokio::time::sleep(pace()).await;
-        if let Ok(r) = state.it.search_videos(client, &q).await {
-            rank(src, r.items, &mut out);
+    before_youtube(state, gen, Ask::Search).await?;
+    let songs = state.it.search_songs(client, &q, false).await.map_err(|e| halt_for(state, e))?;
+    rank(src, songs.items, &mut out);
+    if out.iter().all(|(s, _)| *s < CHECK) {
+        before_youtube(state, gen, Ask::Search).await?;
+        match state.it.search_videos(client, &q).await {
+            Ok(r) => rank(src, r.items, &mut out),
+            Err(e) if pushed_back(&e) => return Err(halt_for(state, e)),
+            Err(_) => {}
         }
     }
     out.sort_by(|a, b| b.0.total_cmp(&a.0));
     out.truncate(6);
     Ok(out)
-}
-
-/// YouTube telling us to slow down. Everything matched so far is cached, so stopping costs
-/// nothing but time; pushing on is how the IP ends up flagged.
-fn throttled(e: &innertube::Error) -> bool {
-    matches!(e, innertube::Error::Http(h) if matches!(h.status().map(|s| s.as_u16()), Some(429 | 403)))
 }
 
 // --- rows and the cache --------------------------------------------------------------------------
@@ -415,28 +617,19 @@ struct Recent {
     thumbnail: Option<String>,
 }
 
-#[derive(Clone, Default, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct Extras {
-    liked: usize,
-    followed: usize,
-    saved: usize,
-}
-
 struct Job {
     gen: u64,
     phase: Phase,
     lists: Vec<Picked>,
     rows: Vec<Row>,
     index: HashMap<String, usize>,
-    artists: Vec<String>,
-    albums: Vec<SavedAlbum>,
     /// An "Update from Spotify" of this playlist: no review, and the writes are a diff.
     update_of: Option<String>,
     step: (usize, usize),
+    /// Waiting out the hourly search budget: the unix second it frees up.
+    waiting_until: Option<i64>,
     message: Option<String>,
     results: Vec<ListResult>,
-    extras: Extras,
     recent: VecDeque<Recent>,
     last_emit: Option<Instant>,
 }
@@ -461,18 +654,16 @@ pub struct Snapshot {
     check: usize,
     missing: usize,
     lists: Vec<ListBrief>,
-    artists: usize,
-    albums: usize,
     recent: Vec<Recent>,
     step: [usize; 2],
+    waiting_until: Option<i64>,
     message: Option<String>,
     results: Vec<ListResult>,
-    extras: Extras,
     update: Option<String>,
 }
 
 impl Job {
-    fn new(gen: u64, lists: Vec<SourceList>, artists: Vec<String>, albums: Vec<SavedAlbum>) -> Job {
+    fn new(gen: u64, lists: Vec<SourceList>) -> Job {
         let mut rows: Vec<Row> = Vec::new();
         let mut index = HashMap::new();
         let lists = lists
@@ -507,13 +698,11 @@ impl Job {
             lists,
             rows,
             index,
-            artists,
-            albums,
             update_of: None,
             step: (0, 0),
+            waiting_until: None,
             message: None,
             results: Vec::new(),
-            extras: Extras::default(),
             recent: VecDeque::new(),
             last_emit: None,
         }
@@ -553,13 +742,11 @@ impl Job {
                     cover: l.cover.clone(),
                 })
                 .collect(),
-            artists: self.artists.len(),
-            albums: self.albums.len(),
             recent: self.recent.iter().cloned().collect(),
             step: [self.step.0, self.step.1],
+            waiting_until: self.waiting_until,
             message: self.message.clone(),
             results: self.results.clone(),
-            extras: self.extras.clone(),
             update: self.update_of.clone(),
         }
     }
@@ -606,14 +793,28 @@ fn emit(state: &AppState, gen: u64, force: bool) {
     let _ = state.app.emit("import-progress", snapshot);
 }
 
+fn set_waiting(state: &AppState, gen: u64, until: Option<i64>) {
+    if with_job(gen, |j| std::mem::replace(&mut j.waiting_until, until) != until) == Some(true) {
+        emit(state, gen, true);
+    }
+}
+
 fn finish(state: &AppState, gen: u64, phase: Phase, message: Option<String>) {
     if with_job(gen, |j| {
         j.phase = phase;
+        j.waiting_until = None;
         j.message = message;
     })
     .is_some()
     {
         emit(state, gen, true);
+    }
+}
+
+/// End the job for a [`Halt`]. A cancelled one already says so.
+fn halt(state: &AppState, gen: u64, h: Halt) {
+    if !matches!(h, Halt::Cancelled) {
+        finish(state, gen, Phase::Failed, Some(h.code()));
     }
 }
 
@@ -635,8 +836,6 @@ pub struct ListPreview {
 #[serde(rename_all = "camelCase")]
 pub struct Preview {
     lists: Vec<ListPreview>,
-    artists: usize,
-    albums: usize,
 }
 
 fn keep(lib: spotify::Library) -> Preview {
@@ -654,8 +853,6 @@ fn keep(lib: spotify::Library) -> Preview {
                 truncated: l.truncated,
             })
             .collect(),
-        artists: lib.artists.len(),
-        albums: lib.albums.len(),
     };
     IMPORT.lock().unwrap().pending = Some(lib);
     preview
@@ -664,7 +861,7 @@ fn keep(lib: spotify::Library) -> Preview {
 pub async fn read_link(link: &str) -> Result<Preview, String> {
     let (kind, id) = spotify::parse_link(link).ok_or("not_spotify")?;
     let list = spotify::read_link(kind, &id).await?;
-    Ok(keep(spotify::Library { lists: vec![list], ..Default::default() }))
+    Ok(keep(spotify::Library { lists: vec![list] }))
 }
 
 pub fn read_file(bytes: &[u8], name: &str) -> Result<Preview, String> {
@@ -673,15 +870,19 @@ pub fn read_file(bytes: &[u8], name: &str) -> Result<Preview, String> {
 
 // --- matching phase ------------------------------------------------------------------------------
 
-/// Start matching the picked lists (indices into the last [`Preview`]).
+/// Start matching the picked lists (indices into the last [`Preview`]). Refused while a cooldown
+/// runs: the import would only wait on it.
 pub fn start(state: &Arc<AppState>, picked: Vec<usize>) -> Result<Snapshot, String> {
+    if let Some(until) = cooldown(state) {
+        return Err(Halt::Cooldown(until).code());
+    }
     let mut g = IMPORT.lock().unwrap();
     if g.job.as_ref().is_some_and(Job::running) {
         return Err("busy".into());
     }
     let lib = g.pending.as_ref().ok_or("nothing_read")?;
     let lists: Vec<SourceList> = picked.iter().filter_map(|&i| lib.lists.get(i).cloned()).collect();
-    let job = Job::new(g.gen + 1, lists, lib.artists.clone(), lib.albums.clone());
+    let job = Job::new(g.gen + 1, lists);
     g.gen += 1;
     let gen = g.gen;
     let snapshot = job.snapshot();
@@ -715,32 +916,24 @@ async fn run_matching(state: Arc<AppState>, gen: u64) {
     emit(&state, gen, true);
 
     let mut failures = 0;
-    for (n, (i, key, track)) in network.into_iter().enumerate() {
-        if !alive(gen) {
-            return;
-        }
-        if n > 0 {
-            tokio::time::sleep(pace()).await;
-        }
-        match search(&state, &track).await {
+    for (i, key, track) in network {
+        match search(&state, Some(gen), &track).await {
             Ok(ranked) => {
                 failures = 0;
                 let answer = classify(ranked);
                 remember(&state, &key, &answer, false);
                 with_job(gen, |j| j.resolve(i, answer));
             }
-            Err(e) => {
+            Err(Halt::Failed(e)) => {
                 tracing::warn!(error = %e, "import: search failed");
                 failures += 1;
-                if throttled(&e) {
-                    return finish(&state, gen, Phase::Failed, Some("rate_limited".into()));
-                }
                 if failures >= 3 {
-                    return finish(&state, gen, Phase::Failed, Some(e.to_string()));
+                    return finish(&state, gen, Phase::Failed, Some(e));
                 }
                 // Not remembered: a failed search is not an answer.
                 with_job(gen, |j| j.resolve(i, (Tier::Missing, None, Vec::new())));
             }
+            Err(h) => return halt(&state, gen, h),
         }
         emit(&state, gen, false);
     }
@@ -753,13 +946,9 @@ async fn run_matching(state: Arc<AppState>, gen: u64) {
             run_update(state, gen, playlist_id).await;
         }
         None => {
-            // Review isn't "running", so this is written directly rather than through `with_job`.
-            let mut g = IMPORT.lock().unwrap();
-            if let Some(j) = g.job.as_mut().filter(|j| j.gen == gen && j.running()) {
-                j.phase = Phase::Review;
+            if with_job(gen, |j| j.phase = Phase::Review).is_some() {
+                emit(&state, gen, true);
             }
-            drop(g);
-            emit(&state, gen, true);
         }
     }
 }
@@ -827,6 +1016,7 @@ pub fn cancel(state: &AppState) {
     let gen = match g.job.as_mut() {
         Some(j) if j.running() => {
             j.phase = Phase::Cancelled;
+            j.waiting_until = None;
             j.gen
         }
         _ => {
@@ -848,22 +1038,21 @@ pub struct CreateOptions {
     names: HashMap<usize, String>,
     /// On this machine rather than the account. Forced when signed out.
     local: bool,
-    /// Like the Liked Songs tracks on YouTube Music.
-    like: bool,
-    /// Subscribe to the followed artists.
-    follow: bool,
-    /// Save the saved albums.
-    save_albums: bool,
 }
 
 pub fn create(state: &Arc<AppState>, opts: CreateOptions) -> Result<(), String> {
+    let local = opts.local || !state.it.is_logged_in();
+    // On this machine nothing goes to YouTube, so only the account needs to wait.
+    if let Some(until) = cooldown(state).filter(|_| !local) {
+        return Err(Halt::Cooldown(until).code());
+    }
     let gen = {
         let mut g = IMPORT.lock().unwrap();
         let j = g.job.as_mut().filter(|j| j.phase == Phase::Review).ok_or("gone")?;
         j.phase = Phase::Creating;
         j.gen
     };
-    tauri::async_runtime::spawn(run_create(Arc::clone(state), gen, opts));
+    tauri::async_runtime::spawn(run_create(Arc::clone(state), gen, opts.names, local));
     Ok(())
 }
 
@@ -896,15 +1085,12 @@ fn songs_for(j: &Job, keys: &[String]) -> (Vec<SongItem>, usize) {
     (songs, missing)
 }
 
-async fn run_create(state: Arc<AppState>, gen: u64, opts: CreateOptions) {
-    let signed_in = state.it.is_logged_in();
-    let local = opts.local || !signed_in;
+async fn run_create(state: Arc<AppState>, gen: u64, names: HashMap<usize, String>, local: bool) {
     let plan = with_job(gen, |j| {
         let mut plan = Vec::new();
         for (i, l) in j.lists.iter().enumerate() {
             let (songs, missing) = songs_for(j, &l.keys);
-            let name = opts
-                .names
+            let name = names
                 .get(&i)
                 .map(|n| n.trim())
                 .filter(|n| !n.is_empty())
@@ -931,33 +1117,25 @@ async fn run_create(state: Arc<AppState>, gen: u64, opts: CreateOptions) {
                 });
             }
         }
-        let liked: Vec<String> = if opts.like && signed_in {
-            plan.iter()
-                .filter(|p| p.kind == ListKind::Liked)
-                .flat_map(|p| p.songs.iter().map(|s| s.video_id.clone()))
-                .collect()
-        } else {
-            Vec::new()
-        };
-        let artists = if opts.follow && signed_in { j.artists.clone() } else { Vec::new() };
-        let albums = if opts.save_albums && signed_in { j.albums.clone() } else { Vec::new() };
-        j.step = (0, plan.len() + liked.len() + artists.len() + albums.len());
-        (plan, liked, artists, albums)
+        j.step = (0, plan.len());
+        plan
     });
-    let Some((plan, liked, artists, albums)) = plan else {
+    let Some(plan) = plan else {
         return;
     };
     emit(&state, gen, true);
 
     for p in plan {
-        if !alive(gen) {
-            return;
-        }
         if !p.songs.is_empty() {
-            match make_playlist(&state, &p.name, &p.songs, local).await {
+            match make_playlist(&state, gen, &p.name, &p.songs, local).await {
                 Ok((id, added)) => {
+                    // On the account the cover is three more requests to YouTube (the upload),
+                    // so it waits its turn like any write, and is skipped rather than pushed
+                    // through a cooldown.
                     if let Some(url) = &p.cover {
-                        set_cover(&state, &id, url).await;
+                        if local || before_youtube(&state, Some(gen), Ask::Write).await.is_ok() {
+                            set_cover(&state, &id, url).await;
+                        }
                     }
                     if let Some(url) = &p.url {
                         save_source(&state, &id, url, &p.keys);
@@ -973,97 +1151,59 @@ async fn run_create(state: Arc<AppState>, gen: u64, opts: CreateOptions) {
                     };
                     with_job(gen, |j| j.results.push(result));
                 }
-                Err(e) => return finish(&state, gen, Phase::Failed, Some(e)),
+                Err(h) => return halt(&state, gen, h),
             }
         }
         with_job(gen, |j| j.step.0 += 1);
         emit(&state, gen, true);
     }
-
-    let client = metadata_client(&state).ok();
-    for video_id in liked {
-        if !alive(gen) {
-            return;
-        }
-        let Some(client) = client else { break };
-        if state.it.rate(client, &video_id, Rating::Like).await.is_ok() {
-            with_job(gen, |j| j.extras.liked += 1);
-        }
-        with_job(gen, |j| j.step.0 += 1);
-        emit(&state, gen, false);
-        tokio::time::sleep(pace()).await;
-    }
-    for name in artists {
-        if !alive(gen) {
-            return;
-        }
-        if follow_artist(&state, &name).await {
-            with_job(gen, |j| j.extras.followed += 1);
-        }
-        with_job(gen, |j| j.step.0 += 1);
-        emit(&state, gen, false);
-        tokio::time::sleep(pace()).await;
-    }
-    for album in albums {
-        if !alive(gen) {
-            return;
-        }
-        if save_album(&state, &album).await {
-            with_job(gen, |j| j.extras.saved += 1);
-        }
-        with_job(gen, |j| j.step.0 += 1);
-        emit(&state, gen, false);
-        tokio::time::sleep(pace()).await;
-    }
     finish(&state, gen, Phase::Done, None);
 }
 
-/// Add `ids` to an account playlist in batches, answering the ones that went in. YouTube applies a
-/// batch whole or not at all, so a refused one is retried a track at a time: a video it won't take
-/// (taken down, blocked in the region) then costs only itself. An error only when nothing went in.
+/// Add `ids` to an account playlist, answering the ones that went in. YouTube applies a batch
+/// whole or not at all, so a refused one is halved until the track it won't take (taken down,
+/// blocked in the region) is alone: a few requests to find it, not one per track. Pushback or an
+/// expired session stops it at once.
 async fn add_all(
     state: &AppState,
+    gen: Option<u64>,
     playlist_id: &str,
     ids: &[String],
-) -> Result<Vec<String>, String> {
-    let client = metadata_client(state)?;
+) -> Result<Vec<String>, Halt> {
+    let client = metadata_client(state).map_err(Halt::Failed)?;
     let mut added = Vec::new();
-    let mut last_err = None;
-    for (n, chunk) in ids.chunks(100).enumerate() {
-        if n > 0 {
-            tokio::time::sleep(pace()).await;
-        }
-        let Err(e) = state.it.playlist_add_many(client, playlist_id, chunk).await else {
-            added.extend_from_slice(chunk);
-            continue;
-        };
-        tracing::warn!(error = %e, "import: batch refused, adding one at a time");
-        for v in chunk {
-            tokio::time::sleep(pace()).await;
-            match state.it.playlist_add(client, playlist_id, v, false).await {
-                Ok(true) => added.push(v.clone()),
-                Ok(false) => {}
-                // No point asking a hundred more times.
-                Err(e @ innertube::Error::SessionExpired) => return Err(e.to_string()),
-                Err(e) => last_err = Some(e.to_string()),
+    let mut todo: VecDeque<&[String]> = ids.chunks(100).collect();
+    while let Some(piece) = todo.pop_front() {
+        before_youtube(state, gen, Ask::Write).await?;
+        match state.it.playlist_add_many(client, playlist_id, piece).await {
+            Ok(()) => added.extend_from_slice(piece),
+            Err(e) if pushed_back(&e) || matches!(e, innertube::Error::SessionExpired) => {
+                return Err(halt_for(state, e));
+            }
+            Err(e) if piece.len() == 1 => {
+                tracing::warn!(error = %e, video_id = %piece[0], "import: YouTube won't take this track")
+            }
+            Err(_) => {
+                let (a, b) = piece.split_at(piece.len() / 2);
+                todo.push_front(b);
+                todo.push_front(a);
             }
         }
     }
-    match last_err {
-        Some(e) if added.is_empty() && !ids.is_empty() => Err(e),
-        _ => Ok(added),
-    }
+    Ok(added)
 }
 
 /// Create the playlist and fill it. Answers the browse id the UI opens and how many went in.
 async fn make_playlist(
     state: &Arc<AppState>,
+    gen: u64,
     name: &str,
     songs: &[SongItem],
     local: bool,
-) -> Result<(String, usize), String> {
+) -> Result<(String, usize), Halt> {
     if local {
-        let id = state.db.create_local_playlist(name, now_secs()).map_err(|e| e.to_string())?;
+        let failed = |e: &dyn std::fmt::Display| Halt::Failed(e.to_string());
+        let id = state.db.create_local_playlist(name, now_secs()).map_err(|e| failed(&e))?;
         let rows = songs
             .iter()
             .map(|s| {
@@ -1071,15 +1211,16 @@ async fn make_playlist(
                 serde_json::to_string(&s).map(|json| (s.video_id, json))
             })
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| e.to_string())?;
-        state.db.add_local_playlist_tracks(id, &rows, now_secs()).map_err(|e| e.to_string())?;
+            .map_err(|e| failed(&e))?;
+        state.db.add_local_playlist_tracks(id, &rows, now_secs()).map_err(|e| failed(&e))?;
         return Ok((format!("{LOCAL_PLAYLIST_PREFIX}{id}"), rows.len()));
     }
-    let client = metadata_client(state)?;
-    let id = state.it.create_playlist(client, name).await.map_err(|e| e.to_string())?;
+    let client = metadata_client(state).map_err(Halt::Failed)?;
+    before_youtube(state, Some(gen), Ask::Write).await?;
+    let id = state.it.create_playlist(client, name).await.map_err(|e| halt_for(state, e))?;
     let browse_id = format!("VL{id}");
     let ids: Vec<String> = songs.iter().map(|s| s.video_id.clone()).collect();
-    let added = add_all(state, &browse_id, &ids).await?;
+    let added = add_all(state, Some(gen), &browse_id, &ids).await?;
     state.db.set_playlist_tracks(&browse_id, &added);
     Ok((browse_id, added.len()))
 }
@@ -1110,14 +1251,6 @@ async fn set_cover(state: &Arc<AppState>, playlist_id: &str, url: &str) {
     let _ = std::fs::remove_file(&tmp);
 }
 
-async fn follow_artist(state: &AppState, name: &str) -> bool {
-    let Ok(client) = metadata_client(state) else { return false };
-    let Ok(cards) = state.it.search_cards(client, name, "artists").await else { return false };
-    let want = norm(name);
-    let Some(card) = cards.into_iter().find(|c| norm(&c.title) == want) else { return false };
-    state.it.subscribe(client, &card.id, true).await.is_ok()
-}
-
 fn album_score(want: &SavedAlbum, card: &BrowseItem) -> f64 {
     let title = title_score(&strip_dressing(&want.title).0, &strip_dressing(&card.title).0);
     let artist = norm(&want.artist);
@@ -1127,24 +1260,18 @@ fn album_score(want: &SavedAlbum, card: &BrowseItem) -> f64 {
     0.7 * title + if by { 0.3 } else { 0.0 }
 }
 
-async fn find_album(state: &AppState, want: &SavedAlbum) -> Option<BrowseItem> {
-    let client = metadata_client(state).ok()?;
+async fn find_album(state: &AppState, want: &SavedAlbum) -> Result<Option<BrowseItem>, Halt> {
+    let client = metadata_client(state).map_err(Halt::Failed)?;
     let q = format!("{} {}", want.title, want.artist);
-    let cards = state.it.search_cards(client, q.trim(), "albums").await.ok()?;
-    cards
+    before_youtube(state, None, Ask::Search).await?;
+    let cards =
+        state.it.search_cards(client, q.trim(), "albums").await.map_err(|e| halt_for(state, e))?;
+    Ok(cards
         .into_iter()
         .map(|c| (album_score(want, &c), c))
         .filter(|(s, _)| *s >= 0.75)
         .max_by(|a, b| a.0.total_cmp(&b.0))
-        .map(|(_, c)| c)
-}
-
-async fn save_album(state: &AppState, want: &SavedAlbum) -> bool {
-    let Some(card) = find_album(state, want).await else { return false };
-    let Ok(client) = metadata_client(state) else { return false };
-    let Ok(page) = state.it.album(client, &card.id).await else { return false };
-    let Some(playlist_id) = page.playlist_id else { return false };
-    state.it.like_playlist(client, &playlist_id, true).await.is_ok()
+        .map(|(_, c)| c))
 }
 
 // --- "Update from Spotify" -----------------------------------------------------------------------
@@ -1177,6 +1304,9 @@ pub fn source_url(state: &AppState, playlist_id: &str) -> Option<String> {
 }
 
 pub async fn update(state: &Arc<AppState>, playlist_id: String) -> Result<Snapshot, String> {
+    if let Some(until) = cooldown(state).filter(|_| !is_local_playlist(&playlist_id)) {
+        return Err(Halt::Cooldown(until).code());
+    }
     if IMPORT.lock().unwrap().job.as_ref().is_some_and(Job::running) {
         return Err("busy".into());
     }
@@ -1188,7 +1318,7 @@ pub async fn update(state: &Arc<AppState>, playlist_id: String) -> Result<Snapsh
         return Err("busy".into());
     }
     g.gen += 1;
-    let mut job = Job::new(g.gen, vec![list], Vec::new(), Vec::new());
+    let mut job = Job::new(g.gen, vec![list]);
     job.update_of = Some(playlist_id);
     let gen = g.gen;
     let snapshot = job.snapshot();
@@ -1202,13 +1332,14 @@ pub async fn update(state: &Arc<AppState>, playlist_id: String) -> Result<Snapsh
 /// `set_video_id` a removal needs; for a playlist on this machine, the row id).
 async fn current_rows(
     state: &AppState,
+    gen: u64,
     playlist_id: &str,
-) -> Result<Vec<(String, String)>, String> {
+) -> Result<Vec<(String, String)>, Halt> {
     if is_local_playlist(playlist_id) {
         let key: i64 = playlist_id
             .strip_prefix(LOCAL_PLAYLIST_PREFIX)
             .and_then(|n| n.parse().ok())
-            .ok_or("gone")?;
+            .ok_or_else(|| Halt::Failed("gone".into()))?;
         return Ok(state
             .db
             .local_playlist_tracks(key)
@@ -1219,18 +1350,22 @@ async fn current_rows(
             })
             .collect());
     }
-    let client = metadata_client(state)?;
-    let page = state.it.playlist(client, playlist_id, None).await.map_err(|e| e.to_string())?;
+    let client = metadata_client(state).map_err(Halt::Failed)?;
+    // Reads, so paced like the searches, and the same budget.
+    before_youtube(state, Some(gen), Ask::Search).await?;
+    let page =
+        state.it.playlist(client, playlist_id, None).await.map_err(|e| halt_for(state, e))?;
     let mut out: Vec<(String, String)> = Vec::new();
-    let mut push = |items: Vec<SongItem>| {
+    let push = |out: &mut Vec<(String, String)>, items: Vec<SongItem>| {
         out.extend(items.into_iter().map(|s| (s.video_id, s.set_video_id.unwrap_or_default())))
     };
-    push(page.items);
+    push(&mut out, page.items);
     let mut token = page.continuation;
     while let Some(next) = token.take() {
+        before_youtube(state, Some(gen), Ask::Search).await?;
         let more =
-            state.it.playlist_continuation(client, &next).await.map_err(|e| e.to_string())?;
-        push(more.items);
+            state.it.playlist_continuation(client, &next).await.map_err(|e| halt_for(state, e))?;
+        push(&mut out, more.items);
         token = more.continuation;
     }
     Ok(out)
@@ -1249,9 +1384,9 @@ async fn run_update(state: Arc<AppState>, gen: u64, playlist_id: String) {
     }) else {
         return;
     };
-    let current = match current_rows(&state, &playlist_id).await {
+    let current = match current_rows(&state, gen, &playlist_id).await {
         Ok(rows) => rows,
-        Err(e) => return finish(&state, gen, Phase::Failed, Some(e)),
+        Err(h) => return halt(&state, gen, h),
     };
     let have: HashSet<&str> = current.iter().map(|(v, _)| v.as_str()).collect();
     let old_keys: HashSet<&str> = old.keys.iter().map(String::as_str).collect();
@@ -1284,13 +1419,13 @@ async fn run_update(state: Arc<AppState>, gen: u64, playlist_id: String) {
         current.iter().filter(|(v, _)| gone_videos.contains(v)).cloned().collect();
 
     let applied = if is_local_playlist(&playlist_id) {
-        apply_local(&state, &playlist_id, &add, &remove)
+        apply_local(&state, &playlist_id, &add, &remove).map_err(Halt::Failed)
     } else {
-        apply_account(&state, &playlist_id, &add, &remove).await
+        apply_account(&state, gen, &playlist_id, &add, &remove).await
     };
     let added = match applied {
         Ok(n) => n,
-        Err(e) => return finish(&state, gen, Phase::Failed, Some(e)),
+        Err(h) => return halt(&state, gen, h),
     };
     save_source(&state, &playlist_id, &old.url, &new_keys);
     let result = ListResult {
@@ -1338,26 +1473,28 @@ fn apply_local(
 
 async fn apply_account(
     state: &AppState,
+    gen: u64,
     playlist_id: &str,
     add: &[SongItem],
     remove: &[(String, String)],
-) -> Result<usize, String> {
-    let client = metadata_client(state)?;
+) -> Result<usize, Halt> {
+    let client = metadata_client(state).map_err(Halt::Failed)?;
     // A row without its handle can't be removed, and one bad entry would sink the whole batch.
     let remove: Vec<(String, String)> =
         remove.iter().filter(|(_, h)| !h.is_empty()).cloned().collect();
     if !remove.is_empty() {
+        before_youtube(state, Some(gen), Ask::Write).await?;
         state
             .it
             .playlist_remove_many(client, playlist_id, &remove)
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| halt_for(state, e))?;
         for (v, _) in &remove {
             state.db.remove_playlist_track(playlist_id, v);
         }
     }
     let ids: Vec<String> = add.iter().map(|s| s.video_id.clone()).collect();
-    let added = add_all(state, playlist_id, &ids).await?;
+    let added = add_all(state, Some(gen), playlist_id, &ids).await?;
     for v in &added {
         state.db.add_playlist_track(playlist_id, v);
     }
@@ -1383,7 +1520,8 @@ pub enum Resolved {
 }
 
 /// What a pasted Spotify link is on YouTube Music: the song a track link plays, the album or
-/// artist page an album or artist link opens.
+/// artist page an album or artist link opens. Its searches are paced and budgeted like an
+/// import's: someone pasting links one after another is the same traffic.
 pub async fn resolve(state: &AppState, link: &str) -> Result<Resolved, String> {
     let (kind, id) = spotify::parse_link(link).ok_or("not_spotify")?;
     match kind {
@@ -1394,7 +1532,7 @@ pub async fn resolve(state: &AppState, link: &str) -> Result<Resolved, String> {
             let answer = match cached(state, &k) {
                 Some(a) => a,
                 None => {
-                    let a = classify(search(state, &track).await.map_err(|e| e.to_string())?);
+                    let a = classify(search(state, None, &track).await.map_err(Halt::code)?);
                     remember(state, &k, &a, false);
                     a
                 }
@@ -1407,14 +1545,18 @@ pub async fn resolve(state: &AppState, link: &str) -> Result<Resolved, String> {
         LinkKind::Album => {
             let (title, artist) = spotify::read_name(kind, &id).await?;
             let want = SavedAlbum { title, artist: artist.unwrap_or_default() };
-            let card = find_album(state, &want).await.ok_or("not_found")?;
+            let card = find_album(state, &want).await.map_err(Halt::code)?.ok_or("not_found")?;
             Ok(Resolved::Album { id: card.id })
         }
         LinkKind::Artist => {
             let (name, _) = spotify::read_name(kind, &id).await?;
             let client = metadata_client(state)?;
-            let cards =
-                state.it.search_cards(client, &name, "artists").await.map_err(|e| e.to_string())?;
+            before_youtube(state, None, Ask::Search).await.map_err(Halt::code)?;
+            let cards = state
+                .it
+                .search_cards(client, &name, "artists")
+                .await
+                .map_err(|e| halt_for(state, e).code())?;
             let want = norm(&name);
             let card = cards
                 .iter()
@@ -1577,5 +1719,41 @@ mod tests {
             album_score(&want, &card("1984", "Album \u{2022} Some Tribute Band \u{2022} 2004"))
                 < 0.75
         );
+    }
+
+    #[test]
+    fn requests_queue_behind_each_other() {
+        let mut p = Pacer { last: None, since_break: 0 };
+        let now = Instant::now();
+        let gap = Duration::from_secs(2);
+        assert_eq!(reserve(&mut p, now, gap), now);
+        // Two more asked for at the same moment get consecutive slots, not the same one.
+        assert_eq!(reserve(&mut p, now, gap), now + gap);
+        assert_eq!(reserve(&mut p, now, gap), now + gap * 2);
+        // After a long idle the next one goes straight away.
+        let later = now + Duration::from_secs(60);
+        assert_eq!(reserve(&mut p, later, gap), later);
+    }
+
+    #[test]
+    fn hourly_budget() {
+        let now = 10_000;
+        assert_eq!(over_budget((0, 0), now), None);
+        assert_eq!(over_budget((now - 10, SEARCHES_PER_HOUR - 1), now), None);
+        assert_eq!(over_budget((now - 10, SEARCHES_PER_HOUR), now), Some(now - 10 + HOUR));
+        // An hour on, the window starts over.
+        assert_eq!(over_budget((now - HOUR, SEARCHES_PER_HOUR), now), None);
+        assert_eq!(spend((now - 10, 5), now), (now - 10, 6));
+        assert_eq!(spend((now - HOUR, SEARCHES_PER_HOUR), now), (now, 1));
+    }
+
+    #[test]
+    fn bot_checks() {
+        assert!(is_bot_check("Sign in to confirm you\u{2019}re not a bot"));
+        assert!(is_bot_check("Melde dich an, um zu best\u{e4}tigen, dass du kein Bot bist"));
+        assert!(is_bot_check("Connectez-vous pour confirmer que vous n'\u{ea}tes pas un robot"));
+        assert!(!is_bot_check("This video is not available in your country"));
+        // "both" has "bot" in it; only the word counts.
+        assert!(!is_bot_check("Not available on both"));
     }
 }

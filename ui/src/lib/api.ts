@@ -738,9 +738,6 @@ export interface ImportListPreview {
 }
 export interface ImportPreview {
 	lists: ImportListPreview[];
-	/** Followed artists and saved albums, from the data export only. */
-	artists: number;
-	albums: number;
 }
 export interface ImportResult {
 	kind: ImportListKind;
@@ -761,15 +758,14 @@ export interface ImportSnapshot {
 	check: number;
 	missing: number;
 	lists: { kind: ImportListKind; name: string; count: number; cover?: string | null }[];
-	artists: number;
-	albums: number;
 	/** The last few tracks matched, newest first. */
 	recent: { title: string; artists: string; tier: ImportTier; thumbnail?: string | null }[];
 	/** While creating: steps done, steps in all. */
 	step: [number, number];
+	/** Pausing to stay within the hourly search budget: the unix second it goes on. */
+	waitingUntil?: number | null;
 	message?: string | null;
 	results: ImportResult[];
-	extras: { liked: number; followed: number; saved: number };
 	/** Set when this is an "Update from Spotify" of that playlist rather than an import. */
 	update?: string | null;
 }
@@ -804,13 +800,8 @@ export const importRows = (tier: ImportTier) => invoke<ImportRow[]>('import_rows
 /** `null` leaves the track out. A song picked here is remembered for every later import. */
 export const importPick = (key: string, song: SongItem | null) =>
 	invoke<ImportSnapshot>('import_pick', { key, song });
-export const importCreate = (options: {
-	names?: Record<number, string>;
-	local?: boolean;
-	like?: boolean;
-	follow?: boolean;
-	saveAlbums?: boolean;
-}) => invoke<void>('import_create', { options });
+export const importCreate = (options: { names?: Record<number, string>; local?: boolean }) =>
+	invoke<void>('import_create', { options });
 /** Stops a running import, or puts away a finished one. */
 export const importCancel = () => invoke<void>('import_cancel');
 export const importSource = (playlistId: string) =>

@@ -30,12 +30,23 @@ export const imp = $state({
 export const isSpotifyLink = (s: string) =>
 	/(^|\/\/|\s)(open|play)\.spotify\.com\//i.test(s) || /^\s*spotify:/i.test(s);
 
+/** A unix second as a time of day, in the user's own format. */
+export const clockTime = (secs: number) =>
+	new Date(secs * 1000).toLocaleTimeString(undefined, { timeStyle: 'short' });
+
+/** When a `cooldown:<unix seconds>` rejection lets imports reach YouTube again. */
+export function cooldownUntil(message?: string | null): number | null {
+	const m = /^cooldown:(\d+)$/.exec(message ?? '');
+	return m ? Number(m[1]) : null;
+}
+
 /** A rejection from an import command, in the user's language when it is one of ours. */
 export function importError(e: unknown): string {
-	const code = String(e ?? '');
-	const key = `import.errors.${code}` as TranslationKey;
-	const text = t(key);
-	return text === key ? code : text;
+	const raw = String(e ?? '');
+	const until = cooldownUntil(raw);
+	const key = `import.errors.${until ? 'cooldown' : raw}` as TranslationKey;
+	const text = t(key, until ? { time: clockTime(until) } : undefined);
+	return text === key ? raw : text;
 }
 
 /** An import (not an update) is holding the dialog. */
