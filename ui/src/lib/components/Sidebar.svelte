@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state';
+	import { goto } from '$app/navigation';
 	import { scale } from 'svelte/transition';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import {
@@ -15,7 +16,8 @@
 		ListRestartIcon,
 		ComputerIcon,
 		SquareArrowLeft01Icon,
-		SquareArrowRight01Icon
+		SquareArrowRight01Icon,
+		SpotifyIcon
 	} from '@hugeicons/core-free-icons';
 	import { toggleMode } from 'mode-watcher';
 	import { Button } from '$lib/components/ui/button';
@@ -25,6 +27,7 @@
 	import { library, personal, ui, openNewPlaylist, toggleSidebar } from '$lib/player.svelte';
 	import { mergeSaved, orderLibrary } from '$lib/personal';
 	import { t } from '$lib/i18n.svelte';
+	import { imp } from '$lib/import.svelte';
 
 	const nav = $derived([
 		{ href: '/', label: t('nav.home'), icon: Home01Icon },
@@ -66,6 +69,35 @@
 	// style is an `lg:` class, so collapsing is just not emitting them. The flag lives in `ui`
 	// because the overlays that offset by the sidebar's width read it too.
 	const collapsed = $derived(ui.sidebarCollapsed);
+
+	// A Spotify import working in the background (#375): what it is doing, and how far along.
+	const importing = $derived.by(() => {
+		const s = imp.snapshot;
+		if (!s) return null;
+		const of = (done: number, total: number) => (total ? done / total : 0);
+		if (s.update) return { label: t('import.pill_updating'), progress: null };
+		switch (s.phase) {
+			case 'matching':
+				return {
+					label: t('import.pill_matching', { percent: Math.round(of(s.done, s.total) * 100) }),
+					progress: of(s.done, s.total)
+				};
+			case 'review':
+				return { label: t('import.pill_review'), progress: null };
+			case 'creating':
+				return { label: t('import.pill_creating'), progress: of(s.step[0], s.step[1]) };
+			case 'done':
+				return { label: t('import.pill_done'), progress: null };
+			default:
+				return { label: t('import.pill_failed'), progress: null };
+		}
+	});
+	// An update has no dialog to go back to, so its pill goes to the playlist instead.
+	function openImporting() {
+		const id = imp.snapshot?.update;
+		if (id) goto(`/playlist/${encodeURIComponent(id)}`);
+		else imp.open = true;
+	}
 	const wide = (cls: string) => (collapsed ? '' : cls);
 </script>
 
@@ -145,6 +177,27 @@
 			<span class="hidden {wide('lg:inline')}">{t('nav.settings')}</span>
 		</button>
 	</nav>
+
+	{#if importing}
+		<button
+			onclick={openImporting}
+			title={importing.label}
+			class="mt-2 flex flex-col gap-1.5 rounded-lg bg-primary/10 px-3 py-2 text-left text-xs font-medium text-primary transition-colors hover:bg-primary/15"
+		>
+			<span class="flex items-center justify-center gap-3 {wide('lg:justify-start')}">
+				<HugeiconsIcon icon={SpotifyIcon} class="h-5 w-5 shrink-0" />
+				<span class="hidden truncate {wide('lg:inline')}">{importing.label}</span>
+			</span>
+			{#if importing.progress !== null}
+				<span class="block h-1 w-full overflow-hidden rounded-full bg-primary/15">
+					<span
+						class="block h-full rounded-full bg-primary transition-[width] duration-300"
+						style="width: {Math.round(importing.progress * 100)}%"
+					></span>
+				</span>
+			{/if}
+		</button>
+	{/if}
 
 	<!-- Playlists. Hidden on the icon rail (needs labels; matches YTM's collapsed rail). flex-1 lets
 	     the list fill the space and scroll. Always there, signed out included: a playlist can be

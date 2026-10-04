@@ -40,6 +40,8 @@
 	import ChannelPicker from '$lib/components/ChannelPicker.svelte';
 	import ListenTogether from '$lib/components/ListenTogether.svelte';
 	import LinkDialog from '$lib/components/LinkDialog.svelte';
+	import ImportDialog from '$lib/components/ImportDialog.svelte';
+	import { handleImportDrop, initImport } from '$lib/import.svelte';
 	import MiniPlayer from '$lib/components/MiniPlayer.svelte';
 	import NowPlaying from '$lib/components/NowPlaying.svelte';
 	import TheaterMode from '$lib/components/TheaterMode.svelte';
@@ -206,6 +208,7 @@
 		const teardownApp = initApp();
 		const teardownZoom = initZoom();
 		const teardownShortcuts = initShortcuts();
+		initImport();
 		return () => {
 			clearInterval(updateTimer);
 			teardownApp();
@@ -219,9 +222,11 @@
 <!-- oncontextmenu: the app's own menus handle their right-click and stop the event, so anything
      that reaches the window is a place where WebKit would have offered back / reload / inspect.
      Text fields and selections keep the native menu (see `suppressNative`). -->
+<!-- A Spotify export, CSV or link dropped anywhere opens the import (#375); anything else foreign is
+     refused as before. -->
 <svelte:window
 	ondragover={blockForeignDrag}
-	ondrop={blockForeignDrag}
+	ondrop={(e) => handleImportDrop(e) || blockForeignDrag(e)}
 	oncontextmenu={suppressNative}
 />
 
@@ -319,6 +324,7 @@
 	<ChannelPicker />
 	<ListenTogether />
 	<LinkDialog />
+	<ImportDialog />
 
 	<!-- The two notification banners below run at z-[100]. Dialogs and menus sit at z-50 and portal to
 	     <body>, so a z-50 banner loses the tie on DOM order and hides behind an open modal. -->

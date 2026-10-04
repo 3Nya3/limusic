@@ -783,6 +783,26 @@ mod tests {
     const PATHFINDER_PAGE: &str =
         include_str!("../tests/fixtures/spotify/pathfinder_playlist_page.json");
 
+    /// Live, against Spotify only (no YouTube): a 150-track editorial playlist comes back whole,
+    /// with albums, which only pathfinder knows. `cargo test -p limusic-app --lib -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn reads_past_the_embed_limit() {
+        let list = read_link(LinkKind::Playlist, "37i9dQZF1DX4UtSsGT1Sbe").await.unwrap();
+        assert!(list.tracks.len() > 100, "{} tracks", list.tracks.len());
+        assert!(!list.truncated);
+        assert!(list.tracks.iter().all(|t| t.album.is_some() && t.duration_ms.is_some()));
+    }
+
+    /// Live: the hash can still be read out of the web player bundle, which is the fallback for
+    /// the day the built-in one stops working.
+    #[tokio::test]
+    #[ignore]
+    async fn heals_the_playlist_hash() {
+        let hash = heal_hash().await.expect("hash not found in the web player bundle");
+        assert_eq!(hash.len(), 64);
+    }
+
     #[test]
     fn links() {
         let id = "37i9dQZF1DX4UtSsGT1Sbe";

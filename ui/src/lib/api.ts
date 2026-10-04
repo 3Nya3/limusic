@@ -717,6 +717,108 @@ export const setSongSaved = (token: string) => invoke<void>('set_song_saved', { 
 export const setAlbumSaved = (playlistId: string, saved: boolean) =>
 	invoke<void>('set_album_saved', { playlistId, saved });
 
+// --- Spotify import (spotify.rs, import.rs, #375) ----------------------------------------------
+// Rejections are short codes (`private`, `busy`, ...) worded by `importError` in import.svelte.ts.
+
+export type ImportTier = 'pending' | 'matched' | 'check' | 'missing';
+export type ImportPhase = 'matching' | 'review' | 'creating' | 'done' | 'failed' | 'cancelled';
+/** `liked` is Liked Songs, named in the user's language on this side. */
+export type ImportListKind = 'playlist' | 'album' | 'liked';
+
+export interface ImportListPreview {
+	kind: ImportListKind;
+	name: string;
+	owner?: string | null;
+	cover?: string | null;
+	count: number;
+	/** Rows that aren't songs (podcast episodes), left out. */
+	skipped: number;
+	/** Spotify only let the first 100 tracks be read. */
+	truncated: boolean;
+}
+export interface ImportPreview {
+	lists: ImportListPreview[];
+	/** Followed artists and saved albums, from the data export only. */
+	artists: number;
+	albums: number;
+}
+export interface ImportResult {
+	kind: ImportListKind;
+	name: string;
+	/** The browse id to open: `VL…`, or `LOCALPLAYLIST:<n>` on this device. */
+	id: string;
+	local: boolean;
+	added: number;
+	missing: number;
+	removed: number;
+}
+export interface ImportSnapshot {
+	phase: ImportPhase;
+	/** Distinct tracks across every list being imported. */
+	total: number;
+	done: number;
+	matched: number;
+	check: number;
+	missing: number;
+	lists: { kind: ImportListKind; name: string; count: number; cover?: string | null }[];
+	artists: number;
+	albums: number;
+	/** The last few tracks matched, newest first. */
+	recent: { title: string; artists: string; tier: ImportTier; thumbnail?: string | null }[];
+	/** While creating: steps done, steps in all. */
+	step: [number, number];
+	message?: string | null;
+	results: ImportResult[];
+	extras: { liked: number; followed: number; saved: number };
+	/** Set when this is an "Update from Spotify" of that playlist rather than an import. */
+	update?: string | null;
+}
+export interface ImportRow {
+	key: string;
+	title: string;
+	artists: string;
+	album?: string | null;
+	durationMs?: number | null;
+	tier: ImportTier;
+	pick?: SongItem | null;
+	/** Empty for matched rows. */
+	candidates: SongItem[];
+}
+export type ImportResolved =
+	| { kind: 'song'; song: SongItem }
+	| { kind: 'album'; id: string }
+	| { kind: 'artist'; id: string }
+	| { kind: 'playlist' };
+
+export const importReadLink = (link: string) => invoke<ImportPreview>('import_read', { link });
+export const importReadPath = (path: string) => invoke<ImportPreview>('import_read', { path });
+/** A dropped file: the bytes go over as the raw request body (a webview drop has no path). */
+export const importReadFile = async (file: File) =>
+	invoke<ImportPreview>('import_read_file', new Uint8Array(await file.arrayBuffer()), {
+		headers: { 'x-file-name': encodeURIComponent(file.name) }
+	});
+/** `lists` are indices into the last preview. */
+export const importStart = (lists: number[]) => invoke<ImportSnapshot>('import_start', { lists });
+export const importStatus = () => invoke<ImportSnapshot | null>('import_status');
+export const importRows = (tier: ImportTier) => invoke<ImportRow[]>('import_rows', { tier });
+/** `null` leaves the track out. A song picked here is remembered for every later import. */
+export const importPick = (key: string, song: SongItem | null) =>
+	invoke<ImportSnapshot>('import_pick', { key, song });
+export const importCreate = (options: {
+	names?: Record<number, string>;
+	local?: boolean;
+	like?: boolean;
+	follow?: boolean;
+	saveAlbums?: boolean;
+}) => invoke<void>('import_create', { options });
+/** Stops a running import, or puts away a finished one. */
+export const importCancel = () => invoke<void>('import_cancel');
+export const importSource = (playlistId: string) =>
+	invoke<string | null>('import_source', { playlistId });
+export const importUpdate = (playlistId: string) =>
+	invoke<ImportSnapshot>('import_update', { playlistId });
+export const importResolve = (link: string) => invoke<ImportResolved>('import_resolve', { link });
+
 // --- events (context/11). Each returns an unlisten fn; call it on component teardown. --------
 export const onNowPlaying = (cb: (n: NowPlaying) => void): Promise<UnlistenFn> =>
 	listen<NowPlaying>('now-playing', (e) => cb(e.payload));
@@ -790,6 +892,8 @@ export const onPlaybackNotice = (cb: (msg: string) => void): Promise<UnlistenFn>
  *  so the failure lands long after the picker closed). */
 export const onCoverError = (cb: (msg: string) => void): Promise<UnlistenFn> =>
 	listen<{ message: string }>('cover-error', (e) => cb(e.payload.message));
+export const onImportProgress = (cb: (s: ImportSnapshot) => void): Promise<UnlistenFn> =>
+	listen<ImportSnapshot>('import-progress', (e) => cb(e.payload));
 export const onAuthChanged = (cb: (a: Account) => void): Promise<UnlistenFn> =>
 	listen<Account>('auth-changed', (e) => cb(e.payload));
 export const onAccountSelectionRequired = (cb: () => void): Promise<UnlistenFn> =>
