@@ -22,6 +22,7 @@
 		Sorting01Icon,
 		ArrowUpDownIcon,
 		ComputerIcon,
+		SpotifyIcon,
 		Search01Icon
 	} from '@hugeicons/core-free-icons';
 	import { Button } from '$lib/components/ui/button';
@@ -45,6 +46,7 @@
 	import { rowWindow } from '$lib/rows';
 	import { rowScroller } from '$lib/rows.svelte';
 	import { t } from '$lib/i18n.svelte';
+	import { imp, updateFromSpotify } from '$lib/import.svelte';
 	import {
 		SORTS,
 		fetchSort,
@@ -149,6 +151,19 @@
 	// Kept on this machine (#251): no YouTube item behind it, so no radio and nothing to share, and
 	// every row is already here (no pages to walk).
 	const isLocalList = $derived(api.isLocalPlaylist(id));
+	// Imported from a Spotify link (#375): the header offers to bring it up to date with Spotify.
+	let spotifyUrl = $state<string | null>(null);
+	$effect(() => {
+		const pid = id;
+		spotifyUrl = null;
+		api
+			.importSource(pid)
+			.then((url) => {
+				if (pid === id) spotifyUrl = url;
+			})
+			.catch(() => {});
+	});
+	const updatingFromSpotify = $derived(imp.snapshot?.update === id);
 	// YouTube's auto-built 2x2 collage of the first four tracks. It comes off yt3 with an `=s<size>`
 	// suffix; every cover somebody actually chose (uploaded here, in YTM, or in Studio) arrives as
 	// `=w<n>-h<n>-...` or straight off i.ytimg. Checked against live browse responses, 2026-09-02.
@@ -963,6 +978,18 @@
 								class="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary"
 								title={t('library.collab_tooltip')}>{t('library.collab')}</span
 							>
+						{/if}
+						{#if spotifyUrl && (pl.owned || isLocalList)}
+							<button
+								class="flex cursor-pointer items-center gap-1.5 rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary transition-colors hover:bg-primary/25 disabled:cursor-default disabled:opacity-60"
+								title={t('import.update_tooltip')}
+								disabled={updatingFromSpotify}
+								onclick={() => updateFromSpotify(id)}
+							>
+								<HugeiconsIcon icon={SpotifyIcon} class="h-3 w-3" />
+								<span>{t('import.from_spotify')}</span>
+								<span class="opacity-70">{updatingFromSpotify ? t('import.updating') : t('import.update')}</span>
+							</button>
 						{/if}
 					</div>
 					<h1 class="mt-1 font-heading text-4xl font-bold tracking-tight drop-shadow-lg">

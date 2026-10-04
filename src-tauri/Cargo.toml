@@ -71,6 +71,12 @@ pinyin = { version = "0.11", default-features = false, features = ["with_tone"] 
 any_ascii = "0.3"
 # Track-change notifications (notify.rs): D-Bus on Linux, WinRT toasts, NSUserNotification.
 notify-rust = "4"
+# Spotify import (#375, spotify.rs + import.rs). All four were in the lockfile already: zip under
+# the Windows updater, csv and unicode-normalization under lindera, strsim under clap.
+zip = { version = "4", default-features = false, features = ["deflate-flate2"] }
+csv = "1"
+strsim = "0.11"
+unicode-normalization = "0.1"
 
 # Taskbar thumbnail toolbar (#47). Same `windows` version tauri-runtime-wry already pulls in, so
 # `Window::hwnd()` hands us a matching HWND.

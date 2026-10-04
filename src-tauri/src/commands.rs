@@ -1375,11 +1375,6 @@ pub async fn set_playlist_cover(
     playlist_id: String,
     path: Option<String>,
 ) -> Result<CoverResult, String> {
-    use tauri::Manager;
-    // What YouTube's uploader will take. WebP is not on the list: it answers 415 for one, and a
-    // cover that only works on this machine is worse than one the picker never offered.
-    const IMAGE_EXTS: [&str; 3] = ["jpg", "jpeg", "png"];
-
     let key = cover_key(&playlist_id);
     let stored = state.db.get_setting(&key);
     let Some(src) = path else {
@@ -1412,7 +1407,25 @@ pub async fn set_playlist_cover(
         }
         return Ok(CoverResult { cover: None, thumbnail });
     };
-    let src = std::path::Path::new(&src);
+    store_cover(&app, &state, &playlist_id, std::path::Path::new(&src))
+}
+
+/// Copy an image in as a playlist's artwork, answer the local copy, and send it on to YouTube
+/// Music in the background. The picker's half of [`set_playlist_cover`], and how a Spotify import
+/// carries the playlist's own cover over (#375).
+pub(crate) fn store_cover(
+    app: &tauri::AppHandle,
+    state: &Arc<AppState>,
+    playlist_id: &str,
+    src: &std::path::Path,
+) -> Result<CoverResult, String> {
+    use tauri::Manager;
+    // What YouTube's uploader will take. WebP is not on the list: it answers 415 for one, and a
+    // cover that only works on this machine is worse than one the picker never offered.
+    const IMAGE_EXTS: [&str; 3] = ["jpg", "jpeg", "png"];
+
+    let key = cover_key(playlist_id);
+    let stored = state.db.get_setting(&key);
     let ext = src.extension().and_then(|e| e.to_str()).unwrap_or_default().to_ascii_lowercase();
     if !IMAGE_EXTS.contains(&ext.as_str()) {
         return Err("Pick a JPEG or PNG image: YouTube Music won't take anything else.".into());
@@ -1424,7 +1437,7 @@ pub async fn set_playlist_cover(
     if src.metadata().map(|m| m.len()).unwrap_or(0) > MAX_BYTES {
         return Err("That image is over 8 MB. Pick a smaller one.".into());
     }
-    let dir = crate::local::covers_dir(&app).join("playlists");
+    let dir = crate::local::covers_dir(app).join("playlists");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     // Timestamped, so replacing a cover can't be served out of the webview's cache under the name
     // it already has. The id is filtered to filename characters rather than trusted: it arrives
@@ -1447,7 +1460,7 @@ pub async fn set_playlist_cover(
     // install is written after that ran, so name this file explicitly too.
     let _ = app.asset_protocol_scope().allow_file(&dest);
     state.db.set_setting(&key, &dest);
-    sync_cover(&state, &playlist_id, dest.clone());
+    sync_cover(state, playlist_id, dest.clone());
     Ok(CoverResult { cover: Some(dest), thumbnail: None })
 }
 
@@ -1625,7 +1638,7 @@ fn local_playlist_page(state: &Arc<AppState>, id: &str) -> Result<PlaylistPage, 
 /// (`shed_queue_context`), and no snapshot of account state that would go stale behind it. The
 /// rating is read live (the override map, the saved-in index), and Library ▸ Songs tokens are
 /// minted per row for one account while these playlists belong to none.
-fn playlist_row(s: SongItem) -> SongItem {
+pub(crate) fn playlist_row(s: SongItem) -> SongItem {
     SongItem { rating: None, library: None, ..shed_queue_context(s) }
 }
 
@@ -1706,6 +1719,116 @@ pub async fn unblock_artist(state: St<'_>, key: String) -> Result<Vec<BlockedArt
     let list = crate::blocked::unblock(&state.db, &key);
     state.it.set_blocked(crate::blocked::block_list(&state.db));
     Ok(list)
+}
+
+// --- Spotify import (spotify.rs, import.rs, #375) ----------------------------------------------
+//
+// Errors from these are short codes (`private`, `busy`, `rate_limited`, ...) that the UI words in
+// the user's language; anything else is a network error passed through as text.
+
+/// Read a pasted Spotify link, or a file picked from disk (the data export zip, one of its JSON
+/// files, or a CSV). Answers what it holds; the tracks stay here until `import_start`.
+#[tauri::command]
+pub async fn import_read(
+    link: Option<String>,
+    path: Option<String>,
+) -> Result<crate::import::Preview, String> {
+    if let Some(link) = link {
+        return crate::import::read_link(&link).await;
+    }
+    let path = path.ok_or("nothing_read")?;
+    let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+    crate::import::read_file(&bytes, &path)
+}
+
+/// A file dropped on the window. A webview drop has the bytes but no path, so they come over as
+/// the raw request body, with the name in `x-file-name` (percent-encoded: headers are ASCII).
+#[tauri::command]
+pub async fn import_read_file(
+    request: tauri::ipc::Request<'_>,
+) -> Result<crate::import::Preview, String> {
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err("unreadable".into());
+    };
+    let name = request
+        .headers()
+        .get("x-file-name")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| urlencoding::decode(v).ok())
+        .map(|v| v.into_owned())
+        .unwrap_or_default();
+    crate::import::read_file(bytes, &name)
+}
+
+/// Start matching the lists picked out of the last read (their indices in its preview).
+#[tauri::command]
+pub async fn import_start(
+    state: St<'_>,
+    lists: Vec<usize>,
+) -> Result<crate::import::Snapshot, String> {
+    crate::import::start(&state, lists)
+}
+
+#[tauri::command]
+pub async fn import_status() -> Result<Option<crate::import::Snapshot>, String> {
+    Ok(crate::import::status())
+}
+
+/// The rows of one tier, for the review step.
+#[tauri::command]
+pub async fn import_rows(
+    tier: crate::import::Tier,
+) -> Result<Vec<crate::import::ReviewRow>, String> {
+    Ok(crate::import::rows(tier))
+}
+
+/// The user's pick for one row; `None` leaves the track out.
+#[tauri::command]
+pub async fn import_pick(
+    state: St<'_>,
+    key: String,
+    song: Option<SongItem>,
+) -> Result<crate::import::Snapshot, String> {
+    crate::import::pick(&state, &key, song)
+}
+
+#[tauri::command]
+pub async fn import_create(
+    state: St<'_>,
+    options: crate::import::CreateOptions,
+) -> Result<(), String> {
+    crate::import::create(&state, options)
+}
+
+/// Stop a running import, or put away a finished one.
+#[tauri::command]
+pub async fn import_cancel(state: St<'_>) -> Result<(), String> {
+    crate::import::cancel(&state);
+    Ok(())
+}
+
+/// The Spotify link a playlist was imported from, when it was imported from one.
+#[tauri::command]
+pub async fn import_source(state: St<'_>, playlist_id: String) -> Result<Option<String>, String> {
+    Ok(crate::import::source_url(&state, &playlist_id))
+}
+
+/// "Update from Spotify": re-read the playlist's link and apply what changed.
+#[tauri::command]
+pub async fn import_update(
+    state: St<'_>,
+    playlist_id: String,
+) -> Result<crate::import::Snapshot, String> {
+    crate::import::update(&state, playlist_id).await
+}
+
+/// What a Spotify track, album or artist link is on YouTube Music.
+#[tauri::command]
+pub async fn import_resolve(
+    state: St<'_>,
+    link: String,
+) -> Result<crate::import::Resolved, String> {
+    crate::import::resolve(&state, &link).await
 }
 
 // --- local music (local.rs) ------------------------------------------------------------------

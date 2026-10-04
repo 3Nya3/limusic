@@ -795,6 +795,19 @@ impl InnerTube {
         }
     }
 
+    /// Add many videos in one `browse/edit_playlist` call, in order. The edit is all or nothing,
+    /// and one track the playlist already holds fails the whole batch (`edit_rejection`), so the
+    /// caller passes only videos it knows are new. Used by the Spotify import (#375).
+    pub async fn playlist_add_many(
+        &self,
+        client: &YouTubeClient,
+        playlist_id: &str,
+        video_ids: &[String],
+    ) -> Result<(), Error> {
+        let actions = video_ids.iter().map(|v| add_video_action(v, false)).collect();
+        self.edit_playlist_actions(client, playlist_id, actions).await
+    }
+
     /// Remove a video from a playlist. Needs `set_video_id` (the item's playlistSetVideoId).
     pub async fn playlist_remove(
         &self,
