@@ -143,7 +143,11 @@
 		"remove_from_this_playlist": "Remover desta playlist",
 		"back_to": "Voltar para {title}",
 		"mini_expand": "Expandir minirreprodutor",
-		"mini_shrink": "Recolher minirreprodutor"
+		"mini_shrink": "Recolher minirreprodutor",
+		"autoplay": "Reprodução automática",
+		"songs_left": "{count} músicas restantes",
+		"songs_left_one": "1 música restante",
+		"queue_ends": "A fila termina após esta música."
 	},
 	"home": {
 		"good_morning": "Bom dia",
@@ -420,7 +424,9 @@
 			"ambient_light_hint": "A área do player ao redor do videoclipe brilha com as cores do vídeo.",
 			"ambient_light_gpu_title": "Requer uma placa de vídeo potente",
 			"ambient_light_gpu": "Com menos de 1000 pontos no benchmark de placas de vídeo PassMark, o player pode apresentar travamentos ao reproduzir um videoclipe.",
-			"ambient_light_gpu_check": "Pesquisar sua placa"
+			"ambient_light_gpu_check": "Pesquisar sua placa",
+			"shuffle_whole_queue": "Embaralhar toda a fila",
+			"shuffle_whole_queue_hint": "Embaralhar mistura as músicas adicionadas com \"Adicionar à fila\" às da playlist. Deixe desativado e elas tocarão depois da playlist, na ordem em que você as adicionou. \"Tocar em seguida\" sempre toca em seguida."
 		},
 		"data": {
 			"clear_cache": "Limpar cache de imagens e streams",
