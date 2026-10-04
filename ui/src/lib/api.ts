@@ -564,6 +564,8 @@ export const getLocalPlaylists = () =>
 	invoke<BrowseItem[]>('local_playlists').then((items) => items.map(relabelLocal));
 export const getLibraryAlbums = () => invoke<BrowseItem[]>('get_library_albums');
 export const getLibraryArtists = () => invoke<BrowseItem[]>('get_library_artists');
+/** Library ▸ Artists ▸ Subscriptions: the channels the account subscribes to. */
+export const getLibrarySubscriptions = () => invoke<BrowseItem[]>('get_library_subscriptions');
 export const getUploadAlbums = () => invoke<BrowseItem[]>('get_upload_albums');
 /**
  * The account's YouTube Music play history, in YouTube's own day buckets (Today, Yesterday, …).

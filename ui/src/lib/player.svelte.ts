@@ -150,9 +150,11 @@ export const library = $state({
 	error: null as string | null,
 	// Saved albums and artists. Only the Library page renders them, but they live here rather than in
 	// that page's local state so leaving and coming back paints the cached grid instead of a skeleton
-	// while three requests go out again.
+	// while the requests go out again.
 	albums: [] as BrowseItem[],
 	artists: [] as BrowseItem[],
+	// Artists ▸ Subscriptions. `artists` is the artists behind your songs, which is a different list.
+	subscriptions: [] as BrowseItem[],
 	extrasLoaded: false,
 	extrasLoading: false,
 	extrasError: null as string | null,
@@ -176,6 +178,7 @@ function resetLibraryForAccount() {
 	library.error = null;
 	library.albums = [];
 	library.artists = [];
+	library.subscriptions = [];
 	library.extrasLoaded = false;
 	library.extrasLoading = false;
 	library.extrasError = null;
@@ -206,20 +209,22 @@ export async function loadLibrary(force = false) {
 	}
 }
 
-/** Saved albums + artists, same caching rules as `loadLibrary`. */
+/** Saved albums, artists and subscriptions, same caching rules as `loadLibrary`. */
 export async function loadLibraryExtras(force = false) {
 	if (library.extrasLoading || (library.extrasLoaded && !force)) return;
 	const generation = libraryGeneration;
 	library.extrasLoading = true;
 	library.extrasError = null;
 	try {
-		const [albums, artists] = await Promise.all([
+		const [albums, artists, subscriptions] = await Promise.all([
 			api.getLibraryAlbums(),
-			api.getLibraryArtists()
+			api.getLibraryArtists(),
+			api.getLibrarySubscriptions()
 		]);
 		if (generation !== libraryGeneration) return;
 		library.albums = albums;
 		library.artists = artists;
+		library.subscriptions = subscriptions;
 		library.extrasLoaded = true;
 	} catch (e) {
 		if (generation === libraryGeneration) library.extrasError = String(e);
@@ -666,9 +671,9 @@ async function pushSaved(
 export function inLibrary(item: BrowseItem): boolean {
 	if (pl.isSaved(personal, item.id)) return true;
 	if (!auth.account?.signedIn) return false;
-	const list =
-		item.kind === 'album' ? library.albums : item.kind === 'artist' ? library.artists : library.items;
-	return list.some((i) => i.id === item.id);
+	const has = (list: BrowseItem[]) => list.some((i) => i.id === item.id);
+	if (item.kind === 'artist') return has(library.artists) || has(library.subscriptions);
+	return has(item.kind === 'album' ? library.albums : library.items);
 }
 
 /**
@@ -706,10 +711,10 @@ export function ownedByUser(item: BrowseItem): boolean {
 	if (item.id === api.LIKED_MUSIC_ID || item.id === api.ON_REPEAT_ID || api.isLocalId(item.id))
 		return true;
 	if (item.isUpload) return true;
-	// Library ▸ Artists is built from your songs, not subscriptions, so an artist there has no write
-	// that takes it out. Saved here (a menu's save, the page's Subscribe) means subscribed, and that
-	// one can be undone.
-	if (item.kind === 'artist') return !pl.isSaved(personal, item.id);
+	// Library ▸ Artists is built from your songs, so an artist there has no write that takes it out.
+	// A subscription can be undone, and so can a save from here (a menu's save, the page's Subscribe).
+	if (item.kind === 'artist')
+		return !pl.isSaved(personal, item.id) && !library.subscriptions.some((i) => i.id === item.id);
 	if (item.kind !== 'playlist') return false;
 	const me = auth.account?.name?.trim();
 	if (!me) return false;
@@ -732,9 +737,10 @@ export async function removeFromLibrary(item: BrowseItem): Promise<void> {
 	}
 	if (!auth.account?.signedIn) return;
 	// Not `library.artists`: an unsubscribe doesn't take an artist's songs out of the library.
-	const before = { items: library.items, albums: library.albums };
-	library.items = library.items.filter((i) => i.id !== item.id);
-	library.albums = library.albums.filter((i) => i.id !== item.id);
+	const { items, albums, subscriptions } = library;
+	library.items = items.filter((i) => i.id !== item.id);
+	library.albums = albums.filter((i) => i.id !== item.id);
+	library.subscriptions = subscriptions.filter((i) => i.id !== item.id);
 	try {
 		if (item.kind === 'album') {
 			// The like sits on the album's audio playlist, which only its page carries.
@@ -749,8 +755,9 @@ export async function removeFromLibrary(item: BrowseItem): Promise<void> {
 			await api.setAlbumSaved(item.id, false);
 		}
 	} catch (e) {
-		library.items = before.items;
-		library.albums = before.albums;
+		library.items = items;
+		library.albums = albums;
+		library.subscriptions = subscriptions;
 		if (wasSaved) {
 			pl.toggleSaved(personal, item);
 			savePersonal();
