@@ -309,7 +309,7 @@
 		"folders": "文件夹",
 		"folders_hint": "这些文件夹中的音乐无需互联网连接即可播放。",
 		"no_folders": "还没有文件夹。添加存放音乐的文件夹后，它会显示在这里。",
-		"nothing_playable": "这些文件夹中还没有找到可播放的内容。正在查找 mp3、flac、m4a、aac、ogg、opus、wav、wma、aiff、ape、wv 和 mka 文件。"
+		"nothing_playable": "这些文件夹中尚未找到可播放的文件。支持的格式：mp3、flac、m4a、aac、ogg、opus、wav、wma、aiff、ape、wv 和 mka。"
 	},
 	"settings": {
 		"title": "设置",
