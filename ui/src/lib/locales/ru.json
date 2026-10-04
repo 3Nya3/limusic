@@ -221,7 +221,7 @@
 		"delete_playlist_confirm": "Удалить этот плейлист?",
 		"remove_from_library": "Удалить из медиатеки",
 		"no_tracks_match_loading": "Нет треков, соответствующих запросу «{query}»{loading}.",
-		"still_loading": " всё ещё загружается",
+		"still_loading": " пока что, загрузка ещё продолжается",
 		"saved_to_library": "Сохранено в медиатеку",
 		"removed_from_library": "Удалено из медиатеки",
 		"every_song_saved": "Все сохранённые треки в одном списке",
