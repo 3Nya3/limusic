@@ -955,7 +955,7 @@ async fn run_create(state: Arc<AppState>, gen: u64, opts: CreateOptions) {
         }
         if !p.songs.is_empty() {
             match make_playlist(&state, &p.name, &p.songs, local).await {
-                Ok(id) => {
+                Ok((id, added)) => {
                     if let Some(url) = &p.cover {
                         set_cover(&state, &id, url).await;
                     }
@@ -967,8 +967,8 @@ async fn run_create(state: Arc<AppState>, gen: u64, opts: CreateOptions) {
                         name: p.name,
                         id,
                         local,
-                        added: p.songs.len(),
-                        missing: p.missing,
+                        added,
+                        missing: p.missing + p.songs.len() - added,
                         removed: 0,
                     };
                     with_job(gen, |j| j.results.push(result));
@@ -1018,13 +1018,50 @@ async fn run_create(state: Arc<AppState>, gen: u64, opts: CreateOptions) {
     finish(&state, gen, Phase::Done, None);
 }
 
-/// Create the playlist and fill it. Answers the browse id the UI opens.
+/// Add `ids` to an account playlist in batches, answering the ones that went in. YouTube applies a
+/// batch whole or not at all, so a refused one is retried a track at a time: a video it won't take
+/// (taken down, blocked in the region) then costs only itself. An error only when nothing went in.
+async fn add_all(
+    state: &AppState,
+    playlist_id: &str,
+    ids: &[String],
+) -> Result<Vec<String>, String> {
+    let client = metadata_client(state)?;
+    let mut added = Vec::new();
+    let mut last_err = None;
+    for (n, chunk) in ids.chunks(100).enumerate() {
+        if n > 0 {
+            tokio::time::sleep(pace()).await;
+        }
+        let Err(e) = state.it.playlist_add_many(client, playlist_id, chunk).await else {
+            added.extend_from_slice(chunk);
+            continue;
+        };
+        tracing::warn!(error = %e, "import: batch refused, adding one at a time");
+        for v in chunk {
+            tokio::time::sleep(pace()).await;
+            match state.it.playlist_add(client, playlist_id, v, false).await {
+                Ok(true) => added.push(v.clone()),
+                Ok(false) => {}
+                // No point asking a hundred more times.
+                Err(e @ innertube::Error::SessionExpired) => return Err(e.to_string()),
+                Err(e) => last_err = Some(e.to_string()),
+            }
+        }
+    }
+    match last_err {
+        Some(e) if added.is_empty() && !ids.is_empty() => Err(e),
+        _ => Ok(added),
+    }
+}
+
+/// Create the playlist and fill it. Answers the browse id the UI opens and how many went in.
 async fn make_playlist(
     state: &Arc<AppState>,
     name: &str,
     songs: &[SongItem],
     local: bool,
-) -> Result<String, String> {
+) -> Result<(String, usize), String> {
     if local {
         let id = state.db.create_local_playlist(name, now_secs()).map_err(|e| e.to_string())?;
         let rows = songs
@@ -1036,20 +1073,15 @@ async fn make_playlist(
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| e.to_string())?;
         state.db.add_local_playlist_tracks(id, &rows, now_secs()).map_err(|e| e.to_string())?;
-        return Ok(format!("{LOCAL_PLAYLIST_PREFIX}{id}"));
+        return Ok((format!("{LOCAL_PLAYLIST_PREFIX}{id}"), rows.len()));
     }
     let client = metadata_client(state)?;
     let id = state.it.create_playlist(client, name).await.map_err(|e| e.to_string())?;
-    let ids: Vec<String> = songs.iter().map(|s| s.video_id.clone()).collect();
-    for (n, chunk) in ids.chunks(100).enumerate() {
-        if n > 0 {
-            tokio::time::sleep(pace()).await;
-        }
-        state.it.playlist_add_many(client, &id, chunk).await.map_err(|e| e.to_string())?;
-    }
     let browse_id = format!("VL{id}");
-    state.db.set_playlist_tracks(&browse_id, &ids);
-    Ok(browse_id)
+    let ids: Vec<String> = songs.iter().map(|s| s.video_id.clone()).collect();
+    let added = add_all(state, &browse_id, &ids).await?;
+    state.db.set_playlist_tracks(&browse_id, &added);
+    Ok((browse_id, added.len()))
 }
 
 /// Carry the Spotify cover over. Best effort: a playlist without it is still the playlist.
@@ -1256,16 +1288,17 @@ async fn run_update(state: Arc<AppState>, gen: u64, playlist_id: String) {
     } else {
         apply_account(&state, &playlist_id, &add, &remove).await
     };
-    if let Err(e) = applied {
-        return finish(&state, gen, Phase::Failed, Some(e));
-    }
+    let added = match applied {
+        Ok(n) => n,
+        Err(e) => return finish(&state, gen, Phase::Failed, Some(e)),
+    };
     save_source(&state, &playlist_id, &old.url, &new_keys);
     let result = ListResult {
         kind: ListKind::Playlist,
         name,
         id: playlist_id.clone(),
         local: is_local_playlist(&playlist_id),
-        added: add.len(),
+        added,
         missing,
         removed: remove.len(),
     };
@@ -1278,7 +1311,7 @@ fn apply_local(
     playlist_id: &str,
     add: &[SongItem],
     remove: &[(String, String)],
-) -> Result<(), String> {
+) -> Result<usize, String> {
     let key: i64 = playlist_id
         .strip_prefix(LOCAL_PLAYLIST_PREFIX)
         .and_then(|n| n.parse().ok())
@@ -1295,10 +1328,12 @@ fn apply_local(
         })
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())?;
-    if !add.is_empty() {
-        state.db.add_local_playlist_tracks(key, &add, now_secs()).map_err(|e| e.to_string())?;
+    if add.is_empty() {
+        return Ok(0);
     }
-    Ok(())
+    let went_in =
+        state.db.add_local_playlist_tracks(key, &add, now_secs()).map_err(|e| e.to_string())?;
+    Ok(went_in.into_iter().filter(|&b| b).count())
 }
 
 async fn apply_account(
@@ -1306,26 +1341,27 @@ async fn apply_account(
     playlist_id: &str,
     add: &[SongItem],
     remove: &[(String, String)],
-) -> Result<(), String> {
+) -> Result<usize, String> {
     let client = metadata_client(state)?;
+    // A row without its handle can't be removed, and one bad entry would sink the whole batch.
+    let remove: Vec<(String, String)> =
+        remove.iter().filter(|(_, h)| !h.is_empty()).cloned().collect();
     if !remove.is_empty() {
         state
             .it
-            .playlist_remove_many(client, playlist_id, remove)
+            .playlist_remove_many(client, playlist_id, &remove)
             .await
             .map_err(|e| e.to_string())?;
-        for (v, _) in remove {
+        for (v, _) in &remove {
             state.db.remove_playlist_track(playlist_id, v);
         }
     }
     let ids: Vec<String> = add.iter().map(|s| s.video_id.clone()).collect();
-    for chunk in ids.chunks(100) {
-        state.it.playlist_add_many(client, playlist_id, chunk).await.map_err(|e| e.to_string())?;
-        for v in chunk {
-            state.db.add_playlist_track(playlist_id, v);
-        }
+    let added = add_all(state, playlist_id, &ids).await?;
+    for v in &added {
+        state.db.add_playlist_track(playlist_id, v);
     }
-    Ok(())
+    Ok(added.len())
 }
 
 // --- Spotify links anywhere ----------------------------------------------------------------------
