@@ -850,7 +850,9 @@
 		"signed_in_as": "{name} olarak giriş yapıldı",
 		"switched_to": "{name} hesabına geçildi",
 		"could_not_add": "Bu eklenemedi, bunun yerine açmayı deneyin",
-		"already_in_selected": "Her şey seçilen çalma listelerinde zaten mevcut"
+		"already_in_selected": "Her şey seçilen çalma listelerinde zaten mevcut",
+		"added_to_playlists_dupes": "{count} çalma listesine eklendi. Yinelenenler atlandı: {dupes}",
+		"added_to_playlists": "{count} çalma listesine eklendi"
 	},
 	"history": {
 		"title": "Geçmiş",
