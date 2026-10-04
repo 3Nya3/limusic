@@ -173,6 +173,11 @@ struct Embed {
 
 fn parse_embed(html: &str) -> Result<Embed, String> {
     let data = next_data(html).ok_or("spotify_changed")?;
+    // A private or deleted playlist is usually not a real 404: the page is a 200 whose props say
+    // `status: 404` and carry no `state`.
+    if data.pointer("/props/pageProps/status").and_then(Value::as_u64) == Some(404) {
+        return Err("private".into());
+    }
     let state = data.pointer("/props/pageProps/state").ok_or("spotify_changed")?;
     let entity = state.pointer("/data/entity").cloned().ok_or("private")?;
     let token =
@@ -828,6 +833,12 @@ mod tests {
         assert_eq!(t.duration_ms, Some(242733));
         assert_eq!(t.id.as_deref(), Some("6r8k1vznHrzlEKYxL4dZEe"));
         assert_eq!(t.album, None);
+    }
+
+    #[test]
+    fn embed_private_page() {
+        let html = r#"<script id="__NEXT_DATA__" type="application/json">{"props":{"pageProps":{"status":404,"title":"Page not found"}}}</script>"#;
+        assert_eq!(parse_embed(html).err().as_deref(), Some("private"));
     }
 
     #[test]
