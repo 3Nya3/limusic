@@ -1014,7 +1014,7 @@
 		"nudge_desc": "Bring your playlists and Liked Songs over in a few clicks.",
 		"errors": {
 			"not_spotify": "That isn’t a Spotify playlist or album link.",
-			"private": "Spotify won’t share that playlist. If it’s private, make it public for a minute, or use your Spotify data.",
+			"private": "That playlist is private, so it can’t be imported from a link. Request your Spotify data below to bring it over.",
 			"not_a_list": "That links a song or an artist. Paste a playlist or an album.",
 			"empty": "There are no songs in that.",
 			"unreadable": "That file couldn’t be read. Use the zip Spotify emailed you, one of the JSON files inside it, or a CSV.",
