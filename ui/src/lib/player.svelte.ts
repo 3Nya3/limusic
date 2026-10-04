@@ -638,9 +638,12 @@ async function pushSaved(
 		if (!album.playlistId) throw new Error('no album playlist');
 		await api.setAlbumSaved(album.playlistId, true);
 	} else if (item.kind === 'artist') {
-		// Subscribing twice is the same subscription. No pre-check: the library's artist grid is
-		// built from the songs in your library, not from subscriptions, so it can't answer.
-		await api.subscribe(item.id, true);
+		// The subscribe button's channel is often not the browseId (#193), and only the artist page
+		// carries it. The page also answers "already subscribed", which the library's artist grid
+		// can't: it is built from the songs in your library, not from subscriptions.
+		const artist = await api.getArtist(item.id);
+		if (artist.subscribed) return 'already';
+		await api.subscribe(artist.channelId, true);
 	} else if (item.kind === 'playlist') {
 		// A playlist is liked by its browseId (Rust strips the `VL`), and it lands in the same grid
 		// `known` was built from, so a hit there means it is already saved.
@@ -703,6 +706,10 @@ export function ownedByUser(item: BrowseItem): boolean {
 	if (item.id === api.LIKED_MUSIC_ID || item.id === api.ON_REPEAT_ID || api.isLocalId(item.id))
 		return true;
 	if (item.isUpload) return true;
+	// Library ▸ Artists is built from your songs, not subscriptions, so an artist there has no write
+	// that takes it out. Saved here (a menu's save, the page's Subscribe) means subscribed, and that
+	// one can be undone.
+	if (item.kind === 'artist') return !pl.isSaved(personal, item.id);
 	if (item.kind !== 'playlist') return false;
 	const me = auth.account?.name?.trim();
 	if (!me) return false;
@@ -724,24 +731,26 @@ export async function removeFromLibrary(item: BrowseItem): Promise<void> {
 		savePersonal();
 	}
 	if (!auth.account?.signedIn) return;
-	const before = { items: library.items, albums: library.albums, artists: library.artists };
+	// Not `library.artists`: an unsubscribe doesn't take an artist's songs out of the library.
+	const before = { items: library.items, albums: library.albums };
 	library.items = library.items.filter((i) => i.id !== item.id);
 	library.albums = library.albums.filter((i) => i.id !== item.id);
-	library.artists = library.artists.filter((i) => i.id !== item.id);
 	try {
 		if (item.kind === 'album') {
 			// The like sits on the album's audio playlist, which only its page carries.
 			const album = await api.getAlbum(item.id);
 			if (album.inLibrary && album.playlistId) await api.setAlbumSaved(album.playlistId, false);
 		} else if (item.kind === 'artist') {
-			await api.subscribe(item.id, false);
+			// Same channel lookup as `pushSaved`. Unsubscribing the browseId was a 400 for every
+			// artist, and an artist the account never subscribed to has nothing to undo.
+			const artist = await api.getArtist(item.id);
+			if (artist.subscribed) await api.subscribe(artist.channelId, false);
 		} else if (item.kind === 'playlist') {
 			await api.setAlbumSaved(item.id, false);
 		}
 	} catch (e) {
 		library.items = before.items;
 		library.albums = before.albums;
-		library.artists = before.artists;
 		if (wasSaved) {
 			pl.toggleSaved(personal, item);
 			savePersonal();
