@@ -28,6 +28,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Checkbox } from '$lib/components/ui/checkbox';
+	import ExperimentalBadge from './ExperimentalBadge.svelte';
 	import * as api from '$lib/api';
 	import { copyText } from '$lib/clipboard';
 	import { thumb } from '$lib/thumb';
@@ -274,8 +275,11 @@
 {/snippet}
 
 <Dialog.Root bind:open={imp.open}>
+	<!-- One column pinned to the dialog's width. A grid column otherwise grows to its widest
+	     content, and a truncated title still reports its full width, so one long song name
+	     pushed every view in here past the dialog's edge. -->
 	<Dialog.Content
-		class={wide ? 'sm:max-w-3xl' : 'sm:max-w-lg'}
+		class="grid-cols-[minmax(0,1fr)] {wide ? 'sm:max-w-3xl' : 'sm:max-w-lg'}"
 		ondragover={over}
 		ondragleave={() => (dragging = false)}
 		ondrop={() => (dragging = false)}
@@ -290,6 +294,7 @@
 				{:else if view === 'failed'}{t('import.failed_title')}
 				{:else if view === 'cancelled'}{t('import.cancelled_title')}
 				{:else}{t('import.title')}{/if}
+				<ExperimentalBadge />
 			</Dialog.Title>
 			{#if view === 'source'}
 				<Dialog.Description>{t('import.desc')}</Dialog.Description>

@@ -926,6 +926,8 @@
 		"button": "Import",
 		"button_tooltip": "Import playlists from Spotify",
 		"title": "Import from Spotify",
+		"experimental": "Experimental",
+		"experimental_tooltip": "New and still being fine-tuned. If an import gets something wrong, please report it.",
 		"desc": "Bring your playlists over. It all runs on this computer: Spotify is only asked for the playlist, YouTube Music only for the songs.",
 		"link_title": "Paste a link",
 		"link_desc": "Any public playlist or album. In Spotify, open its ⋯ menu, then Share, then Copy link.",

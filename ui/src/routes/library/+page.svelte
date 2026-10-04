@@ -44,6 +44,7 @@
 	import { reveal } from '$lib/reveal.svelte';
 	import { t } from '$lib/i18n.svelte';
 	import { openImport } from '$lib/import.svelte';
+	import ExperimentalBadge from '$lib/components/ExperimentalBadge.svelte';
 
 	// `?tab=local` so anything that sends you back here (an album whose files were deleted) lands
 	// on the tab you came from instead of a sign-in prompt.
@@ -132,7 +133,10 @@
 		>
 			<HugeiconsIcon icon={SpotifyIcon} class="h-8 w-8 shrink-0 text-primary" />
 			<span>
-				<span class="block text-sm font-medium">{t('import.nudge_title')}</span>
+				<span class="flex items-center gap-2 text-sm font-medium">
+					{t('import.nudge_title')}
+					<ExperimentalBadge />
+				</span>
 				<span class="block text-xs text-muted-foreground">{t('import.nudge_desc')}</span>
 			</span>
 		</button>
@@ -195,6 +199,7 @@
 				onclick={() => openImport()}
 			>
 				<HugeiconsIcon icon={SpotifyIcon} class="h-4 w-4" /> {t('import.button')}
+				<ExperimentalBadge />
 			</Button>
 			<!-- Signed out too: a playlist can live on this machine with no account (#251). -->
 			<Button variant="outline" size="sm" class="gap-2" onclick={() => openNewPlaylist()}>
