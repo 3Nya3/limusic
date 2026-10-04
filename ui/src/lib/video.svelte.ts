@@ -24,6 +24,11 @@ export const video = $state({
 
 export type Hole = { x: number; y: number; w: number; h: number };
 
+/** Mirrors the `r[2] >= 1.0 && r[3] >= 1.0` filter in `place()` (nativevideo_windows.rs, and
+ *  nativevideo.rs's equivalent on Linux): a rect this small never had a picture to show, so
+ *  the backend's `up=false` for it means nothing about whether native video still works. */
+const isDegenerate = (r: Hole) => r.w < 1 || r.h < 1;
+
 export const canVideo = () => prefs.musicVideos && !!playback.now?.isVideo;
 export const hasVideo = () =>
 	canVideo() && (prefs.nativeVideo ? !!videoReady[playback.now!.videoId] : !!video.url);
@@ -84,8 +89,14 @@ export function setHole(r: Hole | null) {
 			.then((up) => {
 				if (seq !== holeSeq || !r) return;
 				video.hole = up ? r : null;
-				// No GL surface, and there never will be: back to the <video> element.
-				if (!up) prefs.nativeVideo = false;
+				// No GL surface, and there never will be: back to the <video> element. Only for a
+				// *real* rect, never a degenerate one: `place()`'s own filter
+				// (nativevideo_windows.rs, and nativevideo.rs on Linux) answers `up=false` for any
+				// rect under a CSS pixel, which a layout reflow hands this routinely (one frame of
+				// 0x0 mid-resize). That used to trip this permanently on nothing more than a plain
+				// window resize, no monitor move needed, leaving native video off and the page stuck
+				// on the old JS-synced <video> fallback for the rest of the session (#321).
+				if (!up && !isDegenerate(r)) prefs.nativeVideo = false;
 			})
 			.catch(() => {});
 	};
