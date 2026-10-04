@@ -252,12 +252,19 @@
 	     all of its rows. -->
 	<div role="list" style="padding-top:{w.padTop}px;padding-bottom:{w.padBottom}px">
 		{#each list.slice(w.start, w.end) as { item, key, i } (key)}
-			<!-- data-row: what the scroller measures a row's real height from. -->
+			<!-- data-row: what the scroller measures a row's real height from. `relative!` while
+			     windowed (#380): for each row the window drops, flip's `fix()` sets `position:
+			     absolute` and forces a layout before the padding grows to stand in for it. At the end
+			     of the list that layout is a row short, Chromium clamps scrollTop to it, and the last
+			     row can never be reached. The important beats fix()'s inline style, so the row stays
+			     in flow until it goes, and a windowed list animates nothing anyway. Chromium, 415
+			     rows, wheel to the end: stuck at 22673 of 22729 with the window flipping back 170
+			     times, 22729 and none with this. -->
 			<div
 				data-row
 				data-i={i}
 				role="listitem"
-				class="relative {dragFrom === i ? 'opacity-40' : ''}"
+				class="{windowed ? 'relative!' : 'relative'} {dragFrom === i ? 'opacity-40' : ''}"
 				animate:flip={{ duration: motion.flip, easing: cubicOut }}
 				in:arrive={motion.rows}
 				out:leave={motion.rows}
@@ -367,11 +374,12 @@
 		</div>
 	{/if}
 {/if}
-<!-- The pill floats over the list, so both sit in one positioned box. dragScroll: reordering across
-     a queue taller than the panel needs the edges to pull. -->
+<!-- The pill floats over the list, so both sit in one positioned box. `pb-12` is the pill's height
+     plus its offset, so at the end of the list it covers no row (#380). dragScroll: reordering
+     across a queue taller than the panel needs the edges to pull. -->
 <div class="relative flex min-h-0 flex-1 flex-col">
 	<div
-		class="min-h-0 flex-1 overflow-y-auto px-2 pt-1 pb-2"
+		class="min-h-0 flex-1 overflow-y-auto px-2 pt-1 pb-12"
 		bind:this={el}
 		{@attach sc.attach}
 		{@attach (node) => dragScroll(node, QUEUE_ROW_MIME)}
