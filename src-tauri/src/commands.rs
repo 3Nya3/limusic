@@ -855,6 +855,15 @@ pub async fn get_library_artists(state: St<'_>) -> Result<Vec<BrowseItem>, Strin
     state.it.library_artists(client).await.map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub async fn get_library_subscriptions(state: St<'_>) -> Result<Vec<BrowseItem>, String> {
+    if !state.it.is_logged_in() {
+        return Ok(Vec::new());
+    }
+    let client = metadata_client(&state)?;
+    state.it.library_subscriptions(client).await.map_err(|e| e.to_string())
+}
+
 /// A playlist or album page. `id` is the browseId (`VL…` / `MPRE…`); Liked Songs is `VLLM`, and
 /// `LIMUSIC_ON_REPEAT` is the local auto-playlist rather than anything YouTube knows about.
 ///

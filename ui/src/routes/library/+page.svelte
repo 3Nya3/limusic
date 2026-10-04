@@ -18,6 +18,7 @@
 		Playlist02Icon,
 		SpotifyIcon,
 		SquareStackIcon,
+		UserCheck01Icon,
 		UserSharingIcon
 	} from '@hugeicons/core-free-icons';
 	import { Button } from '$lib/components/ui/button';
@@ -55,6 +56,10 @@
 	// Uploads splits three ways (all / songs / albums): YouTube Music takes uploaded albums too, and
 	// they are a card grid rather than rows, so they can't just join the track list.
 	let uploadTab = $state('all');
+	// Artists splits like YouTube Music's: the artists behind your songs, or the ones you subscribe
+	// to. Only the second can be taken out of the library (an unsubscribe); the first leaves with
+	// its songs.
+	let artistTab = $state('artists');
 
 	// Everything here lives in the shared `library` store, so a revisit renders the cached grid
 	// immediately and the forced refresh below swaps in fresh data behind it. What was saved on this
@@ -62,6 +67,7 @@
 	const playlists = $derived(mergeSaved(personal, library.items, 'playlist'));
 	const albums = $derived(mergeSaved(personal, library.albums, 'album'));
 	const artists = $derived(mergeSaved(personal, library.artists, 'artist'));
+	const subscriptions = $derived(mergeSaved(personal, library.subscriptions, 'artist'));
 	const all = $derived([...playlists, ...albums, ...artists]);
 	// One per tab rather than one shared instance reset on switch: an `$effect` reset lands
 	// after the render it is meant to govern, so switching tabs would build the new tab's grid
@@ -71,6 +77,7 @@
 	const rvPlaylists = reveal();
 	const rvAlbums = reveal();
 	const rvArtists = reveal();
+	const rvSubscriptions = reveal();
 	const rvUploadsAll = reveal();
 	const rvUploadAlbums = reveal();
 	const loading = $derived((library.loading || library.extrasLoading) && !all.length);
@@ -350,12 +357,31 @@
 				{/if}
 			</Tabs.Content>
 			<Tabs.Content value="artists">
-				{#if tab === 'artists'}
-					{@render grid(
-						artists,
-						signedOut ? t('library.no_saved_artists') : t('library.no_artists'),
-						rvArtists
-					)}
+				{#if tab === 'artists' && signedOut}
+					{@render grid(artists, t('library.no_saved_artists'), rvArtists)}
+				{:else if tab === 'artists'}
+					<!-- `line`, same as Uploads: a second pill row would read as the first drawn twice. -->
+					<Tabs.Root bind:value={artistTab}>
+						<Tabs.List variant="line" class="mb-4">
+							<Tabs.Trigger value="artists">
+								<HugeiconsIcon icon={UserSharingIcon} class="h-4 w-4" /> {t('library.artists_tab')}
+							</Tabs.Trigger>
+							<Tabs.Trigger value="subscriptions">
+								<HugeiconsIcon icon={UserCheck01Icon} class="h-4 w-4" /> {t('library.subscriptions_tab')}
+							</Tabs.Trigger>
+						</Tabs.List>
+						<Tabs.Content value="artists">
+							{#if artistTab === 'artists'}
+								<!-- Unmerged: what was saved here is a subscription, and lists under that. -->
+								{@render grid(library.artists, t('library.no_artists'), rvArtists)}
+							{/if}
+						</Tabs.Content>
+						<Tabs.Content value="subscriptions">
+							{#if artistTab === 'subscriptions'}
+								{@render grid(subscriptions, t('library.no_subscriptions'), rvSubscriptions)}
+							{/if}
+						</Tabs.Content>
+					</Tabs.Root>
 				{/if}
 			</Tabs.Content>
 		{/if}

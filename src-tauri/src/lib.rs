@@ -873,6 +873,7 @@ pub fn run() {
             commands::get_library,
             commands::get_library_albums,
             commands::get_library_artists,
+            commands::get_library_subscriptions,
             commands::get_upload_albums,
             commands::get_history,
             commands::get_playlist,
