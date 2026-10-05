@@ -309,7 +309,8 @@
 		"saved_in": "保存先",
 		"saved_in_one": "{playlist}に保存済み",
 		"saved_in_many": "{count}個のプレイリストに保存済み",
-		"saved_in_more": "他{count}件"
+		"saved_in_more": "他{count}件",
+		"subscriptions_tab": "登録"
 	},
 	"local": {
 		"scanning": "フォルダーをスキャン中...",
@@ -1012,7 +1013,7 @@
 		"nudge_desc": "プレイリストやお気に入りの曲を数クリックで簡単に移行できます。",
 		"errors": {
 			"not_spotify": "Spotifyのプレイリストまたはアルバムのリンクではありません。",
-			"private": "Spotifyでこのプレイリストを共有できません。非公開の場合は一時的に公開にするか、Spotifyデータを使用してください。",
+			"private": "プレイリストが非公開なためインポートできません。プレイリストをインポートするには以下の手順でSpotifyのデータをリクエストしてください。",
 			"not_a_list": "曲またはアーティストへのリンクです。プレイリストまたはアルバムのリンクを貼り付けてください。",
 			"empty": "曲が含まれていません。",
 			"unreadable": "ファイルを読み込めませんでした。Spotifyから届いたzipファイル、その中のJSONファイル、またはCSVファイルを使用してください。",
