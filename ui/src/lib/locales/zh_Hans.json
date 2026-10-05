@@ -655,9 +655,9 @@
 		},
 		"link": {
 			"title": "打开链接",
-			"desc": "粘贴歌曲、播放列表、专辑或艺人的 YouTube Music 链接。",
+			"desc": "粘贴歌曲、播放列表、专辑或艺人的 YouTube Music 或 Spotify 链接。",
 			"open": "打开",
-			"invalid_link": "这不是 YouTube Music 链接"
+			"invalid_link": "这不是 YouTube Music 或 Spotify 链接"
 		},
 		"listen_together": {
 			"title": "一起听",
@@ -921,5 +921,28 @@
 		"anyway_hint": "保留第二份副本",
 		"anyway_hint_local": "第二份副本仅添加到 YouTube 播放列表",
 		"adds": "+{count}"
+	},
+	"import": {
+		"button": "导入",
+		"button_tooltip": "从 Spotify 导入歌单",
+		"title": "从 Spotify 导入",
+		"experimental": "实验性功能",
+		"experimental_tooltip": "此功能目前仍在不断完善中。如遇到任何问题，请及时反馈。",
+		"desc": "导入您的外部歌单。该操作仅向 Spotify 获取歌单信息，并在 YouTube Music 匹配歌曲信息。",
+		"link_title": "粘贴链接",
+		"link_desc": "支持任何公开的歌单或专辑。在 Spotify 打开 ⋯ 菜单，依次点击「分享」和「复制链接」。",
+		"continue": "继续",
+		"reading": "读取中…",
+		"data_title": "使用您的 Spotify 数据",
+		"data_desc": "包括私人歌单和「我喜欢的歌曲」在内的所有数据。向 Spotify 索取您的账户数据，这通常会在几天内发送到您的电子邮箱。",
+		"request_data": "向 Spotify 索取您的数据",
+		"choose_file": "选择文件",
+		"file_filter": "Spotify 数据文件或 .csv文件",
+		"drop_hint": "收到电子邮件后，将其中的 .zip 文件放入此处。或放入 Exportify、TuneMyMusic 或 Soundiiz 的 .csv 文件。",
+		"liked_songs": "喜欢的音乐",
+		"liked_songs_playlist": "导入自 Spotify 喜欢的音乐",
+		"by": "由 {owner} 创建",
+		"songs_count": "共 {count} 首歌曲",
+		"truncated": "Spotify 只分享了该歌单中的前100首歌曲。若要导入全部歌曲，请使用您的 Spotify 数据。"
 	}
 }
