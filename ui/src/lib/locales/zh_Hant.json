@@ -314,8 +314,8 @@
 			"data_hint": "網路傳輸與本機快取檔案管理。",
 			"about": "關於",
 			"about_hint": "版本資訊、軟體更新與更新日誌。",
-			"hotkeys": "全域快速鍵",
-			"hotkeys_hint": "在系統任何角落均可控制播放的鍵盤快速鍵。"
+			"hotkeys": "全域快捷鍵",
+			"hotkeys_hint": "在系統任何角落均可控制播放的鍵盤快捷鍵。"
 		},
 		"sections": {
 			"language": "語言",
@@ -443,7 +443,7 @@
 			"crossfade_duration_hint": "曲目過渡重疊的時長。過短的歌曲會自動縮短淡入時間，避免前一次淡入尚未結束就觸發下一次。",
 			"crossfade_seconds": "{secs} 秒",
 			"normalize_volume": "音量標準化 (平衡音量)",
-			"normalize_volume_hint": "平衡各首歌曲的播放音量，避免小聲的母帶被下一首大聲的曲目蓋過。關閉時則保留每首曲目的原始母帶音量。",
+			"normalize_volume_hint": "將不同音訊的平均音量調整至相同的目標水準，以避免使用者在切換不同曲目或影片時，需要頻繁手動調整音量。",
 			"crossfade_lt_paused": "在「共同收聽」房間內已自動暫停：歌曲重疊時無法確保與其他成員保持精準同步。",
 			"lyrics_sources": "歌詞來源優先級",
 			"lyrics_sources_hint": "從上至下依序查詢。任何來源的逐字同步歌詞均優於純文字歌詞；已關閉的來源將不會進行查詢。",
@@ -751,7 +751,7 @@
 		"saturation_brightness": "飽和度與亮度",
 		"hue": "色相",
 		"pick_colour": "從畫面上選取顏色",
-		"hex_colour": "HEX 顏色代碼",
+		"hex_colour": "十六進制色碼",
 		"theme": "佈景主題",
 		"choose_accent": "選取強調色彩",
 		"background_tint": "背景色調遮罩",
@@ -829,12 +829,12 @@
 		"direction": "排序方向：{dir}",
 		"ascending": "遞增",
 		"descending": "遞減",
-		"top": "最高票選"
+		"top": "最受歡迎"
 	},
 	"changelog": {
 		"version": "版本 {version}",
 		"installed": "目前已安裝",
-		"no_releases": "目前尚無發布資訊。",
+		"no_releases": "尚未發布。",
 		"load_failed": "無法載入更新說明 ({error})。"
 	},
 	"toasts": {
@@ -847,10 +847,10 @@
 		"update_failed": "更新失敗：{error}",
 		"shortcuts_dropped_one": "已移除 1 個指向已刪除音樂的失效捷徑",
 		"shortcuts_dropped": "已移除 {count} 個指向已刪除音樂的失效捷徑",
-		"pins_full": "釘選數量已達上限（最多 {max} 個），請先取消釘選其他項目",
-		"starting_radio": "正在啟動電台…",
-		"signed_in": "已成功登入",
-		"folder_removed": "已從本機收藏庫中移除該資料夾",
+		"pins_full": "釘選數量已達上限：{max} 個，請先解除釘選以新增",
+		"starting_radio": "正在努力載入連結…",
+		"signed_in": "已登入",
+		"folder_removed": "此資料夾已從您的本地收藏庫中移除",
 		"playlist_updated": "播放清單已更新",
 		"playlist_created": "已建立播放清單「{title}」",
 		"playlist_deleted": "播放清單已刪除",
@@ -1009,7 +1009,7 @@
 		"update_done": "已從 Spotify 更新：新增 {added} 首，移除 {removed} 首",
 		"update_none": "已與 Spotify 同步為最新狀態",
 		"nudge_title": "想從 Spotify 搬家？",
-		"nudge_desc": "只需簡單幾步，即可將您的播放清單與「已按讚的歌曲」一併轉移。",
+		"nudge_desc": "",
 		"errors": {
 			"not_spotify": "這不是有效的 Spotify 播放清單或專輯連結。",
 			"private": "Spotify 無法分享該播放清單。若是私人清單，請暫時將其設為公開，或使用 Spotify 資料匯入。",
