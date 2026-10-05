@@ -564,8 +564,11 @@ html:not(.chromium) .art-wash {
    generated in JS because the light/dark split has to stay a CSS concern.
 
    These override whichever palette is selected, so the selectors have to outrank `.dark.theme-x`
-   (0,2,0): `html.art-tint:not(.dark)` and `html.art-tint.dark` are both (0,2,1). --primary /
-   --accent are not here: they stay inline styles on <html>, which beat any of this.
+   (0,2,0): all three below are (0,2,1) or more. --primary / --accent are not here: they stay
+   inline styles on <html>, which beat any of this.
+
+   AMOLED takes the dark fills in light mode too. It stays black in light mode by design and keeps
+   its white text there, so light fills under it put white text on near-white.
 
    **Fills only.** Text, borders, inputs and rings used to be tinted from --art-h as well, ~40
    custom properties in all, and that is the bug behind #217 ("memory grows and the window freezes
@@ -583,7 +586,7 @@ html:not(.chromium) .art-wash {
 
    Chroma is what makes it visible: the default palette's neutrals sit at 0.003-0.034, which reads
    as grey. Turn the numbers here down together if a saturated cover is too much. */
-html.art-tint:not(.dark) {
+html.art-tint:not(.dark):not(.theme-amoled) {
 	--background: oklch(0.985 0.014 var(--art-h));
 	--card: oklch(0.995 0.01 var(--art-h));
 	--popover: oklch(0.995 0.01 var(--art-h));
@@ -593,7 +596,8 @@ html.art-tint:not(.dark) {
 	--sidebar-accent: oklch(0.935 0.035 var(--art-h));
 }
 
-html.art-tint.dark {
+html.art-tint.dark,
+html.art-tint.theme-amoled {
 	--background: oklch(0.165 0.028 var(--art-h));
 	--card: oklch(0.225 0.038 var(--art-h));
 	--popover: oklch(0.225 0.038 var(--art-h));

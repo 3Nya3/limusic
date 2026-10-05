@@ -350,6 +350,10 @@ export function fontAvailable(name: string): boolean {
 
 let art: { h: number; hex: string } | null = null;
 let wanted = '';
+// Light or dark, as mode-watcher reports it. Not read off the `.dark` class: mode-watcher flips that
+// a frame after `mode.current` changes, so a re-band on the toggle read the old mode and gave light
+// mode the dark accent and dark mode the light one until the next track.
+let darkMode = false;
 
 // The window can be closed to the tray with playback carrying on, and WebKitGTK does not tell the
 // page (`document.visibilityState` stays "visible"), so Rust does: `ui-visible`, from tray.rs.
@@ -382,7 +386,8 @@ export function setUiVisible(visible: boolean): void {
  * frozen into the cache at decode time (#137).
  */
 function setArtVars(c: { h: number; hex: string }): void {
-	setAccentVars(toAccent(c.hex, document.documentElement.classList.contains('dark')));
+	// AMOLED stays black in light mode (layout.css), so the tint and the accent band stay dark too.
+	setAccentVars(toAccent(c.hex, darkMode || theme.id === 'amoled'));
 	document.documentElement.style.setProperty('--art-h', c.h.toFixed(1));
 	document.documentElement.classList.add(TINT_CLASS);
 }
@@ -411,8 +416,9 @@ export function applyArtworkAccent(url: string | undefined | null): void {
 	});
 }
 
-/** Re-band the artwork accent after a light/dark flip. No-op when the setting is off. */
-export function refreshArtworkAccent(): void {
+/** Re-band the artwork accent after a light/dark flip. No restyle when the setting is off. */
+export function refreshArtworkAccent(dark: boolean): void {
+	darkMode = dark;
 	if (art) restyle();
 }
 

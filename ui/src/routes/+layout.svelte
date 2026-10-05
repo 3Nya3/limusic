@@ -164,8 +164,7 @@
 	// The accent is banded against the active theme (a cover's colour that reads on a light page is
 	// mud on a dark one, #137), so flipping light/dark has to re-derive it from the same cover.
 	$effect(() => {
-		mode.current;
-		refreshArtworkAccent();
+		refreshArtworkAccent(mode.current === 'dark');
 	});
 	// Same colour, one track early. Reading it off the queue instead of the track change means the
 	// palette starts moving on the frame the artwork swaps, not after a fetch and a decode.
