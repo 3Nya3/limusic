@@ -613,7 +613,7 @@
 			"title": "Abrir link",
 			"desc": "Cole um link do YouTube Music ou do Spotify para uma música, playlist, álbum ou artista.",
 			"open": "Abrir",
-			"invalid_link": "Esse não é um link do YouTube Music ou do Spotify."
+			"invalid_link": "Esse não é um link do YouTube Music ou do Spotify"
 		},
 		"listen_together": {
 			"title": "Ouvir Juntos",
