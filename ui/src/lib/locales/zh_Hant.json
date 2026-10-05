@@ -173,11 +173,11 @@
 		"songs_left": "待播清單還剩 {count} 首"
 	},
 	"home": {
-		"good_morning": "早安",
-		"good_afternoon": "午安",
-		"good_evening": "晚安",
-		"good_night": "晚安，願好夢相伴",
-		"forgotten_favourites": "重溫摯愛",
+		"good_morning": "讓今天從旋律開始",
+		"good_afternoon": "午後有光，也有音樂",
+		"good_evening": "夜色漸深，音樂正好",
+		"good_night": "讓一首歌陪你入夜",
+		"forgotten_favourites": "重溫舊愛",
 		"familiar_artists": "熟悉的演出者",
 		"shortcuts": "捷徑",
 		"edit_home": "編輯首頁",
@@ -1009,7 +1009,7 @@
 		"update_done": "已從 Spotify 更新：新增 {added} 首，移除 {removed} 首",
 		"update_none": "已與 Spotify 同步為最新狀態",
 		"nudge_title": "想從 Spotify 搬家？",
-		"nudge_desc": "",
+		"nudge_desc": "只需簡單幾步，即可將您的播放清單與「已按讚的歌曲」一併轉移。",
 		"errors": {
 			"not_spotify": "這不是有效的 Spotify 播放清單或專輯連結。",
 			"private": "Spotify 無法分享該播放清單。若是私人清單，請暫時將其設為公開，或使用 Spotify 資料匯入。",
