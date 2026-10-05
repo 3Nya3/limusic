@@ -251,7 +251,9 @@
 		"saved_in": "Salvo em",
 		"saved_in_one": "Salvo em {playlist}",
 		"saved_in_many": "Salvo em {count} playlists",
-		"saved_in_more": "e mais {count}"
+		"saved_in_more": "e mais {count}",
+		"subscriptions_tab": "Inscrições",
+		"no_subscriptions": "Ainda não há inscrições. Inscreva-se na página de um artista para mantê-lo aqui."
 	},
 	"local": {
 		"scanning": "Verificando pasta...",
@@ -1012,7 +1014,7 @@
 		"nudge_desc": "Traga suas playlists e Músicas Curtidas em poucos cliques.",
 		"errors": {
 			"not_spotify": "Isso não é um link de playlist ou álbum do Spotify.",
-			"private": "O Spotify não compartilha essa playlist. Se for privada, deixe-a pública por um minuto ou use seus dados do Spotify.",
+			"private": "Essa playlist é privada, por isso não pode ser importada via link. Solicite seus dados do Spotify abaixo para trazê-la.",
 			"not_a_list": "Isso é o link de uma música ou artista. Cole o link de uma playlist ou de um álbum.",
 			"empty": "Não há músicas nessa lista.",
 			"unreadable": "Não foi possível ler esse arquivo. Use o zip que o Spotify enviou por e-mail, um dos arquivos JSON dentro dele ou um CSV.",
