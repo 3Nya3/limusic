@@ -65,7 +65,8 @@ pub fn set_main_visible(app: &AppHandle, visible: bool) {
     let _ = app.emit_to("main", "ui-visible", visible);
 }
 
-fn flush_and_save_position(app: &AppHandle) {
+/// Persist the exact resume position and the mini player's window position. Safe to call more than once, and a no-op for the pieces that are already gone.
+pub(crate) fn flush_and_save_position(app: &AppHandle) {
     // Users now quit mid-song from the tray; persist the exact resume position first.
     if let Some(state) = app.try_state::<Arc<AppState>>() {
         state.flush_position();
@@ -74,6 +75,7 @@ fn flush_and_save_position(app: &AppHandle) {
     crate::mini::save_position(app);
 }
 
+/// Real quit: save positions first, then exit. Used by the tray's Quit item and the UI's Ctrl+Q / Cmd+Q (`quit_app` command).
 pub fn quit(app: &AppHandle) {
     flush_and_save_position(app);
     app.exit(0);

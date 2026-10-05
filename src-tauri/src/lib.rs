@@ -1001,6 +1001,12 @@ pub fn run() {
                     handle.exit(0);
                 }
             }
+
+            // Every exit path ends here, including macOS Cmd+Q from the native app menu, which
+            // quits without reaching tray::quit. Saving again is harmless when quit() already did.
+            if let tauri::RunEvent::Exit = &event {
+                tray::flush_and_save_position(handle);
+            }
         });
 }
 
