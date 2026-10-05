@@ -1340,14 +1340,18 @@ impl AppState {
                         have.album = have.album.take().or(item.album);
                     }
                 }
-                // The seed is already playing and Last.fm and Discord were told it has no album.
-                // Sent under the queue lock, so it can't overtake the next track's `set_track`.
+                // The seed is already playing and Last.fm, Discord and the OS media widget were
+                // told it has no album. Sent under the queue lock, so it can't overtake the next
+                // track's `set_track` / `set_metadata`.
                 if let Some(album) = q
                     .items
                     .get(q.current)
                     .filter(|i| !had_album && i.video_id == video_id)
                     .and_then(|i| i.album.as_deref())
                 {
+                    if let Some(m) = &self.media {
+                        m.set_album(album);
+                    }
                     if let Some(d) = &self.discord {
                         d.set_album(&video_id, album);
                     }

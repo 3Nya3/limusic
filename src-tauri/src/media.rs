@@ -20,6 +20,7 @@ use crate::state::AppState;
 /// Update messages: app → media-controls owner thread.
 enum MediaUpdate {
     Metadata { title: String, artist: String, album: Option<String>, cover: Option<String> },
+    Album(String), // learned after the track's metadata went out; keeps the duration
     Duration(f64),
     Playback { playing: bool, pos: f64 },
     Volume(i64), // slider percent, 0-100
@@ -45,6 +46,12 @@ impl MediaHandle {
             album: album.map(str::to_owned),
             cover: cover.map(str::to_owned),
         });
+    }
+
+    /// A search or home card starts playing with no album name; the radio fetched behind it
+    /// carries one (#377, the MPRIS side of #309).
+    pub fn set_album(&self, album: &str) {
+        let _ = self.tx.send(MediaUpdate::Album(album.to_owned()));
     }
 
     pub fn set_duration(&self, secs: f64) {
@@ -127,6 +134,10 @@ fn run(app: AppHandle, rx: std::sync::mpsc::Receiver<MediaUpdate>) {
                 album = al;
                 cover = c;
                 duration = None; // new track — length not known until mpv reports it
+                apply_metadata(&mut controls, &title, &artist, &album, &cover, duration);
+            }
+            MediaUpdate::Album(al) => {
+                album = Some(al);
                 apply_metadata(&mut controls, &title, &artist, &album, &cover, duration);
             }
             MediaUpdate::Duration(secs) => {

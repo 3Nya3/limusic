@@ -517,8 +517,13 @@ pub(crate) fn parse_list_item(node: &Value) -> Option<SongItem> {
     // so read it the other way: a duration-shaped, unlinked third column is the length.
     let duration =
         duration.or_else(|| fixed_column_text(node)).or_else(|| flex_column_duration(node));
-    // …and the album in a column of its own rather than in the subtitle runs.
-    let album = album.or_else(|| album_column(node));
+    // …and the album in a column of its own rather than in the subtitle runs. An artist page's top
+    // songs put the play count in that column and the album in a fourth one (#377), so past it,
+    // take whichever column links an album page.
+    let album = album.or_else(|| album_column(node)).or_else(|| {
+        (3..flex.map_or(0, Vec::len))
+            .find_map(|i| flex_runs(node, i).and_then(|r| album_from_runs(r)))
+    });
     let artist_id = subtitle_runs.and_then(|r| first_artist_id(r));
     // Only when this row's own menu offers the remove action. Every playlist row carries a
     // playlistSetVideoId, including rows on a playlist you can't edit (live-checked 2026-08-23),
@@ -1430,6 +1435,29 @@ mod tests {
         let album = parse_list_item(&row(json!("1989"), true)).unwrap();
         assert_eq!(album.play_count, None);
         assert_eq!(album.album.as_deref(), Some("1989"));
+    }
+
+    // #377: an artist page's top songs read "Title | Artist | 1.2B plays | Album". The count takes
+    // the third column, so the album is the fourth, and without it the whole Top songs queue
+    // played and scrobbled album-less.
+    #[test]
+    fn artist_top_song_album_is_the_fourth_column() {
+        let row = json!({
+            "playlistItemData": { "videoId": "abc123" },
+            "flexColumns": [
+                { "musicResponsiveListItemFlexColumnRenderer": { "text": { "runs": [{ "text": "Song Title" }] } } },
+                { "musicResponsiveListItemFlexColumnRenderer": { "text": { "runs": [{ "text": "The Artist" }] } } },
+                { "musicResponsiveListItemFlexColumnRenderer": { "text": { "runs": [{ "text": "1.2B plays" }] } } },
+                { "musicResponsiveListItemFlexColumnRenderer": { "text": { "runs": [{
+                    "text": "The Album",
+                    "navigationEndpoint": { "browseEndpoint": { "browseId": "MPREalbum1" } }
+                }] } } }
+            ]
+        });
+        let song = parse_list_item(&row).unwrap();
+        assert_eq!(song.play_count.as_deref(), Some("1.2B"));
+        assert_eq!(song.album.as_deref(), Some("The Album"));
+        assert_eq!(song.album_id.as_deref(), Some("MPREalbum1"));
     }
 
     // #274 again, the other half: with `hl=ko` a row YouTube stripped the artist from reads
