@@ -31,6 +31,7 @@
 				[t('dialogs.shortcuts.zoom_in'), `${MOD}+`],
 				[t('dialogs.shortcuts.zoom_out'), `${MOD}-`],
 				[t('dialogs.shortcuts.reset_zoom'), `${MOD}0`],
+				[t('dialogs.shortcuts.quit_app'), `${MOD}Q`],
 				[t('dialogs.shortcuts.show_this_list'), HELP_COMBO]
 			]
 		}

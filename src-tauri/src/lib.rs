@@ -945,6 +945,7 @@ pub fn run() {
             commands::can_self_update,
             commands::check_beta_update,
             commands::open_external,
+            commands::quit_app,
             commands::diagnostics,
             commands::diagnostics_summary,
             commands::save_diagnostics,
