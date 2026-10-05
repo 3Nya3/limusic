@@ -91,7 +91,7 @@
 	"nav": {
 		"home": "홈",
 		"search": "검색",
-		"library": "보관함",
+		"library": "라이브러리",
 		"settings": "설정",
 		"listen_together": "함께 듣기",
 		"new_playlist": "새 플레이리스트",
@@ -100,9 +100,9 @@
 		"sign_out": "로그아웃",
 		"switch_channel": "채널 전환",
 		"choose_channel": "유튜브 채널 선택",
-		"choose_channel_desc": "보관함, 좋아요, 재생목록에 이 채널이 적용됩니다. 나중에 다시 변경할 수 있습니다.",
+		"choose_channel_desc": "라이브러리, 좋아요, 재생목록에 이 채널이 적용됩니다. 나중에 다시 변경할 수 있습니다.",
 		"cancel_sign_in": "로그인 취소",
-		"sign_in_hint": "Google 계정으로 로그인하여 YouTube Music의 보관함과 재생목록을 확인해 보세요.",
+		"sign_in_hint": "Google 계정으로 로그인하여 YouTube Music의 라이브러리와 플레이리스트를 확인해 보세요.",
 		"add_account": "계정 추가",
 		"remove_account": "계정 삭제",
 		"remove_account_title": "Limusic에서 제거하시겠습니까?",
@@ -634,9 +634,9 @@
 		},
 		"link": {
 			"title": "링크 열기",
-			"desc": "곡, 플레이리스트, 앨범 또는 아티스트의 YouTube Music 링크를 붙여넣으세요.",
+			"desc": "곡, 플레이리스트, 앨범 또는 아티스트의 유튜브뮤직이나, 스포티파이 링크를 붙여넣으세요.",
 			"open": "열기",
-			"invalid_link": "올바른 YouTube Music 주소가 아닙니다"
+			"invalid_link": "올바른 유튜브뮤직이나, 스포티파이 주소가 아닙니다"
 		},
 		"listen_together": {
 			"title": "함께 듣기",
@@ -882,7 +882,10 @@
 		"unsubscribed": "구독이 해제되었습니다",
 		"signed_in_as": "{name} 계정으로 로그인 완료",
 		"switched_to": "{name}(으)로 전환했습니다",
-		"could_not_add": "추가할 수 없어요. 대신 직접 열어보세요"
+		"could_not_add": "추가할 수 없어요. 대신 직접 열어보세요",
+		"added_to_playlists": "{count}개의 플레이리스트에 추가되었습니다",
+		"added_to_playlists_dupes": "{count}개의 플레이리스트에 추가되었습니다. 중복 제외: {dupes}개",
+		"already_in_selected": "선택한 플레이리스트에 이미 모두 추가되어 있습니다"
 	},
 	"errors": {
 		"unreachable": "YouTube Music에 연결할 수 없습니다. 네트워크 연결을 확인해 주세요.",
@@ -895,5 +898,21 @@
 		"clear_recent": "지우기",
 		"forget": "최근 검색어에서 “{query}” 삭제",
 		"filters": "결과 유형"
+	},
+	"import": {
+		"button": "가져오기",
+		"button_tooltip": "Spotify에서 플레이리스트 가져오기",
+		"title": "Spotify에서 가져오기",
+		"experimental": "실험적 기능",
+		"experimental_tooltip": "새로 추가되어 아직 미세 조정 중인 기능입니다. 가져오기 과정에서 오류가 발생하면 제보해 주세요.",
+		"desc": "플레이리스트를 가져오세요. 모든 과정은 이 컴퓨터에서 실행됩니다. Spotify에는 플레이리스트만 요청하고, YouTube Music에는 곡 정보만 요청합니다.",
+		"link_title": "링크 붙여넣기",
+		"link_desc": "공개된 플레이리스트나 앨범 모두 가능합니다. Spotify에서 … 메뉴를 열고 공유하기를 누른 뒤 링크 복사를 선택하세요.",
+		"continue": "계속하기",
+		"reading": "읽어오는 중…",
+		"data_title": "내 Spotify 데이터 사용하기",
+		"data_desc": "비공개 플레이리스트와 '좋아요 표시한 곡'을 포함한 모든 데이터가 해당됩니다. Spotify에 계정 데이터를 요청하면 보통 며칠 내로 이메일을 통해 전달됩니다.",
+		"request_data": "Spotify에서 데이터 요청하기",
+		"choose_file": "파일 선택"
 	}
 }
