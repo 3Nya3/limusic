@@ -29,7 +29,7 @@
 	import * as Popover from '$lib/components/ui/popover';
 	import * as api from '$lib/api';
 	import type { ScrobblePreview, ScrobbleTrack } from '$lib/api';
-	import { playback, toast, ui } from '$lib/player.svelte';
+	import { playback, prefs, toast, ui } from '$lib/player.svelte';
 	import { currentLocale, t } from '$lib/i18n.svelte';
 	import { thumb } from '$lib/thumb';
 	import LastFmIcon from '$lib/components/LastFmIcon.svelte';
@@ -792,7 +792,13 @@
 		<Button size="sm" onclick={connectLastfm}>{t('settings.scrobbling.connect')}</Button>
 	{/if}
 {/snippet}
-{#snippet enabledSwitch()}<Switch checked={cfg.enabled} onCheckedChange={(v) => set({ enabled: v })} />{/snippet}
+{#snippet enabledSwitch()}<Switch
+		checked={cfg.enabled}
+		onCheckedChange={(v) => {
+			set({ enabled: v });
+			prefs.scrobbling = v;
+		}}
+	/>{/snippet}
 {#snippet nowPlayingSwitch()}<Switch
 		checked={cfg.now_playing}
 		onCheckedChange={(v) => set({ now_playing: v })}

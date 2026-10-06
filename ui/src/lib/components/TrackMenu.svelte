@@ -43,6 +43,7 @@
 		noteUnsavedFrom,
 		personal,
 		playback,
+		prefs,
 		ratingOf,
 		removePick,
 		savedIn,
@@ -378,8 +379,9 @@
 			</button>
 		{/if}
 		<!-- #404: fix how this track scrobbles, for good. Opens the Scrobbling tab on it, where the
-		     preview shows what Last.fm gets before and after. -->
-		{#if lastfm.connected}
+		     preview shows what Last.fm gets before and after. Only for someone actually scrobbling:
+		     connected, and the tab's switch on. -->
+		{#if lastfm.connected && prefs.scrobbling}
 			<button
 				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
 				onclick={(e) =>
