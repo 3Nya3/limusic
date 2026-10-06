@@ -146,7 +146,9 @@
 		"mini_expand": "Mini oynatıcıyı genişlet",
 		"autoplay": "Otomatik Oynatma",
 		"songs_left": "{count} şarkı kaldı",
-		"songs_left_one": "1 şarkı kaldı"
+		"songs_left_one": "1 şarkı kaldı",
+		"queue_ends": "Sıra bu şarkıdan sonra sona erecek.",
+		"edit_scrobble": "Skropu düzenle"
 	},
 	"home": {
 		"good_morning": "Günaydın",
@@ -251,7 +253,8 @@
 		"saved_in_one": "{playlist} listesine kaydedildi",
 		"saved_in_many": "{count} çalma listesine kaydedildi",
 		"saved_in_more": "ve {count} tane daha",
-		"no_subscriptions": "Henüz aboneliğiniz yok. Bir sanatçıyı buraya eklemek için sanatçının sayfasından abone olun."
+		"no_subscriptions": "Henüz aboneliğiniz yok. Bir sanatçıyı buraya eklemek için sanatçının sayfasından abone olun.",
+		"subscriptions_tab": "Abonelikler"
 	},
 	"local": {
 		"scanning": "Klasör taranıyor...",
@@ -283,7 +286,8 @@
 			"discord": "Discord",
 			"discord_hint": "Rich Presence kartınızın nasıl görüneceği.",
 			"hotkeys": "Genel Klavye Kısayolları",
-			"hotkeys_hint": "Oynatmayı kontrol etmek için sistem geneli kısayollar."
+			"hotkeys_hint": "Oynatmayı kontrol etmek için sistem geneli kısayollar.",
+			"scrobbling": "Skroplama"
 		},
 		"sections": {
 			"language": "Dil (Language)",
@@ -422,7 +426,9 @@
 			"ambient_light_gpu_title": "Destekleyen bir ekran kartı gerektirir",
 			"shuffle_whole_queue": "Tüm sırayı karıştır",
 			"ambient_light_hint": "Müzik videosunun etrafındaki oynatıcı alanı, videonun renkleriyle uyumlu bir şekilde parıldar.",
-			"ambient_light_gpu_check": "Kartınıza bakın"
+			"ambient_light_gpu_check": "Kartınıza bakın",
+			"shuffle_whole_queue_hint": "“Karıştır” seçeneği, “Sıraya Ekle” ile eklediğiniz şarkıları çalma listesiyle karıştırır. Bu seçeneği devre dışı bırakırsanız, şarkılar eklediğiniz sırayla çalınır. “Sonraki” seçeneği ise her zaman bir sonraki şarkıyı çalar.",
+			"ambient_light_gpu": "PassMark ekran kartı performans testinde 1000 puanın altında kalan durumlarda, müzik videosu oynatılırken oynatıcının görüntüsünde takılmalar yaşanabilir."
 		},
 		"data": {
 			"clear_cache": "Görsel ve akış önbelleğini temizle",
@@ -550,6 +556,45 @@
 			"action_toggle_repeat_hint": "Tekrar modunu değiştirir: kapalı, tümü, tek.",
 			"action_show_app": "Uygulamayı göster",
 			"action_show_app_hint": "Limusic penceresini ön plana getirir."
+		},
+		"scrobbling": {
+			"stat_artists": "Sanatçılar",
+			"stat_tracks": "Parçalar",
+			"enable_hint": "Hesabınızın bağlantısını kesmeden bir süreliğine skroplamayı durdurmak için bu özelliği kapatın.",
+			"now_playing": "Şu anda neyin oynatıldığını göster",
+			"now_playing_hint": "Bir parça çalmaya başladığında bunu Last.fm’e bildir, böylece profilinde anlık olarak görünür.",
+			"percent_value": "{n}%",
+			"percent": "Bu orandan sonra skropla",
+			"minutes_value": "{n} dakika",
+			"minutes_hint": "Uzun parçalar, yukarıdaki yüzde değerine ulaşmadan önce bile, bu süre kadar çalındığında skroplanır. Last.fm, 4 dakikalık bir süre kullanır. 30 saniyeden kısa parçalar hiçbir zaman skroplanmaz.",
+			"split_titles": "Video başlıklarından sanatçıyı oku",
+			"minutes": "Ya da sonra",
+			"stat_scrobbles": "Skroplar",
+			"connect": "Bağlan",
+			"open_profile": "Last.fm profilinizi açın",
+			"section_rules": "Kurallar",
+			"field_title": "Parça",
+			"field_artist": "Sanatçı",
+			"field_album": "Albüm",
+			"rule_remove": "Kuralı sil",
+			"find_placeholder": "Bul",
+			"add_rule": "Kural ekle",
+			"blank_rule": "Boş kural",
+			"import": "İçe aktar",
+			"edits_show_less": "Daha az göster",
+			"edit_remove": "Düzenlemeyi kaldır",
+			"skip_track": "Bu parçayı skroplama",
+			"not_scrobbled": "Skroplanmadı",
+			"preview_picked": "Seçilen parça",
+			"from_youtube": "YouTube Music'de",
+			"applied_rule": "Kural {n}",
+			"status_paused": "Skroplama kapalı.",
+			"status_short": "Skroplamak için çok kısa.",
+			"account_connecting": "Tarayıcınızda Limusic'i onaylamanızı bekliyoruz.",
+			"account_disconnected": "Last.fm hesabınızı bağlayarak dinlediğiniz şarkıları skroplayın.",
+			"edits_empty": "Henüz düzenleme yapılmadı. Herhangi bir şarkının menüsünden düzenleme ekleyebilirsiniz.",
+			"edits_show_all": "Tümünü göster {count}",
+			"edit_track": "Bu parçayı düzenle"
 		}
 	},
 	"dialogs": {
@@ -676,12 +721,13 @@
 		"discord_off": "Discord durumu kapalı",
 		"discord_tooltip_on": "Discord durumu açık — kapatmak için tıklayın",
 		"discord_tooltip_off": "Çaldığınız parçayı Discord'da gösterin",
-		"lastfm_scrobbling_as": "{user} olarak Scrobble ediliyor",
+		"lastfm_scrobbling_as": "{user} olarak Skroplanıyor",
 		"lastfm_disconnected": "Last.fm bağlantısı kesildi",
 		"lastfm_approve_in_browser": "Tarayıcınızda Limusic'e izin verin",
 		"lastfm_connecting": "Last.fm'e bağlanılıyor — iptal etmek için tıklayın",
 		"lastfm_scrobble_to": "Last.fm'e scrobble et",
-		"disconnect": "Bağlantıyı kes"
+		"disconnect": "Bağlantıyı kes",
+		"lastfm_settings": "Skroplama ayarları"
 	},
 	"a11y": {
 		"close": "Kapat",
@@ -889,7 +935,8 @@
 		"account_changed": "Hesap değiştiği için şarkı ekleme işlemi durduruldu.",
 		"playlist_partial": "{playlist} listesine {added} eklendi; {duplicates} zaten listede vardı; {remaining} onaylanmadı. {error}",
 		"remove": "Bu çalma listesinden kaldır",
-		"remove_confirm": "{count} kaldır?"
+		"remove_confirm": "{count} kaldır?",
+		"playlists_partial": "{total} oynatma listesinin {done} tanesi eklendi. {error}"
 	},
 	"errors": {
 		"unreachable": "YouTube Music'e erişilemedi. Bağlantınızı kontrol edin.",
@@ -913,7 +960,8 @@
 		"dupes_add": "Yine de ekle",
 		"anyway_hint": "İkinci bir kopyasını sakla",
 		"anyway_hint_local": "İkinci kopyalar yalnızca YouTube çalma listelerine eklenir",
-		"adds": "+{count}"
+		"adds": "+{count}",
+		"dupes_of": "{total} tanenin {count} tanesi zaten var"
 	},
 	"import": {
 		"button": "İçe aktar",
@@ -928,6 +976,7 @@
 		"data_title": "Spotify verilerinizi kullanın",
 		"data_desc": "Her şey, özel çalma listeleri ve Beğenilen Şarkılar da dahil. Spotify'dan hesap verilerinizi talep edin; genellikle birkaç gün içinde e-posta yoluyla elinize ulaşır.",
 		"request_data": "Spotify'dan talep edin",
-		"choose_file": "Dosya seçin"
+		"choose_file": "Dosya seçin",
+		"file_filter": "Spotify verisi veya CSV"
 	}
 }
