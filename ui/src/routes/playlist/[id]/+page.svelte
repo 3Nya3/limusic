@@ -23,7 +23,8 @@
 		ArrowUpDownIcon,
 		ComputerIcon,
 		SpotifyIcon,
-		Search01Icon
+		Search01Icon,
+		Download01Icon
 	} from '@hugeicons/core-free-icons';
 	import { Button } from '$lib/components/ui/button';
 	import * as RadioGroup from '$lib/components/ui/radio-group';
@@ -74,6 +75,7 @@
 		startRadio,
 		toast,
 		toggleSaved,
+		ui,
 		bumpLibraryTrackCount,
 		noteSavedIn,
 		noteUnsavedFrom,
@@ -1292,6 +1294,19 @@
 				<HugeiconsIcon icon={Radio02Icon} class="h-4 w-4" /> {t('player.start_radio')}
 			</button>
 		{/if}
+		<!-- Offline download of the whole list (or the first N of it). The backend walks YouTube
+		     playlists, Liked Music (the same dialog, plus its auto-download checkbox), local
+		     playlists and On Repeat. -->
+		<button
+			class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
+			onclick={() =>
+				run(() => {
+					ui.downloadPlaylist = { id, title: pl?.title, total: headerCount, kind: 'playlist' };
+				})}
+		>
+			<HugeiconsIcon icon={Download01Icon} class="h-4 w-4" />
+			{t('downloads.action_download_playlist')}
+		</button>
 		<!-- Copies the tracks into another of your playlists. On Repeat is built from local play
 		     counts, so there is nothing YouTube would take. -->
 		{#if !isOnRepeat}
