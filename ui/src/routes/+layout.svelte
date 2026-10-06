@@ -150,9 +150,10 @@
 	// buttons always mean the panels, and the panels float over that view like they float over a
 	// page, so opening it costs you nothing you had open.
 	const tabbed = $derived(np.open && appearance.tabbedPlayer);
-	$effect(() => {
-		if (tabbed) queueOpen = lyricsOpen = false;
-	});
+	// Stepping aside hides the panels without closing them, so closing the view brings back
+	// whatever was open before it (#365).
+	const showQueue = $derived(queueOpen && !tabbed);
+	const showLyrics = $derived(lyricsOpen && !tabbed);
 
 	// "Adapt colors to artwork": re-run on every track change and on the toggle itself. The 120px
 	// cover is the one the player bar has already loaded, so this costs no extra request.
@@ -288,10 +289,10 @@
 			     parking container until the view borrows the picture. Not on Linux, where mpv draws the
 			     picture itself (prefs.nativeVideo). -->
 			{#if !prefs.nativeVideo}<VideoSurface />{/if}
-			{#if np.open && playback.now}<NowPlaying {queueOpen} {lyricsOpen} />{/if}
+			{#if np.open && playback.now}<NowPlaying queueOpen={showQueue} lyricsOpen={showLyrics} />{/if}
 			<!-- Lyrics before queue: side by side over the page, lyrics on the left, queue on the right. -->
-			{#if lyricsOpen}<LyricsPanel onClose={() => (lyricsOpen = false)} {queueOpen} />{/if}
-			{#if queueOpen}<QueuePanel onClose={() => (queueOpen = false)} />{/if}
+			{#if showLyrics}<LyricsPanel onClose={() => (lyricsOpen = false)} queueOpen={showQueue} />{/if}
+			{#if showQueue}<QueuePanel onClose={() => (queueOpen = false)} />{/if}
 		</div>
 		{#if playback.now}
 			<!-- Slides up from its own height on first play; leaves instantly (bar removal is rare).
