@@ -30,12 +30,16 @@
 	     offset (any dialog with an odd height) is not pixel-snapped, so WebKitGTK's compositor
 	     resamples the whole layer and the text goes soft. See issue #75. Not inset-0 + m-auto +
 	     h-fit either: WebKitGTK ignores height:fit-content there and stretches to the viewport. -->
+	<!-- grid-cols-[minmax(0,1fr)]: the default column is `auto`, which never gets narrower than
+	     its content's longest unbreakable line, and a `truncate` line counts at full length. A
+	     wide font made one such line in the Scrobbling tab overflow the dialog's own max width,
+	     clipping its right edge, and any dialog with a long enough truncated line does the same. -->
 	<div class="pointer-events-none fixed inset-0 z-50 flex items-center justify-center">
 		<DialogPrimitive.Content
 			bind:ref
 			data-slot="dialog-content"
 			class={cn(
-				"bg-popover text-popover-foreground data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 data-closed:zoom-out-95 data-open:zoom-in-95 ring-foreground/5 grid max-w-[calc(100%-2rem)] gap-6 rounded-4xl p-6 text-sm ring-1 duration-100 sm:max-w-md pointer-events-auto relative w-full outline-none",
+				"bg-popover text-popover-foreground data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 data-closed:zoom-out-95 data-open:zoom-in-95 ring-foreground/5 grid grid-cols-[minmax(0,1fr)] max-w-[calc(100%-2rem)] gap-6 rounded-4xl p-6 text-sm ring-1 duration-100 sm:max-w-md pointer-events-auto relative w-full outline-none",
 				className
 			)}
 			{...restProps}
