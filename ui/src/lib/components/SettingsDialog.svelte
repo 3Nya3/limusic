@@ -14,6 +14,7 @@
 		Copy01Icon,
 		Coffee02Icon,
 		DiscordIcon,
+		LastFmIcon,
 		Globe02Icon,
 		ArrowDown01Icon,
 		Alert02Icon,
@@ -37,6 +38,7 @@
 	import ColorPicker from '$lib/components/ColorPicker.svelte';
 	import Changelog from '$lib/components/Changelog.svelte';
 	import DiscordSettings from '$lib/components/DiscordSettings.svelte';
+	import ScrobbleSettings from '$lib/components/ScrobbleSettings.svelte';
 	import {
 		THEMES,
 		FONTS,
@@ -75,13 +77,22 @@
 	import LyricsSourcesSettings from '$lib/components/LyricsSourcesSettings.svelte';
 	import LanguagePicker from '$lib/components/LanguagePicker.svelte';
 
-	type TabId = 'general' | 'themes' | 'playback' | 'hotkeys' | 'discord' | 'data' | 'about';
+	type TabId =
+		| 'general'
+		| 'themes'
+		| 'playback'
+		| 'hotkeys'
+		| 'discord'
+		| 'scrobbling'
+		| 'data'
+		| 'about';
 	const TABS = $derived<{ id: TabId; label: string; hint: string; icon: typeof Settings02Icon }[]>([
 		{ id: 'general', label: t('settings.tabs.general'), hint: t('settings.tabs.general_hint'), icon: Settings02Icon },
 		{ id: 'themes', label: t('settings.tabs.themes'), hint: t('settings.tabs.themes_hint'), icon: PaintBoardIcon },
 		{ id: 'playback', label: t('settings.tabs.playback'), hint: t('settings.tabs.playback_hint'), icon: PlayCircleIcon },
 		{ id: 'hotkeys', label: t('settings.tabs.hotkeys'), hint: t('settings.tabs.hotkeys_hint'), icon: KeyboardIcon },
 		{ id: 'discord', label: t('settings.tabs.discord'), hint: t('settings.tabs.discord_hint'), icon: DiscordIcon },
+		{ id: 'scrobbling', label: t('settings.tabs.scrobbling'), hint: t('settings.tabs.scrobbling_hint'), icon: LastFmIcon },
 		{ id: 'data', label: t('settings.tabs.data'), hint: t('settings.tabs.data_hint'), icon: Database02Icon },
 		{ id: 'about', label: t('settings.tabs.about'), hint: t('settings.tabs.about_hint'), icon: InformationCircleIcon }
 	]);
@@ -226,8 +237,12 @@
 		if (!ui.settingsOpen) return;
 		untrack(() => {
 			// Opened on a section from elsewhere (the lyrics source picker): its tab, scrolled to it
-			// once the tab has rendered.
-			if (ui.settingsFocus) {
+			// once the tab has rendered. The Last.fm menu and "Edit scrobble" open a whole tab.
+			if (ui.settingsFocus === 'scrobbling') {
+				tab = 'scrobbling';
+				ui.settingsFocus = null;
+				load();
+			} else if (ui.settingsFocus) {
 				tab = 'playback';
 				const id = `settings-${ui.settingsFocus}`;
 				ui.settingsFocus = null;
@@ -343,12 +358,6 @@
 	const musicVideosOn = $derived(settings.music_videos === 'true');
 	// Off by default, and only offered with music videos on: it costs real GPU time on every frame.
 	const ambientOn = $derived(settings.ambient_light === 'true');
-	// Off by default: the full byline is what YouTube credits, and cutting it is a preference
-	// with a real failure mode (a comma-joined duo name), not a fix (issue #231).
-	const lastfmPrimaryOn = $derived(settings.lastfm_primary_artist === 'true');
-	// Sub-setting of the one above: also cut at "&", which costs the joint acts that have their
-	// own Last.fm page. Only reachable while the parent is on.
-	const lastfmStrictOn = $derived(settings.lastfm_primary_strict === 'true');
 	const preventDuplicatesOn = $derived(settings.prevent_duplicates === 'true');
 	// Off by default: shuffle applies to the queue it was turned on for (issue #117).
 	const stickyShuffleOn = $derived(settings.sticky_shuffle === 'true');
@@ -426,16 +435,6 @@
 	async function setHideVideos(on: boolean) {
 		settings.hide_videos = on ? 'true' : 'false';
 		await api.setSetting('hide_videos', settings.hide_videos);
-	}
-
-	async function setLastfmPrimary(on: boolean) {
-		settings.lastfm_primary_artist = on ? 'true' : 'false';
-		await api.setSetting('lastfm_primary_artist', settings.lastfm_primary_artist);
-	}
-
-	async function setLastfmStrict(on: boolean) {
-		settings.lastfm_primary_strict = on ? 'true' : 'false';
-		await api.setSetting('lastfm_primary_strict', settings.lastfm_primary_strict);
 	}
 
 	async function setPreventDuplicates(on: boolean) {
@@ -575,12 +574,12 @@
 {/snippet}
 
 <Dialog.Root bind:open={ui.settingsOpen}>
-	<!-- The Discord tab puts its live preview *beside* the controls rather than under them, so it
-	     needs the extra width; every other tab reads better narrow. Deliberately not animated:
+	<!-- The Discord and Scrobbling tabs put their live preview *beside* the controls rather than
+	     under them, so they need the extra width; every other tab reads better narrow. Deliberately not animated:
 	     transitioning the width relayouts the whole modal every frame, and WebKitGTK is the webview
 	     that would pay for it. -->
 	<Dialog.Content
-		class="gap-0 overflow-hidden p-0 {tab === 'discord' ? 'sm:max-w-5xl' : tab === 'hotkeys' ? 'sm:max-w-4xl' : 'sm:max-w-3xl'}"
+		class="gap-0 overflow-hidden p-0 {tab === 'discord' || tab === 'scrobbling' ? 'sm:max-w-5xl' : tab === 'hotkeys' ? 'sm:max-w-4xl' : 'sm:max-w-3xl'}"
 	>
 		<Dialog.Description class="sr-only">{t('settings.title')}</Dialog.Description>
 
@@ -626,6 +625,8 @@
 
 				{#if loaded && tab === 'discord'}
 					<DiscordSettings {settings} />
+				{:else if loaded && tab === 'scrobbling'}
+					<ScrobbleSettings {settings} />
 				{:else}
 				<div class="min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-6 py-5">
 					{#if !loaded}
@@ -896,25 +897,6 @@
 								})}
 							</div>
 						</section>
-						<section class={GROUP}>
-							<h3 class={LABEL}>{t('settings.sections.scrobbling')}</h3>
-							<div class={CARD}>
-								{@render row({
-									title: t('settings.playback.lastfm_primary_artist'),
-									desc: t('settings.playback.lastfm_primary_artist_hint'),
-									control: lastfmPrimarySwitch,
-									tall: true
-								})}
-								{#if lastfmPrimaryOn}
-									{@render row({
-										title: t('settings.playback.lastfm_primary_strict'),
-										desc: t('settings.playback.lastfm_primary_strict_hint'),
-										control: lastfmStrictSwitch,
-										tall: true
-									})}
-								{/if}
-							</div>
-						</section>
 						<section class={GROUP} id="settings-lyrics">
 							<h3 class={LABEL}>{t('settings.sections.lyrics')}</h3>
 							<LyricsSourcesSettings {settings} />
@@ -1163,14 +1145,6 @@
 	</Popover.Root>
 {/snippet}
 {#snippet hideVideoSwitch()}<Switch checked={hideVideosOn} onCheckedChange={setHideVideos} />{/snippet}
-{#snippet lastfmPrimarySwitch()}<Switch
-		checked={lastfmPrimaryOn}
-		onCheckedChange={setLastfmPrimary}
-	/>{/snippet}
-{#snippet lastfmStrictSwitch()}<Switch
-		checked={lastfmStrictOn}
-		onCheckedChange={setLastfmStrict}
-	/>{/snippet}
 {#snippet bannerSwitch()}<Switch checked={updateBannerOn} onCheckedChange={setUpdateBanner} />{/snippet}
 {#snippet betaSwitch()}<Switch checked={betaOn} onCheckedChange={setBeta} />{/snippet}
 {#snippet openPlayerSwitch()}<Switch

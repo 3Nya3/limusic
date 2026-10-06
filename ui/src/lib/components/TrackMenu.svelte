@@ -24,7 +24,8 @@
 		Vynil02Icon,
 		DashboardSquare02Icon,
 		Share08Icon,
-		PreferenceVerticalIcon
+		PreferenceVerticalIcon,
+		PencilEdit02Icon
 	} from '@hugeicons/core-free-icons';
 	import * as api from '$lib/api';
 	import type { SongItem } from '$lib/api';
@@ -48,8 +49,10 @@
 		toast,
 		startRadio,
 		toggleRating,
-		toggleSongLibrary
+		toggleSongLibrary,
+		ui
 	} from '$lib/player.svelte';
+	import { lastfm } from '$lib/lastfm.svelte';
 	import { lt } from '$lib/lt.svelte';
 	import { t } from '$lib/i18n.svelte';
 	import { invalidateCachedPrefix } from '$lib/pagecache';
@@ -372,6 +375,21 @@
 					)}
 			>
 				<HugeiconsIcon icon={Share08Icon} class="h-4 w-4" /> {t('player.share')}
+			</button>
+		{/if}
+		<!-- #404: fix how this track scrobbles, for good. Opens the Scrobbling tab on it, where the
+		     preview shows what Last.fm gets before and after. -->
+		{#if lastfm.connected}
+			<button
+				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
+				onclick={(e) =>
+					run(e, () => {
+						ui.scrobbleTrack = song;
+						ui.settingsFocus = 'scrobbling';
+						ui.settingsOpen = true;
+					})}
+			>
+				<HugeiconsIcon icon={PencilEdit02Icon} class="h-4 w-4" /> {t('player.edit_scrobble')}
 			</button>
 		{/if}
 		{#if linksOnly}

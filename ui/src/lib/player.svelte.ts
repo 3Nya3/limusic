@@ -1171,7 +1171,8 @@ export const ui = $state({
 	share: null as BrowseItem | null, // the share modal's target
 	toast: null as Toast | null,
 	settingsOpen: false, // the settings modal
-	settingsFocus: null as 'lyrics' | null, // a section to open settings on, once
+	settingsFocus: null as 'lyrics' | 'scrobbling' | null, // a section to open settings on, once
+	scrobbleTrack: null as SongItem | null, // "Edit scrobble" from a track menu: the track to edit
 	ltOpen: false, // the Listen Together modal
 	linkOpen: false, // the "open a pasted link" modal
 	paletteOpen: false, // the Ctrl+K search palette

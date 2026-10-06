@@ -222,7 +222,7 @@ pub async fn get_queue(state: St<'_>) -> Result<serde_json::Value, String> {
 /// `visitor_data`) and internal blobs (`queue_json`, `queue_index`, `queue_position`) never cross
 /// into the webview: they'd otherwise ship the login credential to the renderer on every open, and
 /// the webview can't overwrite them either.
-const UI_SETTINGS: [&str; 28] = [
+const UI_SETTINGS: [&str; 29] = [
     "volume",
     "proxy",
     "quality",
@@ -248,6 +248,7 @@ const UI_SETTINGS: [&str; 28] = [
     "system_titlebar",
     "lastfm_primary_artist",
     "lastfm_primary_strict",
+    "lastfm_config",
     "crossfade",
     "crossfade_secs",
     "locale",
@@ -417,6 +418,11 @@ pub async fn set_setting(
     // to follow without waiting for the next track.
     if key == "discord_rpc_config" {
         state.set_discord_config(&value);
+    }
+    // The Scrobbling tab's settings, read whole each time: the two switches from #231 keep rows of
+    // their own, and the scrobbler wants all of it in one message.
+    if matches!(key.as_str(), "lastfm_config" | "lastfm_primary_artist" | "lastfm_primary_strict") {
+        state.lastfm.set_config(crate::lastfm::ScrobbleConfig::load(&state.db));
     }
     // Retune the track that's playing. Unlike crossfade below, this one has to apply to what the
     // user is hearing right now: the switch exists so they can A/B the same loud section (#298).
@@ -2217,6 +2223,23 @@ pub async fn lastfm_disconnect(state: St<'_>) -> Result<(), String> {
 #[tauri::command]
 pub async fn lastfm_status(state: St<'_>) -> Result<serde_json::Value, String> {
     Ok(crate::lastfm::status(&state))
+}
+
+/// Avatar and counts for the Scrobbling tab's account card. One Last.fm call per tab open.
+#[tauri::command]
+pub async fn lastfm_profile(state: St<'_>) -> Result<Option<crate::lastfm::Profile>, String> {
+    Ok(crate::lastfm::profile(&state).await)
+}
+
+/// What `track` would scrobble as under `config` (the Scrobbling tab's unsaved state, as JSON).
+/// The tab's preview, computed by the same function the scrobbler sends from, so a pattern the
+/// Rust regex engine reads differently from JavaScript's can't make the preview lie.
+#[tauri::command]
+pub async fn lastfm_preview(
+    config: String,
+    track: crate::lastfm::Track,
+) -> crate::lastfm::Resolved {
+    crate::lastfm::resolve(&track, &crate::lastfm::ScrobbleConfig::parse(&config))
 }
 
 /// Theater mode's fullscreen toggle (#139).
