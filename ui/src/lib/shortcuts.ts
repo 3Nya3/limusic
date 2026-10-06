@@ -21,7 +21,7 @@ export const HELP_COMBO = `${MOD}${HELP_KEY}`;
 /** What a key event means, whatever layout is active. A Latin letter is used as typed (so Dvorak and
  *  AZERTY keep working); a character from another script (й, р, ю, б) falls back to the physical key
  *  from e.code. Everything else (named keys, digits, symbols) is returned as e.key. */
-const keyOf = (e: KeyboardEvent): string => {
+export const keyOf = (e: KeyboardEvent): string => {
 	const k = e.key;
 	if (k.length === 1 && /[a-z]/i.test(k)) return k.toLowerCase();
 	const nonAscii = k.length === 1 && k.charCodeAt(0) > 127;

@@ -65,39 +65,25 @@ pub fn set_main_visible(app: &AppHandle, visible: bool) {
     let _ = app.emit_to("main", "ui-visible", visible);
 }
 
-/// Persist the exact resume position and the mini player's window position. Safe to call more than once, and a no-op for the pieces that are already gone.
-pub(crate) fn flush_and_save_position(app: &AppHandle) {
-    // Users now quit mid-song from the tray; persist the exact resume position first.
-    if let Some(state) = app.try_state::<Arc<AppState>>() {
-        state.flush_position();
-    }
-    // Same for the widget's own position, if that's what they were quitting from.
-    crate::mini::save_position(app);
-}
-
-/// Real quit: save positions first, then exit. Used by the tray's Quit item and the UI's Ctrl+Q / Cmd+Q (`quit_app` command).
-pub fn quit(app: &AppHandle) {
-    flush_and_save_position(app);
-    app.exit(0);
-}
-
 /// Shared by both backends: menu ids are the contract between them.
 fn handle_menu(app: &AppHandle, id: &str) {
     match id {
         "show" => show_main(app),
-        "quit" => quit(app),
-        "restart" => {
-            flush_and_save_position(app);
-            // `request_restart`, not `restart`: it goes through RunEvent::Exit, which is
-            // where the single-instance plugin releases the D-Bus name. Skip that and the
-            // relaunched process hands off to the still-dying one and exits, leaving no app.
-            //
-            // ponytail: under `cargo tauri dev` this leaves you with no window. The CLI
-            // exits when its child does, taking the vite server with it, so the relaunched
-            // binary navigates to a dead devUrl and the transparent frameless window paints
-            // nothing (taskbar + tray entry, no visible window). Release builds embed the
-            // frontend, so restart is only usable there.
-            app.request_restart();
+        "quit" | "restart" => {
+            if id == "restart" {
+                // `request_restart`, not `restart`: it goes through RunEvent::Exit, which is
+                // where the single-instance plugin releases the D-Bus name. Skip that and the
+                // relaunched process hands off to the still-dying one and exits, leaving no app.
+                //
+                // ponytail: under `cargo tauri dev` this leaves you with no window. The CLI
+                // exits when its child does, taking the vite server with it, so the relaunched
+                // binary navigates to a dead devUrl and the transparent frameless window paints
+                // nothing (taskbar + tray entry, no visible window). Release builds embed the
+                // frontend, so restart is only usable there.
+                app.request_restart();
+            } else {
+                app.exit(0);
+            }
         }
         other => {
             let Some(state) = app.try_state::<Arc<AppState>>() else { return };

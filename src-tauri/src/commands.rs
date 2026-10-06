@@ -2161,10 +2161,10 @@ pub async fn open_external(url: String) -> Result<(), String> {
     crate::lastfm::open_browser(&url)
 }
 
-/// Real quit from the UI (Ctrl+Q / Cmd+Q). Same path as the tray's Quit item, so the resume position is saved.
+/// Real quit from the UI (Ctrl+Q / Cmd+Q). Positions are saved by the Exit handler in lib.rs.
 #[tauri::command]
 pub fn quit_app(app: tauri::AppHandle) {
-    crate::tray::quit(&app);
+    app.exit(0);
 }
 
 // --- Diagnostics ----------------------------------------------------------------------------
