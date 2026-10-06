@@ -73,6 +73,8 @@ let holeSent: string | null = null;
 
 /** Put mpv's picture at `r` (viewport CSS pixels), or take it away. */
 export function setHole(r: Hole | null) {
+	// Under a pixel there is nothing to show, and a reflow hands one over mid-resize (#321).
+	if (r && (r.w < 1 || r.h < 1)) r = null;
 	const key = r && `${r.x},${r.y},${r.w},${r.h}`;
 	if (key === holeSent) return;
 	holeSent = key;
