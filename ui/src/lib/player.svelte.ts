@@ -19,6 +19,7 @@ import type { Personal } from './personal';
 import { appearance } from './theme.svelte';
 import { currentLocale, pushLocaleToRust, t } from './i18n.svelte';
 import { friendlyNetError } from './neterr';
+import { parseScrobbleConfig } from './scrobble';
 
 export const playback = $state({
 	now: null as NowPlaying | null,
@@ -66,7 +67,10 @@ export const prefs = $state({
 	ambient: false,
 	/** `autoplay`: the queue keeps going with similar songs. Switched from the queue panel as well
 	 *  as Settings, so both read it here. */
-	autoplay: true
+	autoplay: true,
+	/** The Scrobbling tab's on switch (`lastfm_config.enabled`). The track menu offers "Edit
+	 *  scrobble" only while it is on, so a user who paused scrobbling isn't shown it. */
+	scrobbling: true
 });
 
 /** Rust drops the upcoming autoplay tracks when this goes off, and tops a short queue up when it
@@ -1607,6 +1611,7 @@ export function initApp(mini = false): () => void {
 			prefs.ambient = s.ambient_light === 'true';
 			prefs.discordRpc = s.discord_rpc === 'true';
 			prefs.autoplay = s.autoplay !== 'false';
+			prefs.scrobbling = parseScrobbleConfig(s.lastfm_config).enabled;
 			// Half of what the app shows is YouTube's own text, and Rust asks for it in the language
 			// this setting holds (#274). It reads the setting at startup, before the SPA exists to
 			// tell it anything, so the two disagree on a fresh install, on a language taken from the
