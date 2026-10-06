@@ -118,10 +118,42 @@ pub fn scan(db: &Db, covers_dir: &Path) -> LocalLibrary {
     let reparse = db.get_setting(SCAN_VERSION_SETTING).as_deref() != Some(SCAN_VERSION);
     let mut found: HashSet<String> = HashSet::new();
     let mut fresh: Vec<LocalTrack> = Vec::new();
+    // The engine's storage folders may sit below a watched Music/Downloads folder (`download_dir`
+    // is user-settable), and our own finished files must never be indexed as duplicate local
+    // tracks — app data, not user-owned Local Music (the idea from Adiker's fork, local.rs:121-131,
+    // GPL-3.0, Adiker/limusic@1fb1ded). Two layers, because a blanket folder skip is wrong when
+    // `download_dir` IS (or contains) the watched folder — that would hide the user's own music:
+    // - every `done` row's recorded path is skipped wherever it sits (exact, config-independent);
+    // - a storage folder strictly inside a watched folder is pruned as a whole subtree, which also
+    //   catches a file renamed into place but not yet recorded (a crash window).
+    let storage: Vec<PathBuf> = crate::downloads::storage_dirs(db)
+        .iter()
+        .filter_map(|p| p.canonicalize().ok().or(Some(p.clone())))
+        .collect();
+    let recorded: HashSet<PathBuf> = db
+        .downloads_all()
+        .iter()
+        .filter(|r| r.state == "done")
+        .filter_map(|r| r.path.as_deref())
+        .filter_map(|p| Path::new(p).canonicalize().ok())
+        .collect();
 
     let mut seen_dirs: HashSet<PathBuf> = HashSet::new();
     for folder in folders(db) {
-        walk(Path::new(&folder), 0, &mut seen_dirs, &mut |file| {
+        let watched = Path::new(&folder).canonicalize().unwrap_or_else(|_| PathBuf::from(&folder));
+        // Prune only storage folders strictly inside this watched folder: roots that are the
+        // watched folder itself or above it must not take the user's own files with them (the
+        // recorded-path layer above handles our files there instead).
+        let prune: Vec<PathBuf> =
+            storage.iter().filter(|s| s.starts_with(&watched) && **s != watched).cloned().collect();
+        walk(Path::new(&folder), 0, &mut seen_dirs, &prune, &mut |file| {
+            // Ours, not Local Music — skipped before `found`, so a download this scan previously
+            // indexed is treated as gone and pruned from the library (self-healing).
+            if !recorded.is_empty()
+                && file.canonicalize().map(|real| recorded.contains(&real)).unwrap_or(false)
+            {
+                return;
+            }
             let path = file.to_string_lossy().to_string();
             let mtime = mtime_of(file);
             found.insert(path.clone());
@@ -161,14 +193,27 @@ pub fn scan(db: &Db, covers_dir: &Path) -> LocalLibrary {
 }
 
 /// Recurse into `dir`, calling `on_file` for every audio file. Errors (permissions, a folder that
-/// was unplugged) are skipped rather than failing the scan.
+/// was unplugged) are skipped rather than failing the scan. Files under any of `storage` (the
+/// engine's download folders) are never reported: pruning whole subtrees at the directory level,
+/// so a watched folder that contains (or is) a download folder costs one canonicalize per dir,
+/// not per file.
 ///
 /// Symlinks are followed — a music folder full of links to an external drive is a normal setup, and
 /// refusing to follow them means those users see an empty library. `seen` (canonical paths) is what
 /// keeps a link that points back up the tree from recursing forever; the depth cap is the backstop
 /// for paths that can't be canonicalized.
-fn walk(dir: &Path, depth: usize, seen: &mut HashSet<PathBuf>, on_file: &mut impl FnMut(&Path)) {
-    if depth > MAX_DEPTH || !seen.insert(dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf())) {
+fn walk(
+    dir: &Path,
+    depth: usize,
+    seen: &mut HashSet<PathBuf>,
+    storage: &[PathBuf],
+    on_file: &mut impl FnMut(&Path),
+) {
+    let real = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
+    if storage.iter().any(|root| real.starts_with(root)) {
+        return; // the engine's own folder — app data, not Local Music
+    }
+    if depth > MAX_DEPTH || !seen.insert(real) {
         return;
     }
     let Ok(entries) = std::fs::read_dir(dir) else { return };
@@ -178,7 +223,7 @@ fn walk(dir: &Path, depth: usize, seen: &mut HashSet<PathBuf>, on_file: &mut imp
         // linked file is treated as what it points at.
         let Ok(meta) = std::fs::metadata(&path) else { continue };
         if meta.is_dir() {
-            walk(&path, depth + 1, seen, on_file);
+            walk(&path, depth + 1, seen, storage, on_file);
         } else if meta.is_file() && is_audio(&path) {
             on_file(&path);
         }
@@ -642,6 +687,9 @@ pub fn playback_data(video_id: &str, path: &str) -> Result<crate::orchestrator::
         is_video: None,
         thumbnail: None,
         stream_client: "local".to_owned(),
+        // A file on disk has no YouTube format behind it.
+        mime_type: None,
+        bitrate: None,
     })
 }
 
@@ -898,6 +946,82 @@ mod tests {
             "and the album id, so its Shortcuts tile can go too"
         );
         assert!(scan(&db, &dir.join("covers")).removed.is_empty(), "a second scan reports nothing");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Test helper: make `video_id` a `done` download row whose finished file is `path`.
+    fn finish_download_at(db: &Db, video_id: &str, title: &str, path: &Path) {
+        let n = crate::db::NewDownload {
+            video_id: video_id.into(),
+            title: title.into(),
+            artists: "Tester".into(),
+            album: None,
+            thumbnail: None,
+            quality: "HIGH".into(),
+            is_upload: false,
+        };
+        db.put_download(&n, false).unwrap();
+        db.set_download_state_if(video_id, &["queued"], "downloading", None);
+        assert!(db.finish_download(video_id, &path.to_string_lossy(), 10));
+    }
+
+    /// Regression (Adiker quick win 1): `download_dir` is user-settable, and one pointed *into* a
+    /// watched Music folder must not have its finished files indexed as duplicate local tracks.
+    /// The subtree is pruned, and a download an older scan had already indexed is dropped.
+    #[test]
+    fn a_download_folder_inside_the_library_is_not_local_music() {
+        let db = Db::open(std::path::Path::new(":memory:")).unwrap();
+        let dir = std::env::temp_dir().join("limusic-local-exclude-sub");
+        let _ = std::fs::remove_dir_all(&dir);
+        let music = dir.join("Music");
+        let dl = music.join("downloads");
+        std::fs::create_dir_all(&dl).unwrap();
+        let user = music.join("user song.mp3");
+        let ours = dl.join("Downloaded Song [abcdefghijk].m4a");
+        std::fs::write(&user, b"not a real mp3").unwrap();
+        std::fs::write(&ours, b"not a real m4a").unwrap();
+        add_folder(&db, music.to_string_lossy().to_string());
+        db.set_setting("download_dir", &dl.to_string_lossy());
+        finish_download_at(&db, "abcdefghijk", "Downloaded Song", &ours);
+        // An older scan (before the exclusion) indexed the download; this one must prune it.
+        db.put_local_tracks(&[track(&ours.to_string_lossy(), "Tester", "Album", "tester--album")]);
+
+        let lib = scan(&db, &dir.join("covers"));
+        let ids: Vec<&str> = lib.songs.iter().map(|s| s.video_id.as_str()).collect();
+        assert_eq!(ids.len(), 1, "only the user's own file is local music: {ids:?}");
+        assert!(ids[0].ends_with("user song.mp3"), "the user's file stays: {ids:?}");
+        assert!(
+            lib.removed.contains(&format!("{SONG_PREFIX}{}", ours.to_string_lossy())),
+            "the already-indexed download is pruned from the library"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The other half of the same fix: when `download_dir` IS the watched folder, a blanket folder
+    /// skip would hide the user's whole library — only the recorded download goes, their own files
+    /// right next to it stay.
+    #[test]
+    fn a_download_dir_that_is_the_watched_folder_loses_only_recorded_files() {
+        let db = Db::open(std::path::Path::new(":memory:")).unwrap();
+        let dir = std::env::temp_dir().join("limusic-local-exclude-root");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let user = dir.join("user song.mp3");
+        let ours = dir.join("Downloaded Song [abcdefghijk].m4a");
+        std::fs::write(&user, b"not a real mp3").unwrap();
+        std::fs::write(&ours, b"not a real m4a").unwrap();
+        add_folder(&db, dir.to_string_lossy().to_string());
+        db.set_setting("download_dir", &dir.to_string_lossy());
+        finish_download_at(&db, "abcdefghijk", "Downloaded Song", &ours);
+
+        let lib = scan(&db, &dir.join("covers"));
+        let ids: Vec<&str> = lib.songs.iter().map(|s| s.video_id.as_str()).collect();
+        assert_eq!(
+            ids.len(),
+            1,
+            "the user's own files survive their folder being the download dir: {ids:?}"
+        );
+        assert!(ids[0].ends_with("user song.mp3"), "the user's file stays: {ids:?}");
         std::fs::remove_dir_all(&dir).ok();
     }
 

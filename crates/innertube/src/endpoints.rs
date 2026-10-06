@@ -330,7 +330,13 @@ impl InnerTube {
             // A stale cookie authenticates transport-wise but YouTube returns a logged-out "Sign
             // in" state for account-scoped browse. Same reasoning as the transport's 401: let the
             // healer have a go and retry once before telling the user their session expired.
-            if self.is_logged_in() && browse::is_signed_out(&value) {
+            // Never inside [`crate::anonymously`]: that response is the *expected* shape of an
+            // anonymous browse, and reading it as a dead session would kick the healer (a
+            // credentialed re-mint) off the back of a request that deliberately carried none.
+            if self.is_logged_in()
+                && self.credentials_allowed(true)
+                && browse::is_signed_out(&value)
+            {
                 if !healed && !self.healing_suspended() {
                     healed = true;
                     tracing::warn!("InnerTube browse returned the signed-out state, healing");

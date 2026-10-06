@@ -32,6 +32,24 @@ pub const HEAL_TIMEOUT: Duration = Duration::from_secs(90);
 tokio::task_local! {
     /// Set for the span of the app's own healing and auth work. See [`without_healing`].
     static NO_HEALING: ();
+    /// Set for the span of a request that must NOT be attributable to the signed-in account
+    /// (offline downloads, and any other deliberate anonymous call). Carries the visitorData to
+    /// send in place of the session's own — which is login-bound the moment the user signs in.
+    /// Task-local for the same reason as `NO_HEALING`: `InnerTube` is cloned everywhere and
+    /// shares its session, so a flag on it would silently de-authenticate unrelated concurrent
+    /// playback requests. A task-local is not inherited by `tokio::spawn`, so work spawned out
+    /// of an anonymous scope runs under its own (account) identity again.
+    static ANONYMOUS_VISITOR: Option<String>;
+}
+
+/// Run `f` with every InnerTube request it makes under the anonymous identity: no `Cookie`, no
+/// `Authorization: SAPISIDHASH`, no `user.onBehalfOfUser`, and `visitor` where the session's
+/// (login-bound) visitorData would go. See [`InnerTube::anonymous_visitor`] for minting `visitor`.
+///
+/// The scope is deliberately all-or-nothing: a 401/403 inside it means nothing about the
+/// session, so it neither waits for the healer nor absorbs `Set-Cookie` into the account jar.
+pub async fn anonymously<F: std::future::Future>(visitor: Option<String>, f: F) -> F::Output {
+    ANONYMOUS_VISITOR.scope(visitor, f).await
 }
 
 /// Run `f` with heal-waiting turned off for anything it requests.
@@ -184,6 +202,10 @@ pub struct InnerTube {
     /// Pinged when a response's `Set-Cookie` actually changed the stored jar, so the app can
     /// write the rotated cookie back to disk. See [`InnerTube::absorb_cookies`].
     cookie_changed: Arc<Notify>,
+    /// A visitorData minted anonymously (scraped from `sw.js_data` with no credentials), kept for
+    /// the life of the process so anonymous requests never have to fall back to the session's
+    /// login-bound one. See [`InnerTube::anonymous_visitor`].
+    anon_visitor: Arc<RwLock<Option<String>>>,
 }
 
 impl InnerTube {
@@ -204,6 +226,7 @@ impl InnerTube {
             session_rejected: Arc::new(Notify::new()),
             heal: Arc::new(watch::Sender::new(HealState::default())),
             cookie_changed: Arc::new(Notify::new()),
+            anon_visitor: Arc::new(RwLock::new(None)),
         })
     }
 
@@ -234,6 +257,12 @@ impl InnerTube {
     /// always sets one.
     fn absorb_cookies(&self, headers: &HeaderMap) {
         if headers.get(SET_COOKIE).is_none() {
+            return;
+        }
+        // Inside [`anonymously`] the request carried no credentials, so whatever came back is a
+        // guest's, not this session's — and a jar rotation must never be guessed at from an
+        // answer the account never asked for. Drop it whole.
+        if Self::anonymous_scope().is_some() {
             return;
         }
         let set_cookie: Vec<&str> =
@@ -328,12 +357,58 @@ impl InnerTube {
 
     /// Build the request `context` for a client from the current session. Crate-internal — the
     /// endpoints facade calls it. Reads and drops the lock synchronously (no `.await` inside).
+    ///
+    /// Inside [`anonymously`] the account does not exist as far as this body is concerned: no
+    /// `onBehalfOfUser`, and the scope's own visitorData instead of the session's login-bound one.
     pub(crate) fn context_for(&self, client: &YouTubeClient) -> crate::models::context::Context {
         let s = self.session.read().unwrap();
+        if let Some(visitor) = Self::anonymous_scope() {
+            return client.to_context(&s.locale, visitor.as_deref(), None);
+        }
         // `onBehalfOfUser` makes Google *require* a credential: with no cookie it turns a request
         // that would have worked anonymously into a hard 401. Only send it when we can authenticate.
         let dsid = s.cookie.as_ref().and(s.data_sync_id.as_deref());
         client.to_context(&s.locale, s.visitor_data.as_deref(), dsid)
+    }
+
+    /// The visitorData an anonymous request should carry, as passed to [`anonymously`].
+    ///
+    /// The session's own is never the answer: it is bootstrapped anonymously at first run but is
+    /// **replaced by a login-bound id the moment the user signs in** (and a sign-out does not
+    /// roll it back), so reusing it would link downloads to the account anyway. Instead scrape a
+    /// fresh one from `sw.js_data` — the same anonymous bootstrap the first run does, this
+    /// client's `http` has no cookie store, so the GET carries nothing — and keep it for the
+    /// life of the process. `None` when that scrape fails: the caller degrades (no PoToken leg)
+    /// rather than borrowing the account's id.
+    pub async fn anonymous_visitor(&self) -> Option<String> {
+        if let Some(v) = self.anon_visitor.read().unwrap().clone() {
+            return Some(v);
+        }
+        match self.fetch_visitor_data().await {
+            Ok(vd) => {
+                *self.anon_visitor.write().unwrap() = Some(vd.clone());
+                tracing::debug!("anonymous visitorData bootstrapped");
+                Some(vd)
+            }
+            Err(error) => {
+                tracing::warn!(%error, "anonymous visitorData bootstrap failed; sending none");
+                None
+            }
+        }
+    }
+
+    /// The current anonymous scope's visitorData: `None` outside [`anonymously`], `Some(v)` —
+    /// `v` itself possibly `None` — inside it.
+    fn anonymous_scope() -> Option<Option<String>> {
+        ANONYMOUS_VISITOR.try_with(|v| v.clone()).ok()
+    }
+
+    /// May a request authenticate at all — cookie, SAPISIDHASH, and the session-heal-on-401 that
+    /// only makes sense for a request that carried the session in the first place. `false`
+    /// inside [`anonymously`], whatever the caller asked for, so the header builder and the heal
+    /// guard can never disagree about what “signed in” means for this one request.
+    pub(crate) fn credentials_allowed(&self, set_login: bool) -> bool {
+        set_login && Self::anonymous_scope().is_none()
     }
 
     /// A context with no account attached, for requests that must not be attributed to the user:
@@ -414,7 +489,7 @@ impl InnerTube {
                 // the next one. `healing_suspended` keeps the healer's own validation call from
                 // waiting on the healer that is making it.
                 Err(e)
-                    if set_login
+                    if self.credentials_allowed(set_login)
                         && client.login_supported
                         && self.is_logged_in()
                         && !healed
@@ -432,7 +507,7 @@ impl InnerTube {
                 // hands the user a URL instead of the one thing that fixes it, so this stays
                 // `SessionExpired`.
                 Err(e)
-                    if set_login
+                    if self.credentials_allowed(set_login)
                         && client.login_supported
                         && self.is_logged_in()
                         && e.status().is_some_and(|s| s == 401 || s == 403) =>
@@ -504,12 +579,21 @@ impl InnerTube {
 
         let s = self.session.read().unwrap();
         set(&mut h, "accept-language", &s.locale.accept_language());
-        if let Some(vd) = &s.visitor_data {
-            set(&mut h, "x-goog-visitor-id", vd);
+        // Inside [`anonymously`] the scope's visitorData replaces the session's — which is
+        // login-bound — and a scope with none sends no visitor id at all rather than the
+        // account's.
+        let visitor = match Self::anonymous_scope() {
+            Some(scope) => scope,
+            None => s.visitor_data.clone(),
+        };
+        if let Some(v) = visitor.as_deref() {
+            set(&mut h, "x-goog-visitor-id", v);
         }
 
-        // SAPISIDHASH cookie auth — only when logged in AND the client supports it (Phase 3).
-        if set_login && client.login_supported {
+        // SAPISIDHASH cookie auth — only when logged in AND the client supports it (Phase 3),
+        // and never inside an anonymous scope: `credentials_allowed` is the one gate both this
+        // and the heal guard in `post` read, so a download request cannot half-authenticate.
+        if self.credentials_allowed(set_login) && client.login_supported {
             if let Some(cookie) = &s.cookie {
                 set(&mut h, "cookie", cookie);
                 if let Some(sapisid) = s.sapisid() {
@@ -963,6 +1047,93 @@ mod tests {
         assert_eq!(
             merge_set_cookie("SAPISID=keep; PREF=x", &["PREF=x; Path=/", "SAPISID=; Max-Age=0"]),
             None
+        );
+    }
+
+    /// The downloads separation, at the request construction: with a fully signed-in session,
+    /// an anonymous request (what every download resolve issues) carries no cookie, no
+    /// SAPISIDHASH, no `onBehalfOfUser`, and a visitorData that is not the account's — while the
+    /// identical request outside the scope still authenticates exactly as playback needs.
+    #[tokio::test]
+    async fn the_anonymous_identity_hides_every_account_marker() {
+        let clients = crate::clients::Clients::bundled();
+        let web = clients.get(crate::clients::METADATA_CLIENT).unwrap(); // WEB_REMIX, loginSupported
+        let session = Session {
+            cookie: Some("SAPISID=secret; SID=session".into()),
+            data_sync_id: Some("channel-123".into()),
+            visitor_data: Some("login-bound-visitor".into()),
+            ..Default::default()
+        };
+        let it = InnerTube::new(session, None).unwrap();
+
+        // Signed in, ordinary request: every marker is there. This is playback and it must not
+        // have changed by one byte.
+        let signed = it.headers(web, true);
+        assert!(signed.contains_key("cookie"), "playback still authenticates");
+        assert!(signed.contains_key("authorization"), "playback still sends SAPISIDHASH");
+        assert_eq!(
+            signed.get("x-goog-visitor-id").and_then(|v| v.to_str().ok()),
+            Some("login-bound-visitor")
+        );
+        assert_eq!(it.context_for(web).user.on_behalf_of_user.as_deref(), Some("channel-123"));
+        assert!(it.credentials_allowed(true));
+
+        // The same session, under the identity downloads resolve as — signed in and all.
+        let (headers, context, allowed) = anonymously(Some("fresh-anonymous".into()), async {
+            (it.headers(web, true), it.context_for(web), it.credentials_allowed(true))
+        })
+        .await;
+        assert!(!headers.contains_key("cookie"), "no Cookie on a download request");
+        assert!(!headers.contains_key("authorization"), "no SAPISIDHASH either");
+        assert_eq!(
+            headers.get("x-goog-visitor-id").and_then(|v| v.to_str().ok()),
+            Some("fresh-anonymous"),
+            "the login-bound visitorData must never ride along"
+        );
+        assert_eq!(
+            context.user.on_behalf_of_user, None,
+            "no dataSyncId in the body: the context is anonymous"
+        );
+        assert_eq!(context.client.visitor_data.as_deref(), Some("fresh-anonymous"));
+        assert!(
+            !allowed,
+            "a 401 here says nothing about the session, so it must not wake the healer"
+        );
+
+        // A scope with no visitorData at all sends none rather than falling back to the account's.
+        let headers = anonymously(None, async { it.headers(web, true) }).await;
+        assert!(!headers.contains_key("x-goog-visitor-id"));
+        assert!(!headers.contains_key("cookie"));
+    }
+
+    /// An anonymous response has nothing to teach the account's jar: absorbing its `Set-Cookie`
+    /// could graft a guest's value over a live rotation. Outside the scope, rotation must keep
+    /// landing (#165) or the login dies a few hours in.
+    #[tokio::test]
+    async fn an_anonymous_response_never_writes_into_the_account_jar() {
+        let it = InnerTube::new(
+            Session { cookie: Some("SAPISID=keep".into()), ..Default::default() },
+            None,
+        )
+        .unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            SET_COOKIE,
+            HeaderValue::from_static("__Secure-3PSIDTS=rotated; Path=/; Secure"),
+        );
+
+        anonymously(None, async { it.absorb_cookies(&headers) }).await;
+        assert_eq!(
+            it.cookie().as_deref(),
+            Some("SAPISID=keep"),
+            "a guest's Set-Cookie must not touch the signed-in jar"
+        );
+
+        it.absorb_cookies(&headers);
+        assert_eq!(
+            it.cookie().as_deref(),
+            Some("SAPISID=keep; __Secure-3PSIDTS=rotated"),
+            "outside the scope, rotation still lands"
         );
     }
 }
