@@ -143,7 +143,10 @@
 		"remove_from_this_playlist": "Bu çalma listesinden kaldır",
 		"back_to": "Geri dön: {title}",
 		"mini_shrink": "Mini oynatıcıyı küçült",
-		"mini_expand": "Mini oynatıcıyı genişlet"
+		"mini_expand": "Mini oynatıcıyı genişlet",
+		"autoplay": "Otomatik Oynatma",
+		"songs_left": "{count} şarkı kaldı",
+		"songs_left_one": "1 şarkı kaldı"
 	},
 	"home": {
 		"good_morning": "Günaydın",
@@ -247,7 +250,8 @@
 		"saved_in": "Kaydedildi",
 		"saved_in_one": "{playlist} listesine kaydedildi",
 		"saved_in_many": "{count} çalma listesine kaydedildi",
-		"saved_in_more": "ve {count} tane daha"
+		"saved_in_more": "ve {count} tane daha",
+		"no_subscriptions": "Henüz aboneliğiniz yok. Bir sanatçıyı buraya eklemek için sanatçının sayfasından abone olun."
 	},
 	"local": {
 		"scanning": "Klasör taranıyor...",
@@ -416,7 +420,10 @@
 			"lyrics_moved_source": "{name} öğesi, {total} öğe arasında {position}. sıraya taşındı",
 			"lyrics_use_source": "{name} kaynağını kullan",
 			"lyrics_sources_none": "Bütün kaynaklar kapalı, bu yüzden hiçbir şarkı sözü bulunmayacak.",
-			"ambient_light_gpu_title": "Destekleyen bir ekran kartı gerektirir"
+			"ambient_light_gpu_title": "Destekleyen bir ekran kartı gerektirir",
+			"shuffle_whole_queue": "Tüm sırayı karıştır",
+			"ambient_light_hint": "Müzik videosunun etrafındaki oynatıcı alanı, videonun renkleriyle uyumlu bir şekilde parıldar.",
+			"ambient_light_gpu_check": "Kartınıza bakın"
 		},
 		"data": {
 			"clear_cache": "Görsel ve akış önbelleğini temizle",
@@ -601,9 +608,9 @@
 		},
 		"link": {
 			"title": "Bağlantı Aç",
-			"desc": "Şarkı, çalma listesi, albüm veya sanatçıya ait bir YouTube Music bağlantısı yapıştırın.",
+			"desc": "Şarkı, çalma listesi, albüm veya sanatçıya ait bir YouTube Music veya Spotify bağlantısı yapıştırın.",
 			"open": "Aç",
-			"invalid_link": "Bu geçerli bir YouTube Music bağlantısı değil"
+			"invalid_link": "Bu geçerli bir YouTube Music veya Spotify bağlantısı değil"
 		},
 		"listen_together": {
 			"title": "Birlikte Dinle",
@@ -850,7 +857,9 @@
 		"signed_in_as": "{name} olarak giriş yapıldı",
 		"switched_to": "{name} hesabına geçildi",
 		"could_not_add": "Bu eklenemedi, bunun yerine açmayı deneyin",
-		"already_in_selected": "Her şey seçilen çalma listelerinde zaten mevcut"
+		"already_in_selected": "Her şey seçilen çalma listelerinde zaten mevcut",
+		"added_to_playlists_dupes": "{count} çalma listesine eklendi. Yinelenenler atlandı: {dupes}",
+		"added_to_playlists": "{count} çalma listesine eklendi"
 	},
 	"history": {
 		"title": "Geçmiş",
@@ -906,5 +915,20 @@
 		"anyway_hint": "İkinci bir kopyasını sakla",
 		"anyway_hint_local": "İkinci kopyalar yalnızca YouTube çalma listelerine eklenir",
 		"adds": "+{count}"
+	},
+	"import": {
+		"button": "İçe aktar",
+		"button_tooltip": "Çalma listelerini Spotify'dan içe aktar",
+		"title": "Spotify'dan içe aktar",
+		"experimental": "Deneysel",
+		"experimental_tooltip": "Yeni ve halen geliştirilmeye devam ediliyor. Bir içe aktarma işleminde hata oluşursa lütfen bunu bildirin.",
+		"link_title": "Bir bağlantı yapıştırın",
+		"link_desc": "Spotify'da herhangi bir herkese açık çalma listesi veya albümün ⋯ menüsünü açın, ardından \"Paylaş\" seçeneğine tıklayın ve bağlantıyı kopyalayın.",
+		"continue": "Devam et",
+		"reading": "Okunuyor…",
+		"data_title": "Spotify verilerinizi kullanın",
+		"data_desc": "Her şey, özel çalma listeleri ve Beğenilen Şarkılar da dahil. Spotify'dan hesap verilerinizi talep edin; genellikle birkaç gün içinde e-posta yoluyla elinize ulaşır.",
+		"request_data": "Spotify'dan talep edin",
+		"choose_file": "Dosya seçin"
 	}
 }
