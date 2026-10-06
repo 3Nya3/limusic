@@ -283,7 +283,9 @@
 		"saved_in": "已儲存於",
 		"saved_in_one": "已儲存於 {playlist}",
 		"saved_in_many": "已儲存於 {count} 個播放清單",
-		"saved_in_more": "以及其他 {count} 個"
+		"saved_in_more": "以及其他 {count} 個",
+		"subscriptions_tab": "訂閱內容",
+		"no_subscriptions": "尚未訂閱任何演出者，請在他們的個人頁面訂閱，以支持他們的創作。"
 	},
 	"local": {
 		"scanning": "正在掃描資料夾…",
@@ -1012,7 +1014,7 @@
 		"nudge_desc": "只需簡單幾步，即可將您的播放清單與「已按讚的歌曲」一併轉移。",
 		"errors": {
 			"not_spotify": "這不是有效的 Spotify 播放清單或專輯連結。",
-			"private": "Spotify 無法分享該播放清單。若是私人清單，請暫時將其設為公開，或使用 Spotify 資料匯入。",
+			"private": "此播放清單是私人清單，Spotify 無法分享該播放清單。請暫時將其設為公開，或使用 Spotify 資料匯入。",
 			"not_a_list": "此連結指向單曲或演出者。請貼上播放清單或專輯的連結。",
 			"empty": "此清單中沒有任何歌曲。",
 			"unreadable": "無法讀取該檔案。請使用 Spotify 寄給您的 ZIP 壓縮檔、解壓縮後的 JSON 檔案，或 CSV 檔案。",
