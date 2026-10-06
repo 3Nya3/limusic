@@ -47,6 +47,13 @@ pub struct PlaybackData {
     pub is_video: Option<bool>,
     /// Which client produced the stream (diagnostics). context/06.
     pub stream_client: String,
+    /// The format's MIME type, when a `Format` produced this stream. Used by offline downloads to
+    /// name the saved file and its extension; `None` on a cache replay, a local file and rustypipe
+    /// (which reports no mime).
+    pub mime_type: Option<String>,
+    /// The format's bitrate in bits/s, when it reported one. Downloads show it as part of the
+    /// actual quality label ("256 kbps AAC").
+    pub bitrate: Option<i64>,
 }
 
 /// The watch-history ping for one play: `playbackTracking.videostatsPlaybackUrl.baseUrl` plus the
@@ -166,6 +173,45 @@ fn blacklist_blocks(map: &HashMap<String, Instant>, video_id: &str, now: Instant
     map.get(video_id).is_some_and(|at| now.duration_since(*at) < WEB_REMIX_BLACKLIST_TTL)
 }
 
+/// Which identity a stream resolve runs under.
+///
+/// Playback is always [`Identity::Account`]: byte-identical to what it has always done.
+/// Downloads default to [`Identity::Anonymous`] (the `download_use_account` setting opts back
+/// in), which wraps the whole chain in [`innertube::anonymously`] so no `/player`, no probe and
+/// no URL can carry the account — and, because the scope is task-wide, no accidental fallback
+/// inside the chain can reintroduce it either.
+#[derive(Clone)]
+enum Identity {
+    Account,
+    /// The visitorData to send in place of the session's login-bound one (`None` when the
+    /// anonymous bootstrap failed — degrade rather than borrow the account's).
+    Anonymous(Option<String>),
+}
+
+impl Identity {
+    fn is_account(&self) -> bool {
+        matches!(self, Identity::Account)
+    }
+    /// The visitorData this resolve mints PoTokens and `&pot=` against: the session's for the
+    /// account, the anonymous one for downloads. A PoToken is bound to the visitorData it was
+    /// minted with, so this is what keeps the token itself account-neutral too.
+    fn visitor(&self, session: Option<String>) -> Option<String> {
+        match self {
+            Identity::Account => session,
+            Identity::Anonymous(v) => v.clone(),
+        }
+    }
+    /// The cookie the probe and the byte fetch may send. Uploads need it (a `c.youtube.com`
+    /// stream is served only to its owner); anonymous downloads never get one, uploads included —
+    /// an upload cannot be resolved anonymously at all and fails with “sign-in required”.
+    fn cookie(&self, session: Option<String>) -> Option<String> {
+        match self {
+            Identity::Account => session,
+            Identity::Anonymous(_) => None,
+        }
+    }
+}
+
 impl Orchestrator {
     pub fn new(
         it: InnerTube,
@@ -205,7 +251,8 @@ impl Orchestrator {
         blacklist_insert(&mut *self.web_remix_failed.lock().await, video_id, Instant::now());
     }
 
-    /// Resolve a videoId to a playable stream. context/06 full algorithm.
+    /// Resolve a videoId to a playable stream under the signed-in session. context/06 full
+    /// algorithm. This is playback; downloads call [`Self::resolve_anonymous`] instead.
     pub async fn resolve(
         &self,
         video_id: &str,
@@ -213,9 +260,50 @@ impl Orchestrator {
         quality: AudioQuality,
         disabled: &HashSet<String>,
     ) -> Result<PlaybackData, ResolveError> {
+        self.resolve_as(video_id, is_upload, quality, disabled, Identity::Account).await
+    }
+
+    /// The same chain, made anonymous for the whole span of the resolve: no cookie, no SAPISIDHASH,
+    /// no `onBehalfOfUser`, a freshly bootstrapped visitorData and PoTokens bound to *that* — even
+    /// when the user is signed in for playback. There is no authenticated fallback inside: a track
+    /// YouTube will only serve to an account (age-gated, members-only, one of the user's own
+    /// uploads) comes back as [`ResolveError::SignInRequired`] and stays there.
+    pub async fn resolve_anonymous(
+        &self,
+        video_id: &str,
+        is_upload: bool,
+        quality: AudioQuality,
+        disabled: &HashSet<String>,
+    ) -> Result<PlaybackData, ResolveError> {
+        let visitor = self.it.anonymous_visitor().await;
+        if visitor.is_none() {
+            tracing::warn!(video_id, "no anonymous visitorData; resolving without a PoToken leg");
+        }
+        let identity = Identity::Anonymous(visitor.clone());
+        innertube::anonymously(
+            visitor,
+            self.resolve_as(video_id, is_upload, quality, disabled, identity),
+        )
+        .await
+    }
+
+    /// context/06 full algorithm under `identity`. Everything identity-sensitive flows through
+    /// [`Identity`]; the chain, validation, HIGH two-pass and fallbacks are one code path for both.
+    async fn resolve_as(
+        &self,
+        video_id: &str,
+        is_upload: bool,
+        quality: AudioQuality,
+        disabled: &HashSet<String>,
+        identity: Identity,
+    ) -> Result<PlaybackData, ResolveError> {
         let prefer_high = matches!(quality, AudioQuality::High | AudioQuality::Auto);
-        let logged_in = self.it.is_logged_in();
-        let visitor = self.it.visitor_data();
+        // An anonymous resolve is signed out as far as the chain is concerned: the login-only age-gate
+        // retry and the `login_required` skip must not consult the account behind the scope, and a
+        // YouTube "sign in" verdict must surface as SignInRequired rather than being swallowed because
+        // *some* session exists.
+        let logged_in = identity.is_account() && self.it.is_logged_in();
+        let visitor = identity.visitor(self.it.visitor_data());
         // An upload only streams to an authenticated client, so it gets its own chain and never
         // falls through to the anonymous ones (context: clients::UPLOAD_FALLBACK_ORDER, issue #71).
         let order: &[&str] =
@@ -436,8 +524,11 @@ impl Orchestrator {
             // The probe sends exactly the headers `build` will hand mpv (same UA, cookie only
             // where mpv gets one), because a probe that carries something the real GET does not
             // is not a prediction of anything. Issue #71.
-            let headers =
-                stream_headers(client.map(|c| c.user_agent.clone()), self.it.cookie(), is_upload);
+            let headers = stream_headers(
+                client.map(|c| c.user_agent.clone()),
+                identity.cookie(self.it.cookie()),
+                is_upload,
+            );
             if self.validate_stream(&url, &headers, content_length(format)).await {
                 let ping = main_ping.clone().or_else(|| playback_ping(&resp, &key));
                 return Ok(self.build(
@@ -481,7 +572,7 @@ impl Orchestrator {
 
         // 6. HIGH wanted but only a non-HIGH found → use the remembered best.
         if let Some(c) = best {
-            let headers = self.headers_for(&c.client, is_upload);
+            let headers = self.headers_for_identity(&c.client, is_upload, &identity);
             return Ok(self.build(
                 video_id,
                 &c.format,
@@ -504,7 +595,7 @@ impl Orchestrator {
             // machine stuck on a rejected PoToken or a stale cipher can get itself out; without
             // this an upload-only failure had no route back at all.
             self.self_heal();
-            let headers = self.headers_for(&c.client, is_upload);
+            let headers = self.headers_for_identity(&c.client, is_upload, &identity);
             return Ok(self.build(
                 video_id,
                 &c.format,
@@ -547,6 +638,9 @@ impl Orchestrator {
                 // rustypipe answers without a `musicVideoType`, so the queue row's flag stands.
                 is_video: None,
                 stream_client: "rustypipe".to_owned(),
+                // rustypipe reports no mime or bitrate.
+                mime_type: None,
+                bitrate: None,
             }),
             Err(e) => {
                 tracing::error!(video_id, error = %e, "rustypipe fallback failed");
@@ -772,11 +866,24 @@ impl Orchestrator {
     }
 
     /// [`stream_headers`] for a client registry key. `pub(crate)` because a cache hit skips the
-    /// resolve and has to rebuild the same headers from the client it recorded.
+    /// resolve and has to rebuild the same headers from the client it recorded. Playback only:
+    /// always the account identity.
     pub(crate) fn headers_for(&self, client: &str, is_upload: bool) -> HashMap<String, String> {
+        self.headers_for_identity(client, is_upload, &Identity::Account)
+    }
+
+    /// [`stream_headers`] under `identity`: the cookie rides along for an upload only when the
+    /// resolve itself was allowed to use the account — an anonymous download's probe and byte
+    /// fetch must be header-identical to each other *and* cookieless.
+    fn headers_for_identity(
+        &self,
+        client: &str,
+        is_upload: bool,
+        identity: &Identity,
+    ) -> HashMap<String, String> {
         stream_headers(
             self.clients.get(client).map(|c| c.user_agent.clone()),
-            self.it.cookie(),
+            identity.cookie(self.it.cookie()),
             is_upload,
         )
     }
@@ -810,6 +917,8 @@ impl Orchestrator {
             thumbnail: main_resp.as_ref().and_then(best_thumbnail),
             is_video: vd.and_then(|v| v.is_music_video()),
             stream_client: client.to_owned(),
+            mime_type: Some(format.mime_type.clone()),
+            bitrate: Some(format.bitrate),
         }
     }
 }
