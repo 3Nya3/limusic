@@ -422,6 +422,7 @@
 									}}
 									placeholder={t('settings.scrobbling.find_placeholder')}
 									aria-label={t('settings.scrobbling.find_placeholder')}
+									title={t('settings.scrobbling.find_hint')}
 									spellcheck={false}
 								/>
 								<Input
@@ -476,7 +477,13 @@
 						{/each}
 					</Popover.Content>
 				</Popover.Root>
-				<Button variant="ghost" size="sm" class="gap-1.5" onclick={() => fileInput?.click()}>
+				<Button
+					variant="ghost"
+					size="sm"
+					class="gap-1.5"
+					title={t('settings.scrobbling.import_hint')}
+					onclick={() => fileInput?.click()}
+				>
 					<HugeiconsIcon icon={FileImportIcon} size={15} />
 					{t('settings.scrobbling.import')}
 				</Button>
@@ -489,12 +496,9 @@
 					onchange={onImport}
 				/>
 			</div>
-			<p class="mt-2 px-1 max-w-prose text-xs leading-relaxed text-muted-foreground">
-				{t('settings.scrobbling.import_hint')}
-			</p>
 			{#if importNote}
 				<p
-					class="mt-1.5 px-1 text-xs leading-relaxed {importNote.error
+					class="mt-2 px-1 text-xs leading-relaxed {importNote.error
 						? 'text-destructive'
 						: 'text-foreground'}"
 				>
