@@ -63,9 +63,9 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://github.com/SimoHypers/limusic/releases/latest/download/latest.json"
+        "https://github.com/3Nya3/limusic/releases/latest/download/latest.json"
       ],
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDk0MENDMzA1NUFGMDI0NTQKUldSVUpQQmFCY01NbENPbW9XOTRvVU9YQ2lCQytOU2RyeDhHNFhkWHlNc1dITkFmbkd1ZTBlM1gK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEM1QUFDNkIyMUI1N0FEMTEKUldRUnJWY2Jzc2FxeGNoQk5qQnhaSzlEY3I5ZU93bWNiejhoTVNMSU1lVTlKa1JuSHRzblh1a0kK",
       "windows": {
         "installMode": "passive"
       }

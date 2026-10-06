@@ -4,7 +4,7 @@
 use std::sync::Mutex;
 
 use md5::{Digest, Md5};
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 
 /// Clearing the lyrics cache spares songs whose source was picked by hand in the lyrics footer (or
 /// their timing nudged): those are the user's choices, not a cache.
@@ -247,15 +247,58 @@ impl Db {
             -- user's own picks, which every later import and "Update from Spotify" reuses.
             -- `candidates_json` is kept only for rows that still need a look.
             CREATE TABLE IF NOT EXISTS import_matches (
-                key             TEXT PRIMARY KEY,
-                video_id        TEXT,
-                song_json       TEXT,
-                tier            TEXT NOT NULL,
-                candidates_json TEXT,
-                manual          INTEGER NOT NULL DEFAULT 0,
-                updated_at      INTEGER NOT NULL
-            );
-            "#,
+                            key             TEXT PRIMARY KEY,
+                            video_id        TEXT,
+                            song_json       TEXT,
+                            tier            TEXT NOT NULL,
+                            candidates_json TEXT,
+                            manual          INTEGER NOT NULL DEFAULT 0,
+                            updated_at      INTEGER NOT NULL
+                        );
+                        -- Offline downloads (feat/offline-downloads). Unlike the caches above this is user
+                        -- data: nothing rebuilds it, and "Clear caches" must never touch it (the files live in
+                        -- `downloads/` next to this database, never inside `audio-cache/`). One row per
+                        -- videoId — the id is the videoId — so re-adding a track dedupes instead of
+                        -- downloading it twice.
+                        CREATE TABLE IF NOT EXISTS downloads (
+                            video_id      TEXT PRIMARY KEY,
+                            title         TEXT NOT NULL,
+                            artists       TEXT NOT NULL,
+                            album         TEXT,
+                            thumbnail     TEXT,
+                            state         TEXT NOT NULL,
+                            quality       TEXT NOT NULL DEFAULT 'HIGH',
+                            quality_label TEXT NOT NULL DEFAULT '',
+                            itag          INTEGER,
+                            mime          TEXT,
+                            path          TEXT,
+                            bytes_done    INTEGER NOT NULL DEFAULT 0,
+                            bytes_total   INTEGER,
+                            error         TEXT,
+                            is_upload     INTEGER NOT NULL DEFAULT 0,
+                            added_at      INTEGER NOT NULL,
+                            updated_at    INTEGER NOT NULL,
+                            artwork_path  TEXT,
+                            standalone    INTEGER NOT NULL DEFAULT 1
+                        );
+                        CREATE INDEX IF NOT EXISTS downloads_state ON downloads(state);
+                        CREATE TABLE IF NOT EXISTS collections (
+                            id           TEXT PRIMARY KEY,
+                            kind         TEXT NOT NULL CHECK (kind IN ('album', 'playlist')),
+                            title        TEXT NOT NULL,
+                            subtitle     TEXT,
+                            artwork_path TEXT,
+                            added_at     INTEGER NOT NULL
+                        );
+                        CREATE TABLE IF NOT EXISTS collection_tracks (
+                            collection_id TEXT NOT NULL,
+                            video_id      TEXT NOT NULL,
+                            position      INTEGER NOT NULL,
+                            PRIMARY KEY (collection_id, video_id)
+                        );
+                        CREATE INDEX IF NOT EXISTS collection_tracks_video
+                            ON collection_tracks(video_id);
+                        "#,
         )?;
         // Migrate pre-Phase-4 DBs that predate the loudness_db column. Errors ("duplicate column")
         // on fresh DBs are expected and ignored — the cache is disposable anyway.
@@ -273,6 +316,13 @@ impl Db {
         if conn.execute("ALTER TABLE stream_url_cache ADD COLUMN is_video INTEGER", []).is_ok() {
             let _ = conn.execute("DELETE FROM stream_url_cache", []);
         }
+        // The saved cover of a finished download (offline artwork). NULL on every pre-existing
+        // row, which just means "fall back to the remote thumbnail" — no migration needed.
+        let _ = conn.execute("ALTER TABLE downloads ADD COLUMN artwork_path TEXT", []);
+        // Existing downloads were independently requested before ownership tracking existed, so
+        // they remain standalone. Collection-origin rows explicitly opt out on insertion.
+        let _ = conn
+            .execute("ALTER TABLE downloads ADD COLUMN standalone INTEGER NOT NULL DEFAULT 1", []);
         // The watch-history ping, added for the same reason (issue #83). No wipe: a NULL here just
         // means that one replay goes unregistered, which is exactly what every row did before.
         let _ = conn.execute("ALTER TABLE stream_url_cache ADD COLUMN ping_url TEXT", []);
@@ -1260,6 +1310,703 @@ pub struct LocalPlaylist {
     pub first_song: Option<String>,
 }
 
+// --- offline downloads ---------------------------------------------------------------------------
+
+/// One row of the `downloads` table. `video_id` is also the row's id — one row per track, so
+/// re-adding an already-downloaded song dedupes instead of fetching it twice (see `downloads.rs`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct DownloadRow {
+    /// The YouTube videoId, and the UI's handle for `downloads_action`.
+    pub video_id: String,
+    pub title: String,
+    pub artists: String,
+    pub album: Option<String>,
+    pub thumbnail: Option<String>,
+    /// queued | downloading | paused | done | error | cancelled
+    pub state: String,
+    /// The requested quality (`HIGH` / `LOW` / `AUTO`) the worker resolves with.
+    pub quality: String,
+    /// What the UI shows: the requested quality until a format is known, then the actual one
+    /// ("256 kbps AAC"). See `downloads.rs`.
+    pub quality_label: String,
+    pub itag: Option<i64>,
+    pub mime: Option<String>,
+    /// Absolute path of the finished file. `Some` only while `done`.
+    pub path: Option<String>,
+    pub bytes_done: i64,
+    pub bytes_total: Option<i64>,
+    /// Short human message, never a URL. Cleared on retry.
+    pub error: Option<String>,
+    /// One of the user's own uploads: streams only to an authenticated client.
+    pub is_upload: bool,
+    pub added_at: i64,
+    pub updated_at: i64,
+    /// Absolute path of the cover fetched on completion; `None` falls back to `thumbnail`.
+    pub artwork_path: Option<String>,
+    /// `true` when the user explicitly downloaded this track outside a collection.
+    pub standalone: bool,
+}
+
+/// Collection metadata stored independently from the per-track download queue.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DownloadCollectionRow {
+    pub id: String,
+    pub kind: String,
+    pub title: String,
+    pub subtitle: Option<String>,
+    pub artwork_path: Option<String>,
+    pub added_at: i64,
+    pub track_count: i64,
+    pub downloaded_count: i64,
+    pub video_ids: Vec<String>,
+}
+
+/// Metadata supplied when queueing an album or playlist for offline use.
+#[derive(Debug, Clone)]
+pub struct NewDownloadCollection {
+    pub id: String,
+    pub kind: String,
+    pub title: String,
+    pub subtitle: Option<String>,
+}
+
+/// What an enqueue supplies; the rest of a row is state the download worker owns.
+#[derive(Debug, Clone)]
+pub struct NewDownload {
+    pub video_id: String,
+    pub title: String,
+    pub artists: String,
+    pub album: Option<String>,
+    pub thumbnail: Option<String>,
+    /// HIGH / LOW / AUTO.
+    pub quality: String,
+    pub is_upload: bool,
+}
+
+/// Every column, in `download_from_row`'s order.
+const DOWNLOAD_COLUMNS: &str = "video_id, title, artists, album, thumbnail, state, quality, \
+     quality_label, itag, mime, path, bytes_done, bytes_total, error, is_upload, added_at, \
+     updated_at, artwork_path, standalone";
+
+fn download_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DownloadRow> {
+    Ok(DownloadRow {
+        video_id: row.get(0)?,
+        title: row.get(1)?,
+        artists: row.get(2)?,
+        album: row.get(3)?,
+        thumbnail: row.get(4)?,
+        state: row.get(5)?,
+        quality: row.get(6)?,
+        quality_label: row.get(7)?,
+        itag: row.get(8)?,
+        mime: row.get(9)?,
+        path: row.get(10)?,
+        bytes_done: row.get(11)?,
+        bytes_total: row.get(12)?,
+        error: row.get(13)?,
+        is_upload: row.get::<_, i64>(14)? != 0,
+        added_at: row.get(15)?,
+        updated_at: row.get(16)?,
+        artwork_path: row.get(17)?,
+        standalone: row.get::<_, i64>(18)? != 0,
+    })
+}
+
+impl Db {
+    /// Every download, oldest first. The UI's initial snapshot (`downloads_list`).
+    pub fn downloads_all(&self) -> Vec<DownloadRow> {
+        let conn = self.0.lock().unwrap();
+        let mut out = Vec::new();
+        let sql = format!("SELECT {DOWNLOAD_COLUMNS} FROM downloads ORDER BY added_at, video_id");
+        if let Ok(mut stmt) = conn.prepare(&sql) {
+            if let Ok(rows) = stmt.query_map([], download_from_row) {
+                out.extend(rows.flatten());
+            }
+        }
+        out
+    }
+
+    pub fn download(&self, video_id: &str) -> Option<DownloadRow> {
+        let conn = self.0.lock().unwrap();
+        conn.query_row(
+            &format!("SELECT {DOWNLOAD_COLUMNS} FROM downloads WHERE video_id = ?1"),
+            [video_id],
+            download_from_row,
+        )
+        .ok()
+    }
+
+    /// Insert or refresh one download. Direct `download_items` touches make it standalone;
+    /// collection-origin calls use the same state machine but preserve an existing direct owner.
+    pub fn put_download(&self, n: &NewDownload, reset_done: bool) -> rusqlite::Result<DownloadRow> {
+        self.put_download_origin(n, reset_done, true)
+    }
+
+    pub(crate) fn put_playlist_download(
+        &self,
+        n: &NewDownload,
+        reset_done: bool,
+    ) -> rusqlite::Result<DownloadRow> {
+        self.put_download_origin(n, reset_done, false)
+    }
+
+    fn put_download_origin(
+        &self,
+        n: &NewDownload,
+        reset_done: bool,
+        standalone: bool,
+    ) -> rusqlite::Result<DownloadRow> {
+        let mut conn = self.0.lock().unwrap();
+        let tx = conn.transaction()?;
+        let row = Self::put_download_tx(&tx, n, reset_done, standalone)?;
+        tx.commit()?;
+        Ok(row)
+    }
+
+    fn put_download_tx(
+        tx: &rusqlite::Transaction<'_>,
+        n: &NewDownload,
+        reset_done: bool,
+        standalone: bool,
+    ) -> rusqlite::Result<DownloadRow> {
+        let now = now_secs();
+        let existing: Option<String> = tx
+            .query_row("SELECT state FROM downloads WHERE video_id = ?1", [&n.video_id], |r| {
+                r.get(0)
+            })
+            .ok();
+        match existing.as_deref() {
+            None => {
+                tx.execute(
+                    "INSERT INTO downloads(video_id, title, artists, album, thumbnail, state, \
+                     quality, quality_label, is_upload, added_at, updated_at, standalone) \
+                     VALUES(?1, ?2, ?3, ?4, ?5, 'queued', ?6, ?6, ?7, ?8, ?8, ?9)",
+                    rusqlite::params![
+                        n.video_id,
+                        n.title,
+                        n.artists,
+                        n.album,
+                        n.thumbnail,
+                        n.quality,
+                        n.is_upload as i64,
+                        now,
+                        standalone as i64
+                    ],
+                )?;
+            }
+            Some("done") if !reset_done => {
+                tx.execute(
+                    "UPDATE downloads SET title=?2, artists=?3, album=?4, thumbnail=?5, \
+                     is_upload=?6, standalone=MAX(standalone, ?7), updated_at=?8 WHERE video_id=?1",
+                    rusqlite::params![
+                        n.video_id,
+                        n.title,
+                        n.artists,
+                        n.album,
+                        n.thumbnail,
+                        n.is_upload as i64,
+                        standalone as i64,
+                        now
+                    ],
+                )?;
+            }
+            Some("done") => {
+                tx.execute(
+                    "UPDATE downloads SET title=?2, artists=?3, album=?4, thumbnail=?5, quality=?6, \
+                     quality_label=?6, is_upload=?7, state='queued', path=NULL, bytes_done=0, \
+                     bytes_total=NULL, error=NULL, standalone=MAX(standalone, ?8), updated_at=?9 \
+                     WHERE video_id=?1",
+                    rusqlite::params![
+                        n.video_id,
+                        n.title,
+                        n.artists,
+                        n.album,
+                        n.thumbnail,
+                        n.quality,
+                        n.is_upload as i64,
+                        standalone as i64,
+                        now
+                    ],
+                )?;
+            }
+            Some("error" | "cancelled") => {
+                tx.execute(
+                    "UPDATE downloads SET title=?2, artists=?3, album=?4, thumbnail=?5, quality=?6, \
+                     quality_label=?6, is_upload=?7, state='queued', error=NULL, \
+                     standalone=MAX(standalone, ?8), updated_at=?9 WHERE video_id=?1",
+                    rusqlite::params![
+                        n.video_id,
+                        n.title,
+                        n.artists,
+                        n.album,
+                        n.thumbnail,
+                        n.quality,
+                        n.is_upload as i64,
+                        standalone as i64,
+                        now
+                    ],
+                )?;
+            }
+            Some(_) => {
+                tx.execute(
+                    "UPDATE downloads SET title=?2, artists=?3, album=?4, thumbnail=?5, \
+                     quality=?6, quality_label=CASE WHEN itag IS NULL THEN ?7 ELSE quality_label END, \
+                     is_upload=?8, standalone=MAX(standalone, ?9), updated_at=?10 WHERE video_id=?1",
+                    rusqlite::params![
+                        n.video_id,
+                        n.title,
+                        n.artists,
+                        n.album,
+                        n.thumbnail,
+                        n.quality,
+                        n.quality,
+                        n.is_upload as i64,
+                        standalone as i64,
+                        now
+                    ],
+                )?;
+            }
+        }
+        tx.query_row(
+            &format!("SELECT {DOWNLOAD_COLUMNS} FROM downloads WHERE video_id = ?1"),
+            [&n.video_id],
+            download_from_row,
+        )
+    }
+
+    /// Queue a collection's rows and memberships atomically. Repeated entries keep one membership
+    /// per video id and refresh its position; a direct download's standalone flag is never cleared.
+    pub fn put_collection_downloads(
+        &self,
+        collection: &NewDownloadCollection,
+        tracks: &[(NewDownload, i64, bool)],
+    ) -> rusqlite::Result<Vec<DownloadRow>> {
+        let mut conn = self.0.lock().unwrap();
+        let tx = conn.transaction()?;
+        let now = now_secs();
+        tx.execute(
+            "INSERT INTO collections(id, kind, title, subtitle, added_at) \
+             VALUES(?1, ?2, ?3, ?4, ?5) \
+             ON CONFLICT(id) DO UPDATE SET kind=excluded.kind, title=excluded.title, \
+             subtitle=excluded.subtitle",
+            rusqlite::params![
+                collection.id,
+                collection.kind,
+                collection.title,
+                collection.subtitle,
+                now
+            ],
+        )?;
+        let mut rows = Vec::with_capacity(tracks.len());
+        for (download, position, reset_done) in tracks {
+            let row = Self::put_download_tx(&tx, download, *reset_done, false)?;
+            tx.execute(
+                "INSERT INTO collection_tracks(collection_id, video_id, position) VALUES(?1, ?2, ?3) \
+                 ON CONFLICT(collection_id, video_id) DO UPDATE SET position=excluded.position",
+                rusqlite::params![collection.id, download.video_id, position],
+            )?;
+            rows.push(row);
+        }
+        tx.commit()?;
+        Ok(rows)
+    }
+
+    /// Every collection, oldest first, with its number of referenced and finished tracks.
+    pub fn download_collections(&self) -> Vec<DownloadCollectionRow> {
+        let conn = self.0.lock().unwrap();
+        let mut out = Vec::new();
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT c.id, c.kind, c.title, c.subtitle, c.artwork_path, c.added_at, \
+             COUNT(ct.video_id), COALESCE(SUM(CASE WHEN d.state='done' AND d.path IS NOT NULL THEN 1 ELSE 0 END), 0) \
+                          FROM collections c LEFT JOIN collection_tracks ct ON ct.collection_id=c.id
+             LEFT JOIN downloads d ON d.video_id=ct.video_id \
+             GROUP BY c.id ORDER BY c.added_at, c.id",
+        ) {
+            if let Ok(rows) = stmt.query_map([], |r| {
+                Ok(DownloadCollectionRow {
+                    id: r.get(0)?,
+                    kind: r.get(1)?,
+                    title: r.get(2)?,
+                    subtitle: r.get(3)?,
+                    artwork_path: r.get(4)?,
+                    added_at: r.get(5)?,
+                    track_count: r.get(6)?,
+                    downloaded_count: r.get(7)?,
+                    video_ids: Vec::new(),
+                })
+            }) {
+                out.extend(rows.flatten());
+            }
+        }
+        let mut members_by_collection: std::collections::HashMap<String, Vec<String>> =
+            std::collections::HashMap::new();
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT collection_id, video_id FROM collection_tracks \
+             ORDER BY collection_id, position, video_id",
+        ) {
+            if let Ok(rows) = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?))) {
+                for (collection_id, video_id) in rows.flatten() {
+                    members_by_collection.entry(collection_id).or_default().push(video_id);
+                }
+            }
+        }
+        for collection in &mut out {
+            collection.video_ids = members_by_collection.remove(&collection.id).unwrap_or_default();
+        }
+        out
+    }
+
+    /// Count the member rows that removal would delete or retain, without changing database state.
+    /// The ownership predicate matches `remove_download_collection`: standalone rows and rows with
+    /// another collection membership survive; unowned rows are deleted.
+    pub fn preview_download_collection_removal(
+        &self,
+        id: &str,
+    ) -> Result<Option<(i64, i64)>, String> {
+        let mut conn = self.0.lock().unwrap();
+        let tx = conn.transaction().map_err(|e| e.to_string())?;
+        let exists = tx
+            .query_row("SELECT EXISTS(SELECT 1 FROM collections WHERE id=?1)", [id], |r| {
+                r.get::<_, bool>(0)
+            })
+            .map_err(|e| e.to_string())?;
+        if !exists {
+            return Ok(None);
+        }
+        let counts = tx
+            .query_row(
+                "SELECT \
+                   COUNT(CASE WHEN d.standalone=0 AND NOT EXISTS (\
+                       SELECT 1 FROM collection_tracks other \
+                       WHERE other.video_id=ct.video_id AND other.collection_id<>ct.collection_id\
+                   ) THEN 1 END), \
+                   COUNT(CASE WHEN d.standalone=1 OR EXISTS (\
+                       SELECT 1 FROM collection_tracks other \
+                       WHERE other.video_id=ct.video_id AND other.collection_id<>ct.collection_id\
+                   ) THEN 1 END) \
+                 FROM collection_tracks ct JOIN downloads d ON d.video_id=ct.video_id \
+                 WHERE ct.collection_id=?1",
+                [id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
+        Ok(Some(counts))
+    }
+
+    /// The previous collection cover, if there is one.
+    pub fn collection_artwork_path(&self, id: &str) -> Option<String> {
+        let conn = self.0.lock().unwrap();
+        conn.query_row("SELECT artwork_path FROM collections WHERE id=?1", [id], |r| r.get(0))
+            .ok()
+            .flatten()
+    }
+
+    /// Set the local cover after its best-effort fetch has completed.
+    pub fn set_collection_artwork(&self, id: &str, path: &str) -> bool {
+        let conn = self.0.lock().unwrap();
+        conn.execute("UPDATE collections SET artwork_path=?1 WHERE id=?2", [path, id])
+            .is_ok_and(|n| n > 0)
+    }
+
+    /// A test seam for verifying collection order without making membership mutation public API.
+    #[cfg(test)]
+    pub(crate) fn collection_track_positions(&self, id: &str) -> Vec<(String, i64)> {
+        let conn = self.0.lock().unwrap();
+        let mut out = Vec::new();
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT video_id, position FROM collection_tracks WHERE collection_id=?1 ORDER BY position, video_id",
+        ) {
+            if let Ok(rows) = stmt.query_map([id], |r| Ok((r.get(0)?, r.get(1)?))) {
+                out.extend(rows.flatten());
+            }
+        }
+        out
+    }
+
+    /// Remove membership rows that point at no download row. Called on restart as a repair pass.
+    pub fn prune_missing_collection_tracks(&self) -> usize {
+        let conn = self.0.lock().unwrap();
+        conn.execute(
+            "DELETE FROM collection_tracks WHERE NOT EXISTS \
+             (SELECT 1 FROM downloads d WHERE d.video_id=collection_tracks.video_id)",
+            [],
+        )
+        .unwrap_or(0)
+    }
+
+    /// Remove one collection and clean tracks it exclusively owned. `remove_track_files` runs while
+    /// the DB mutex and transaction are held, so no concurrent enqueue can add a new owner between
+    /// the refcount check and file deletion. Returning an error rolls back the collection change.
+    pub fn remove_download_collection<F>(
+        &self,
+        id: &str,
+        mut remove_track_files: F,
+    ) -> Result<Option<DownloadCollectionRow>, String>
+    where
+        F: FnMut(&DownloadRow) -> Result<(), String>,
+    {
+        let mut conn = self.0.lock().unwrap();
+        let tx = conn.transaction().map_err(|e| e.to_string())?;
+        let collection = tx
+            .query_row(
+                "SELECT id, kind, title, subtitle, artwork_path, added_at, \
+                 (SELECT COUNT(*) FROM collection_tracks WHERE collection_id=c.id), \
+                 (SELECT COUNT(*) FROM collection_tracks ct JOIN downloads d ON d.video_id=ct.video_id \
+                  WHERE ct.collection_id=c.id AND d.state='done' AND d.path IS NOT NULL) \
+                 FROM collections c WHERE c.id=?1",
+                [id],
+                |r| {
+                    Ok(DownloadCollectionRow {
+                        id: r.get(0)?, kind: r.get(1)?, title: r.get(2)?, subtitle: r.get(3)?,
+                        artwork_path: r.get(4)?, added_at: r.get(5)?, track_count: r.get(6)?,
+                        downloaded_count: r.get(7)?, video_ids: Vec::new(),
+                    })
+                },
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+        let Some(collection) = collection else { return Ok(None) };
+        let members: Vec<String> = {
+            let mut stmt = tx
+                .prepare("SELECT video_id FROM collection_tracks WHERE collection_id=?1 ORDER BY position")
+                .map_err(|e| e.to_string())?;
+            let rows = stmt
+                .query_map([id], |r| r.get(0))
+                .map_err(|e| e.to_string())?
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(|e| e.to_string())?;
+            rows
+        };
+        tx.execute("DELETE FROM collection_tracks WHERE collection_id=?1", [id])
+            .map_err(|e| e.to_string())?;
+        tx.execute("DELETE FROM collections WHERE id=?1", [id]).map_err(|e| e.to_string())?;
+        for video_id in members {
+            let row = tx
+                .query_row(
+                    &format!("SELECT {DOWNLOAD_COLUMNS} FROM downloads WHERE video_id=?1"),
+                    [&video_id],
+                    download_from_row,
+                )
+                .optional()
+                .map_err(|e| e.to_string())?;
+            let Some(row) = row else { continue };
+            if row.standalone {
+                continue;
+            }
+            let references: i64 = tx
+                .query_row(
+                    "SELECT COUNT(*) FROM collection_tracks WHERE video_id=?1",
+                    [&video_id],
+                    |r| r.get(0),
+                )
+                .map_err(|e| e.to_string())?;
+            if references == 0 {
+                remove_track_files(&row)?;
+                tx.execute(
+                    "DELETE FROM downloads WHERE video_id=?1 AND standalone=0 \
+                     AND NOT EXISTS (SELECT 1 FROM collection_tracks WHERE video_id=?1)",
+                    [&video_id],
+                )
+                .map_err(|e| e.to_string())?;
+            }
+        }
+        tx.commit().map_err(|e| e.to_string())?;
+        Ok(Some(collection))
+    }
+
+    /// Take the next queued download for a worker. `None` when nothing is waiting (or every
+    /// candidate was claimed/stopped out from under this scan). Claiming is one conditional
+    /// UPDATE, so a pause or cancel landing in the same instant wins and the worker never starts.
+    pub fn claim_next_download(&self) -> Option<DownloadRow> {
+        let conn = self.0.lock().unwrap();
+        for _ in 0..4 {
+            let video_id: Option<String> = conn
+                .query_row(
+                    "SELECT video_id FROM downloads WHERE state='queued' \
+                     ORDER BY added_at, video_id LIMIT 1",
+                    [],
+                    |r| r.get(0),
+                )
+                .ok();
+            let video_id = video_id?;
+            let claimed = conn
+                .execute(
+                    "UPDATE downloads SET state='downloading', updated_at=?1 \
+                     WHERE video_id=?2 AND state='queued'",
+                    rusqlite::params![now_secs(), &video_id],
+                )
+                .unwrap_or(0);
+            if claimed == 0 {
+                continue; // the row moved on between the scan and the claim
+            }
+            return conn
+                .query_row(
+                    &format!("SELECT {DOWNLOAD_COLUMNS} FROM downloads WHERE video_id = ?1"),
+                    [&video_id],
+                    download_from_row,
+                )
+                .ok();
+        }
+        None
+    }
+
+    /// Progress from the worker. Refused (`false`) once the row is no longer `downloading` —
+    /// that is a pause/cancel winning the race, and the worker stops on it.
+    pub fn update_download_progress(&self, video_id: &str, done: i64, total: Option<i64>) -> bool {
+        let conn = self.0.lock().unwrap();
+        conn.execute(
+            "UPDATE downloads SET bytes_done=?1, bytes_total=COALESCE(?2, bytes_total), \
+             updated_at=?3 WHERE video_id=?4 AND state='downloading'",
+            rusqlite::params![done, total, now_secs(), video_id],
+        )
+        .is_ok_and(|n| n > 0)
+    }
+
+    /// Record the resolved format (itag/mime, and the actual bitrate label).
+    pub fn set_download_format(
+        &self,
+        video_id: &str,
+        itag: i64,
+        mime: Option<&str>,
+        quality_label: &str,
+    ) -> bool {
+        let conn = self.0.lock().unwrap();
+        conn.execute(
+            "UPDATE downloads SET itag=?1, mime=?2, quality_label=?3, updated_at=?4 \
+             WHERE video_id=?5 AND state='downloading'",
+            rusqlite::params![itag, mime, quality_label, now_secs(), video_id],
+        )
+        .is_ok_and(|n| n > 0)
+    }
+
+    /// Claim a finished download: `downloading` → `done`. `false` when a pause/cancel won.
+    pub fn finish_download(&self, video_id: &str, path: &str, bytes_total: i64) -> bool {
+        let conn = self.0.lock().unwrap();
+        conn.execute(
+            "UPDATE downloads SET state='done', path=?1, bytes_done=?2, bytes_total=?2, \
+             error=NULL, updated_at=?3 WHERE video_id=?4 AND state='downloading'",
+            rusqlite::params![path, bytes_total, now_secs(), video_id],
+        )
+        .is_ok_and(|n| n > 0)
+    }
+
+    /// Record where the cover fetched on completion was saved. Only on a `done` row: a pause,
+    /// cancel or removal that won the race takes no artwork record (`false`), and the caller
+    /// drops the file it just wrote.
+    pub fn set_download_artwork(&self, video_id: &str, path: &str) -> bool {
+        let conn = self.0.lock().unwrap();
+        conn.execute(
+            "UPDATE downloads SET artwork_path=?1, updated_at=?2 \
+             WHERE video_id=?3 AND state='done'",
+            rusqlite::params![path, now_secs(), video_id],
+        )
+        .is_ok_and(|n| n > 0)
+    }
+
+    /// Worker failure: `downloading` → `error`, keeping the partial file for a retry. `false` when
+    /// a pause/cancel won.
+    pub fn fail_download(&self, video_id: &str, error: &str) -> bool {
+        let conn = self.0.lock().unwrap();
+        let error: String = error.chars().take(300).collect();
+        conn.execute(
+            "UPDATE downloads SET state='error', error=?1, updated_at=?2 \
+             WHERE video_id=?3 AND state='downloading'",
+            rusqlite::params![error, now_secs(), video_id],
+        )
+        .is_ok_and(|n| n > 0)
+    }
+
+    /// A conditional state transition for the UI actions (pause/resume/cancel/retry), and for the
+    /// worker's own reconciliations (finishing a file whose row moved on). Returns whether the row
+    /// was in one of `from`.
+    pub fn set_download_state_if(
+        &self,
+        video_id: &str,
+        from: &[&str],
+        to: &str,
+        error: Option<&str>,
+    ) -> bool {
+        if from.is_empty() {
+            return false;
+        }
+        let conn = self.0.lock().unwrap();
+        let now = now_secs();
+        // Explicit shapes rather than a dynamic parameter list: the state names are internal
+        // constants, but this keeps the statement fully parameterized all the same.
+        let sql = match from.len() {
+            1 => "UPDATE downloads SET state=?1, error=?2, updated_at=?3 WHERE video_id=?4 AND state=?5",
+            2 => "UPDATE downloads SET state=?1, error=?2, updated_at=?3 WHERE video_id=?4 AND state IN (?5, ?6)",
+            3 => "UPDATE downloads SET state=?1, error=?2, updated_at=?3 WHERE video_id=?4 AND state IN (?5, ?6, ?7)",
+            _ => "UPDATE downloads SET state=?1, error=?2, updated_at=?3 WHERE video_id=?4 AND state IN (?5, ?6, ?7, ?8)",
+        };
+        let changed = match (from.len(), from) {
+            (1, [a]) => conn.execute(sql, rusqlite::params![to, error, now, video_id, a]),
+            (2, [a, b]) => conn.execute(sql, rusqlite::params![to, error, now, video_id, a, b]),
+            (3, [a, b, c]) => {
+                conn.execute(sql, rusqlite::params![to, error, now, video_id, a, b, c])
+            }
+            (_, [a, b, c, d, ..]) => {
+                conn.execute(sql, rusqlite::params![to, error, now, video_id, a, b, c, d])
+            }
+            _ => return false,
+        };
+        changed.is_ok_and(|n| n > 0)
+    }
+
+    /// Cancel from any live state. The path is cleared so nothing can hand mpv a file that is
+    /// about to be deleted; the worker deletes its own partial when it sees the stop. `false`
+    /// when the row was already cancelled or gone.
+    pub fn cancel_download(&self, video_id: &str) -> bool {
+        let conn = self.0.lock().unwrap();
+        conn.execute(
+            "UPDATE downloads SET state='cancelled', path=NULL, error=NULL, bytes_done=0, \
+             updated_at=?1 WHERE video_id=?2 AND state != 'cancelled'",
+            rusqlite::params![now_secs(), video_id],
+        )
+        .is_ok_and(|n| n > 0)
+    }
+
+    /// Put a byte count on a row unconditionally. Used when a stopped worker reconciles its
+    /// partial file after pause/cancel already moved the state.
+    pub fn set_download_bytes(&self, video_id: &str, bytes_done: i64) -> bool {
+        let conn = self.0.lock().unwrap();
+        conn.execute(
+            "UPDATE downloads SET bytes_done=?1, updated_at=?2 WHERE video_id=?3",
+            rusqlite::params![bytes_done, now_secs(), video_id],
+        )
+        .is_ok_and(|n| n > 0)
+    }
+
+    /// Drop a download row, returning it so the caller can delete the files it names.
+    pub fn delete_download(&self, video_id: &str) -> Option<DownloadRow> {
+        let mut conn = self.0.lock().unwrap();
+        let row = conn
+            .query_row(
+                &format!("SELECT {DOWNLOAD_COLUMNS} FROM downloads WHERE video_id = ?1"),
+                [video_id],
+                download_from_row,
+            )
+            .ok()?;
+        let tx = conn.transaction().ok()?;
+        tx.execute("DELETE FROM collection_tracks WHERE video_id = ?1", [video_id]).ok()?;
+        tx.execute("DELETE FROM downloads WHERE video_id = ?1", [video_id]).ok()?;
+        tx.commit().ok()?;
+        Some(row)
+    }
+
+    /// Rows a dead process left mid-flight (`downloading`) go back to `queued` — the worker that
+    /// owned them is gone, and their partial files are still on disk. Returns how many moved.
+    pub fn requeue_interrupted_downloads(&self) -> usize {
+        let conn = self.0.lock().unwrap();
+        conn.execute(
+            "UPDATE downloads SET state='queued', updated_at=?1 WHERE state='downloading'",
+            [now_secs()],
+        )
+        .unwrap_or(0)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2194,6 +2941,79 @@ mod tests {
         assert_eq!(d.get_setting("selected_identity_json"), None);
         assert_eq!(d.get_setting("data_sync_id"), None);
         assert_eq!(d.get_setting("account_json"), None);
+    }
+
+    /// The downloads queue's state machine through the real accessors: claim-once, conditional
+    /// transitions, restart recovery, cancel/remove.
+    #[test]
+    fn downloads_queue_transitions_claims_and_recovers() {
+        let d = db();
+        let new = |v: &str| NewDownload {
+            video_id: v.into(),
+            title: "Song".into(),
+            artists: "Artist".into(),
+            album: None,
+            thumbnail: None,
+            quality: "HIGH".into(),
+            is_upload: false,
+        };
+        let a = d.put_download(&new("aaaaaaaaaaa"), false).unwrap();
+        assert_eq!(a.state, "queued");
+        assert_eq!(a.quality_label, "HIGH", "the requested quality until the format is known");
+
+        // One claim only: a claimed row is not claimable again.
+        let claimed = d.claim_next_download().unwrap();
+        assert_eq!(
+            (claimed.video_id.as_str(), claimed.state.as_str()),
+            ("aaaaaaaaaaa", "downloading")
+        );
+        assert!(d.claim_next_download().is_none());
+
+        // Progress lands while downloading; a pause freezes it and refuses later writes.
+        assert!(d.update_download_progress("aaaaaaaaaaa", 4096, Some(9999)));
+        assert!(d.set_download_state_if("aaaaaaaaaaa", &["downloading"], "paused", None));
+        assert!(
+            !d.update_download_progress("aaaaaaaaaaa", 8192, Some(9999)),
+            "paused rows refuse progress"
+        );
+        let paused = d.download("aaaaaaaaaaa").unwrap();
+        assert_eq!((paused.state.as_str(), paused.bytes_done), ("paused", 4096));
+
+        // finish only from downloading; resume re-queues first.
+        assert!(d.set_download_state_if("aaaaaaaaaaa", &["paused"], "queued", None));
+        assert!(!d.finish_download("aaaaaaaaaaa", "/tmp/x.m4a", 9999), "not downloading");
+        assert!(d.claim_next_download().is_some());
+        assert!(d.finish_download("aaaaaaaaaaa", "/tmp/x.m4a", 9999));
+        let done = d.download("aaaaaaaaaaa").unwrap();
+        assert_eq!((done.state.as_str(), done.path.as_deref()), ("done", Some("/tmp/x.m4a")));
+        assert_eq!(done.bytes_total, Some(9999));
+
+        // Re-adding a done row keeps it done — unless its file is gone (reset_done).
+        assert_eq!(d.put_download(&new("aaaaaaaaaaa"), false).unwrap().state, "done");
+        let reset = d.put_download(&new("aaaaaaaaaaa"), true).unwrap();
+        assert_eq!(reset.state, "queued");
+        assert_eq!((reset.path, reset.bytes_done), (None, 0));
+
+        // An error row re-added restarts cleanly; an interrupted row is requeued.
+        assert!(d.set_download_state_if("aaaaaaaaaaa", &["queued"], "error", Some("boom")));
+        assert_eq!(d.download("aaaaaaaaaaa").unwrap().error.as_deref(), Some("boom"));
+        let retried = d.put_download(&new("aaaaaaaaaaa"), false).unwrap();
+        assert_eq!((retried.state.as_str(), retried.error), ("queued", None));
+        assert!(d.claim_next_download().is_some());
+        assert_eq!(d.requeue_interrupted_downloads(), 1, "a downloading row is a crash leftover");
+        assert_eq!(d.download("aaaaaaaaaaa").unwrap().state, "queued");
+
+        // Cancel clears the path and the byte count; remove drops the row.
+        assert!(d.cancel_download("aaaaaaaaaaa"));
+        let cancelled = d.download("aaaaaaaaaaa").unwrap();
+        assert_eq!(
+            (cancelled.state.as_str(), cancelled.path, cancelled.bytes_done),
+            ("cancelled", None, 0)
+        );
+        assert!(!d.cancel_download("aaaaaaaaaaa"), "cancelling twice is a no-op");
+        assert!(d.delete_download("aaaaaaaaaaa").is_some());
+        assert!(d.download("aaaaaaaaaaa").is_none());
+        assert!(d.delete_download("aaaaaaaaaaa").is_none());
     }
 }
 
