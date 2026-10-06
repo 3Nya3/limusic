@@ -1484,6 +1484,42 @@ fn strip_xml_tags(s: &str) -> String {
 mod tests {
     use super::*;
 
+    /// Emits the browser probe's fixture: the real Apple word timings of "Lemon" with the human
+    /// transliteration stripped, pushed through the real parse + local romanize pipeline, exactly
+    /// as `get_lyrics` would serve them. Writes `fixtures/romaji-fixture.json` next to the UI
+    /// preview scripts so the timing probe can drive the real renderer with real data.
+    /// Run: `cargo test -p limusic-app emit_romaji_browser_fixture -- --ignored --nocapture`
+    #[test]
+    #[ignore = "writes a fixture file for the browser timing probe"]
+    fn emit_romaji_browser_fixture() {
+        let ttml_path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../ui/scripts/preview/fixtures/lemon-no-translit.ttml"
+        );
+        let out_path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../ui/scripts/preview/fixtures/romaji-fixture.json"
+        );
+        let xml = std::fs::read_to_string(ttml_path).expect("read real TTML fixture");
+        let lines = parse_ttml_aaml(&xml);
+        assert!(!lines.is_empty(), "fixture must parse");
+        let mut l = Lyrics {
+            source: "Boidu".into(),
+            provider: "boidu".into(),
+            synced: true,
+            lines,
+            ..Default::default()
+        };
+        crate::romanize::fill(&mut l);
+        let timed = l.lines.iter().filter(|x| x.words.is_some()).count();
+        let swept = l.lines.iter().filter(|x| x.romanized_words.is_some()).count();
+        println!("lines={} word-timed={} romaji-swept={}", l.lines.len(), timed, swept);
+        assert_eq!(timed, swept, "every word-timed line must get word-timed romaji");
+        let json = serde_json::to_string_pretty(&l).expect("serialize");
+        std::fs::write(out_path, &json).expect("write fixture");
+        println!("wrote {out_path} ({} bytes)", json.len());
+    }
+
     #[test]
     fn parses_basic_lrc() {
         let lrc = "[ar:Fleetwood Mac]\n[00:27.93] Listen to the wind blow\n[00:31.16] Watch the sun rise\n";
