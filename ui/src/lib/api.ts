@@ -1330,7 +1330,8 @@ export interface LyricLine {
 	text: string;
 	words?: LyricWord[];
 	translation?: string;
-	/** Latin-script reading of `text` (#202). Word-timed only when Apple Music wrote it. */
+	/** Latin-script reading of `text` (#202). Word-timed when the source timed the original words
+	 *  (Apple's own reading, or the local engine aligned to them). */
 	romanized?: string;
 	romanized_words?: LyricWord[];
 	/** Which singer: `v1`, `v2`, ... and `v1000` for everyone together. A second singer's lines
