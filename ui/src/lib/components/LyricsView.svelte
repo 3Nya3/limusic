@@ -189,11 +189,13 @@
 
 	/** The rAF clock exists for the word sweep and nothing else. Unsynced lyrics have no cues, and
 	 *  line-level-only lyrics move at most once a line, so both are served perfectly well by the
-	 *  position tick they already get. Without this gate the loop ran at refresh rate for any
-	 *  mounted lyrics panel, on every track, for the whole session, which meant the app never
-	 *  reached an idle frame. */
+	 *  position tick they already get. Word-timed romanized lines sweep too (local engine aligns
+	 *  the reading to the original words), so the gate counts those. Without this gate the loop
+	 *  ran at refresh rate for any mounted lyrics panel, on every track, for the whole session,
+	 *  which meant the app never reached an idle frame. */
 	const needsFrameClock = $derived(
-		!!lyrics?.synced && lyrics.lines.some((l) => (l.words?.length ?? 0) > 0)
+		!!lyrics?.synced &&
+			lyrics.lines.some((l) => (l.words?.length ?? 0) > 0 || (l.romanized_words?.length ?? 0) > 0)
 	);
 
 	$effect(() => {
