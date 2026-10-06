@@ -371,7 +371,7 @@ mod live {
         let g = crate::potoken::PoTokenGenerator::new(db);
 
         assert!(g.get_session_po_token(&visitor).await.is_some(), "first mint");
-        g.invalidate_session_token().await;
+        g.invalidate_token_for(None).await;
         let t1 = Instant::now();
         assert!(
             g.get_session_po_token(&visitor).await.is_some(),
