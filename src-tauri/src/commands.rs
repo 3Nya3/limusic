@@ -2225,6 +2225,12 @@ pub async fn lastfm_status(state: St<'_>) -> Result<serde_json::Value, String> {
     Ok(crate::lastfm::status(&state))
 }
 
+/// Avatar and counts for the Scrobbling tab's account card. One Last.fm call per tab open.
+#[tauri::command]
+pub async fn lastfm_profile(state: St<'_>) -> Result<Option<crate::lastfm::Profile>, String> {
+    Ok(crate::lastfm::profile(&state).await)
+}
+
 /// What `track` would scrobble as under `config` (the Scrobbling tab's unsaved state, as JSON).
 /// The tab's preview, computed by the same function the scrobbler sends from, so a pattern the
 /// Rust regex engine reads differently from JavaScript's can't make the preview lie.

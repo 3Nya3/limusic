@@ -15,6 +15,7 @@
 		Cancel01Icon,
 		Delete02Icon,
 		FileImportIcon,
+		LinkSquare02Icon,
 		Loading03Icon,
 		MusicNote01Icon,
 		PencilEdit02Icon
@@ -29,8 +30,9 @@
 	import * as api from '$lib/api';
 	import type { ScrobblePreview, ScrobbleTrack } from '$lib/api';
 	import { playback, toast, ui } from '$lib/player.svelte';
-	import { t } from '$lib/i18n.svelte';
+	import { currentLocale, t } from '$lib/i18n.svelte';
 	import { thumb } from '$lib/thumb';
+	import LastFmIcon from '$lib/components/LastFmIcon.svelte';
 	import { connectLastfm, disconnectLastfm, lastfm } from '$lib/lastfm.svelte';
 	import {
 		PRESETS,
@@ -78,6 +80,35 @@
 		settings[key] = on ? 'true' : 'false';
 		await api.setSetting(key, settings[key]).catch((e) => toast.error(String(e)));
 	}
+
+	// --- The account card: avatar and counts off the user's public profile ---
+	let profile = $state<api.LastfmProfile | null>(null);
+	$effect(() => {
+		const name = lastfm.connected ? lastfm.username : null;
+		profile = null;
+		if (!name) return;
+		api.lastfmProfile()
+			.then((p) => lastfm.username === name && (profile = p))
+			.catch(() => {});
+	});
+	const num = (n: number) => n.toLocaleString(currentLocale.id);
+	const since = $derived(
+		profile?.since
+			? new Date(profile.since * 1000).toLocaleDateString(currentLocale.id, {
+					month: 'long',
+					year: 'numeric'
+				})
+			: null
+	);
+	const STATS = $derived(
+		profile
+			? [
+					{ label: t('settings.scrobbling.stat_scrobbles'), value: profile.scrobbles },
+					{ label: t('settings.scrobbling.stat_artists'), value: profile.artists },
+					{ label: t('settings.scrobbling.stat_tracks'), value: profile.tracks }
+				]
+			: []
+	);
 
 	// --- The track the preview shows ---
 	// "Edit scrobble" in a track menu picks one; otherwise the one playing; otherwise a stand-in that
@@ -297,16 +328,69 @@
 <div class="flex min-h-0 flex-1 max-lg:flex-col">
 	<div class="min-w-0 flex-1 overflow-y-auto px-6 py-5">
 		<section class={GROUP}>
+			<!-- The account, the way Last.fm's own profile header shows it: avatar, name, and the
+			     three counts under it. -->
+			<div class="mb-2.5 overflow-hidden rounded-xl border bg-card">
+				<div class="flex items-center gap-3.5 px-4 py-4">
+					<div
+						class="flex size-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted ring-1 ring-border"
+					>
+						{#if lastfm.connected && profile?.image}
+							<img src={profile.image} alt="" class="size-full object-cover" draggable="false" />
+						{:else if lastfm.connected && lastfm.username}
+							<span class="text-base font-semibold text-muted-foreground uppercase">
+								{lastfm.username[0]}
+							</span>
+						{:else}
+							<LastFmIcon class="h-5 w-5 text-muted-foreground" />
+						{/if}
+					</div>
+					<div class="min-w-0 flex-1">
+						{#if lastfm.connected}
+							<button
+								type="button"
+								class="flex max-w-full cursor-pointer items-center gap-1.5 text-left hover:underline disabled:cursor-default disabled:no-underline"
+								disabled={!profile?.url}
+								onclick={() => profile?.url && api.openExternal(profile.url)}
+								title={t('settings.scrobbling.open_profile')}
+							>
+								<span class="truncate text-sm font-semibold">{lastfm.username}</span>
+								{#if profile?.url}
+									<HugeiconsIcon icon={LinkSquare02Icon} size={13} class="shrink-0 text-muted-foreground" />
+								{/if}
+							</button>
+							<p class="truncate text-xs text-muted-foreground">
+								{since
+									? t('settings.scrobbling.since', { date: since })
+									: t('integrations.lastfm_scrobbling_as', { user: lastfm.username ?? '' })}
+							</p>
+						{:else}
+							<p class="text-sm font-semibold">Last.fm</p>
+							<p class="text-xs text-muted-foreground">
+								{lastfm.connecting
+									? t('settings.scrobbling.account_connecting')
+									: t('settings.scrobbling.account_disconnected')}
+							</p>
+						{/if}
+					</div>
+					{@render accountButton()}
+				</div>
+				{#if lastfm.connected && STATS.length}
+					<div class="grid grid-cols-3 divide-x divide-border/60 border-t border-border/60">
+						{#each STATS as s (s.label)}
+							<div class="min-w-0 px-4 py-2.5">
+								<div
+									class="truncate text-[10px] font-semibold tracking-[0.08em] text-muted-foreground uppercase"
+								>
+									{s.label}
+								</div>
+								<div class="truncate text-base font-semibold tabular-nums">{num(s.value)}</div>
+							</div>
+						{/each}
+					</div>
+				{/if}
+			</div>
 			<div class={CARD}>
-				{@render row_({
-					title: 'Last.fm',
-					desc: lastfm.connected
-						? t('integrations.lastfm_scrobbling_as', { user: lastfm.username ?? '' })
-						: lastfm.connecting
-							? t('settings.scrobbling.account_connecting')
-							: t('settings.scrobbling.account_disconnected'),
-					control: accountButton
-				})}
 				{@render row_({
 					title: t('settings.scrobbling.enable'),
 					desc: t('settings.scrobbling.enable_hint'),

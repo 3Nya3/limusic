@@ -710,6 +710,53 @@ pub fn status(state: &AppState) -> serde_json::Value {
     serde_json::json!({ "connected": key.is_some(), "username": username })
 }
 
+/// The connected user's public profile, for the Scrobbling tab's account card. `None` when nobody
+/// is connected or Last.fm didn't answer: the card falls back to the name it already has.
+pub async fn profile(state: &AppState) -> Option<Profile> {
+    let name = state.db.get_setting("lastfm_username").filter(|s| !s.is_empty())?;
+    let body = call("user.getInfo", vec![("user".to_string(), name)], false).await.ok()?;
+    parse_profile(&body)
+}
+
+#[derive(Debug, PartialEq, serde::Serialize)]
+pub struct Profile {
+    /// The avatar, or `None` for an account that never set one.
+    image: Option<String>,
+    url: Option<String>,
+    scrobbles: u64,
+    artists: u64,
+    tracks: u64,
+    /// Epoch seconds the account was created.
+    since: u64,
+}
+
+/// `user.getInfo` sends every number as a string, and an unset avatar as `""` in each size.
+fn parse_profile(body: &serde_json::Value) -> Option<Profile> {
+    let u = body.get("user")?;
+    let num = |v: Option<&serde_json::Value>| {
+        v.and_then(|v| v.as_str()).and_then(|s| s.parse().ok()).unwrap_or(0)
+    };
+    let images = u.get("image").and_then(|v| v.as_array());
+    // 174px: the card draws it at 44, so twice that and change for a HiDPI screen.
+    let image = ["large", "extralarge", "medium"].iter().find_map(|size| {
+        images?
+            .iter()
+            .find(|i| i.get("size").and_then(|s| s.as_str()) == Some(size))?
+            .get("#text")?
+            .as_str()
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+    });
+    Some(Profile {
+        image,
+        url: u.get("url").and_then(|v| v.as_str()).map(str::to_owned),
+        scrobbles: num(u.get("playcount")),
+        artists: num(u.get("artist_count")),
+        tracks: num(u.get("track_count")),
+        since: num(u.pointer("/registered/unixtime")),
+    })
+}
+
 /// Open a URL in the user's default browser. No opener plugin in the app; three lines cover the
 /// three platforms.
 pub(crate) fn open_browser(url: &str) -> Result<(), String> {
@@ -820,6 +867,31 @@ mod tests {
             strip_appdir(&format!("{dir}/usr/share:/usr/share:/usr/local/share"), dir),
             Some("/usr/share:/usr/local/share".to_string())
         );
+    }
+
+    /// Trimmed from a real `user.getInfo` answer (2026-10-06).
+    #[test]
+    fn profile_reads_user_info() {
+        let body = serde_json::json!({ "user": {
+            "name": "someone", "playcount": "7805", "artist_count": "1363", "track_count": "2309",
+            "url": "https://www.last.fm/user/someone",
+            "image": [
+                { "size": "small", "#text": "https://lastfm-img.freetls.fastly.net/i/u/34s/a.png" },
+                { "size": "large", "#text": "https://lastfm-img.freetls.fastly.net/i/u/174s/a.png" },
+                { "size": "extralarge", "#text": "https://lastfm-img.freetls.fastly.net/i/u/300x300/a.png" }
+            ],
+            "registered": { "unixtime": "1784282707", "#text": 1784282707 }
+        }});
+        let p = parse_profile(&body).unwrap();
+        assert_eq!(
+            p.image.as_deref(),
+            Some("https://lastfm-img.freetls.fastly.net/i/u/174s/a.png")
+        );
+        assert_eq!((p.scrobbles, p.artists, p.tracks, p.since), (7805, 1363, 2309, 1784282707));
+        // No avatar set: every size is "", which is no image rather than a broken one.
+        let bare = serde_json::json!({ "user": { "image": [{ "size": "large", "#text": "" }] } });
+        assert_eq!(parse_profile(&bare).unwrap().image, None);
+        assert_eq!(parse_profile(&serde_json::json!({ "error": 6 })), None);
     }
 
     #[test]

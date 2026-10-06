@@ -978,6 +978,18 @@ export const lastfmConnect = () => invoke<void>('lastfm_connect');
 export const lastfmDisconnect = () => invoke<void>('lastfm_disconnect');
 export const onLastfmState = (cb: (s: LastfmState) => void): Promise<UnlistenFn> =>
 	listen<LastfmState>('lastfm-state', (e) => cb(e.payload));
+/** `Profile` in lastfm.rs. Counts are 0 when Last.fm left them out. */
+export interface LastfmProfile {
+	image: string | null;
+	url: string | null;
+	scrobbles: number;
+	artists: number;
+	tracks: number;
+	/** Epoch seconds the account was created. */
+	since: number;
+}
+/** `null` when not connected or Last.fm didn't answer. */
+export const lastfmProfile = () => invoke<LastfmProfile | null>('lastfm_profile');
 /** The track fields the scrobbler reads. A `SongItem` is one. */
 export interface ScrobbleTrack {
 	video_id: string;

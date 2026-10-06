@@ -943,6 +943,7 @@ pub fn run() {
             commands::lastfm_disconnect,
             commands::lastfm_status,
             commands::lastfm_preview,
+            commands::lastfm_profile,
             commands::theater_fullscreen,
             commands::release_notes,
             commands::can_self_update,
