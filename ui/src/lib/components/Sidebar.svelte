@@ -206,7 +206,10 @@
 		<Button variant="outline" size="sm" class="mb-2 w-full gap-2" onclick={() => openNewPlaylist()}>
 			<HugeiconsIcon icon={Add01Icon} class="h-4 w-4" /> {t('nav.new_playlist')}
 		</Button>
-		<div class="min-h-0 flex-1 overflow-y-auto">
+		<!-- `relative z-0` gives it its own stacking context and that is what keeps the scrollbar on
+		     screen. Without it,every transform transition in the playlists(scolling and hover mouse
+			 over any playlist) hides scrollbar for a moment. -->
+		<div class="min-h-0 flex-1 overflow-y-auto relative z-0 ">
 			{#each playlists as pl, i (pl.id)}
 				<!-- The ⋯ is a sibling of the link, not a child: a <button> inside an <a> is invalid
 				     HTML. pr-9 keeps the title clear of the button that overlays the row on hover. -->
