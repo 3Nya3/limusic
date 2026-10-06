@@ -306,8 +306,7 @@
 			"discord_status": "Statut",
 			"discord_card": "Carte",
 			"discord_links": "Liens cliquables",
-			"discord_buttons": "Boutons",
-			"scrobbling": "Scrobbling"
+			"discord_buttons": "Boutons"
 		},
 		"general": {
 			"language": "Langue de l'interface",

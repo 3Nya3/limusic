@@ -308,8 +308,7 @@
 			"discord_status": "Estado",
 			"discord_card": "Tarjeta",
 			"discord_links": "Cliqueable",
-			"discord_buttons": "Botones",
-			"scrobbling": "Scrobbling"
+			"discord_buttons": "Botones"
 		},
 		"general": {
 			"language": "Idioma de la interfaz",

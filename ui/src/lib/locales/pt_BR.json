@@ -308,8 +308,7 @@
 			"discord_status": "Status",
 			"discord_card": "Painel",
 			"discord_links": "Clicável",
-			"discord_buttons": "Botões",
-			"scrobbling": "Scrobbling"
+			"discord_buttons": "Botões"
 		},
 		"general": {
 			"language": "Idioma da interface",

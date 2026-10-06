@@ -340,8 +340,7 @@
 			"discord_status": "상태 표시 설정",
 			"discord_card": "프로필 카드 설정",
 			"discord_links": "링크 연결 활성화",
-			"discord_buttons": "버튼 설정",
-			"scrobbling": "감상 기록 연동"
+			"discord_buttons": "버튼 설정"
 		},
 		"general": {
 			"language": "언어 설정",
