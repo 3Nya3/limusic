@@ -247,7 +247,14 @@
 				const id = `settings-${ui.settingsFocus}`;
 				ui.settingsFocus = null;
 				load().then(tick).then(() => {
-					document.getElementById(id)?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+					const section = document.getElementById(id);
+					const contentPane = section?.parentElement;
+					if (!contentPane || !section) return;
+					// scrollIntoView also scrolls the overflow-hidden dialog, clipping its rail and header.
+					contentPane.scrollTo({
+						top: contentPane.scrollTop + section.getBoundingClientRect().top - contentPane.getBoundingClientRect().top,
+						behavior: 'instant'
+					});
 				});
 			} else {
 				load();
