@@ -25,10 +25,11 @@ pub const ALBUM_PREFIX: &str = "LOCALALBUM:";
 pub const ARTIST_PREFIX: &str = "LOCALARTIST:";
 /// Where the folder list lives (JSON array of absolute paths).
 const FOLDERS_SETTING: &str = "local_folders";
-/// Bumped whenever `read_track` starts producing different titles, artists or album keys. The scan
-/// normally trusts stored rows whose file hasn't changed; after a bump it re-reads everything once,
-/// so a library isn't left half-parsed by the old rules and half by the new ones.
-const SCAN_VERSION: &str = "7";
+/// Bumped whenever `read_track` starts producing different titles, artists, album keys, format
+/// labels or sizes. The scan normally trusts stored rows whose file hasn't changed; after a bump
+/// it re-reads everything once, so a library isn't left half-parsed by the old rules and half by
+/// the new ones.
+const SCAN_VERSION: &str = "8";
 const SCAN_VERSION_SETTING: &str = "local_scan_version";
 
 /// Extensions we pick up. Playback itself is mpv, which decodes far more than this — the list is
@@ -89,6 +90,11 @@ fn set_folders(db: &Db, folders: &[String]) {
 /// by path component, not by string prefix — `\` separators and a trailing slash both make the
 /// textual version wrong, and a missed nesting means every file in it is scanned twice.
 pub fn add_folder(db: &Db, path: String) {
+    // Adding a folder is the explicit "I want this music here" act, so it also brings back tracks
+    // the user previously removed from the Downloads list inside it — removal hides, adding the
+    // folder again shows. Runs before the already-watched early return: re-adding a folder the
+    // user already has is how they ask for exactly that.
+    unhide_under(db, &path);
     let mut list = folders(db);
     let new = Path::new(&path).to_path_buf();
     if list.iter().any(|f| new.starts_with(f)) {
@@ -106,6 +112,59 @@ pub fn remove_folder(db: &Db, path: &str) {
     set_folders(db, &list);
 }
 
+// --- removed imports ----------------------------------------------------------------------------
+
+/// Paths the user took off the Downloads list. Removal of a file this app does not own never
+/// deletes it (it is the user's file, see `downloads::delete_owned`), so what keeps the row from
+/// coming back on the next scan is this list: hidden across scans, cleared by adding the folder
+/// again or when the file itself is gone.
+const HIDDEN_SETTING: &str = "local_import_hidden";
+
+pub fn hidden_imports(db: &Db) -> HashSet<String> {
+    db.get_setting(HIDDEN_SETTING)
+        .and_then(|s| serde_json::from_str::<Vec<String>>(&s).ok())
+        .unwrap_or_default()
+        .into_iter()
+        .collect()
+}
+
+/// Take one file off the Downloads list without touching it on disk.
+pub fn hide_import(db: &Db, path: &str) {
+    let mut hidden = hidden_imports(db);
+    if hidden.insert(path.to_owned()) {
+        set_hidden(db, &hidden);
+    }
+}
+
+/// Adding a folder brings back the tracks that were taken out of it.
+fn unhide_under(db: &Db, folder: &str) {
+    let base = PathBuf::from(folder);
+    let mut hidden = hidden_imports(db);
+    let before = hidden.len();
+    hidden.retain(|p| !Path::new(p).starts_with(&base));
+    if hidden.len() != before {
+        set_hidden(db, &hidden);
+    }
+}
+
+/// Forget entries whose file no longer exists, so a file deleted and later restored (or moved
+/// back) is not stuck off the list forever. Called from the scan, which already knows what is on
+/// disk.
+fn prune_hidden(db: &Db, found: &HashSet<String>) {
+    let mut hidden = hidden_imports(db);
+    let before = hidden.len();
+    hidden.retain(|p| found.contains(p));
+    if hidden.len() != before {
+        set_hidden(db, &hidden);
+    }
+}
+
+fn set_hidden(db: &Db, paths: &HashSet<String>) {
+    let mut list: Vec<&String> = paths.iter().collect();
+    list.sort_unstable();
+    db.set_setting(HIDDEN_SETTING, &serde_json::to_string(&list).unwrap_or_else(|_| "[]".into()));
+}
+
 // --- scanning -----------------------------------------------------------------------------------
 
 /// Re-read the watched folders and return the whole library. Files whose mtime hasn't moved keep
@@ -118,10 +177,42 @@ pub fn scan(db: &Db, covers_dir: &Path) -> LocalLibrary {
     let reparse = db.get_setting(SCAN_VERSION_SETTING).as_deref() != Some(SCAN_VERSION);
     let mut found: HashSet<String> = HashSet::new();
     let mut fresh: Vec<LocalTrack> = Vec::new();
+    // The engine's storage folders may sit below a watched Music/Downloads folder (`download_dir`
+    // is user-settable), and our own finished files must never be indexed as duplicate local
+    // tracks — app data, not user-owned Local Music (the idea from Adiker's fork, local.rs:121-131,
+    // GPL-3.0, Adiker/limusic@1fb1ded). Two layers, because a blanket folder skip is wrong when
+    // `download_dir` IS (or contains) the watched folder — that would hide the user's own music:
+    // - every `done` row's recorded path is skipped wherever it sits (exact, config-independent);
+    // - a storage folder strictly inside a watched folder is pruned as a whole subtree, which also
+    //   catches a file renamed into place but not yet recorded (a crash window).
+    let storage: Vec<PathBuf> = crate::downloads::storage_dirs(db)
+        .iter()
+        .filter_map(|p| p.canonicalize().ok().or(Some(p.clone())))
+        .collect();
+    let recorded: HashSet<PathBuf> = db
+        .downloads_all()
+        .iter()
+        .filter(|r| r.state == "done")
+        .filter_map(|r| r.path.as_deref())
+        .filter_map(|p| Path::new(p).canonicalize().ok())
+        .collect();
 
     let mut seen_dirs: HashSet<PathBuf> = HashSet::new();
     for folder in folders(db) {
-        walk(Path::new(&folder), 0, &mut seen_dirs, &mut |file| {
+        let watched = Path::new(&folder).canonicalize().unwrap_or_else(|_| PathBuf::from(&folder));
+        // Prune only storage folders strictly inside this watched folder: roots that are the
+        // watched folder itself or above it must not take the user's own files with them (the
+        // recorded-path layer above handles our files there instead).
+        let prune: Vec<PathBuf> =
+            storage.iter().filter(|s| s.starts_with(&watched) && **s != watched).cloned().collect();
+        walk(Path::new(&folder), 0, &mut seen_dirs, &prune, &mut |file| {
+            // Ours, not Local Music — skipped before `found`, so a download this scan previously
+            // indexed is treated as gone and pruned from the library (self-healing).
+            if !recorded.is_empty()
+                && file.canonicalize().map(|real| recorded.contains(&real)).unwrap_or(false)
+            {
+                return;
+            }
             let path = file.to_string_lossy().to_string();
             let mtime = mtime_of(file);
             found.insert(path.clone());
@@ -145,6 +236,9 @@ pub fn scan(db: &Db, covers_dir: &Path) -> LocalLibrary {
     }
 
     let tracks = db.local_tracks(None);
+    // A file the user removed from the Downloads list but deleted from disk since: the hidden
+    // entry goes with it, so re-creating the file later starts from a clean slate.
+    prune_hidden(db, &found);
     let after: HashSet<String> = card_ids_of(&tracks);
     // Ids the UI may still be showing: the deleted songs, plus the albums and artists that lost
     // their last track.
@@ -161,14 +255,27 @@ pub fn scan(db: &Db, covers_dir: &Path) -> LocalLibrary {
 }
 
 /// Recurse into `dir`, calling `on_file` for every audio file. Errors (permissions, a folder that
-/// was unplugged) are skipped rather than failing the scan.
+/// was unplugged) are skipped rather than failing the scan. Files under any of `storage` (the
+/// engine's download folders) are never reported: pruning whole subtrees at the directory level,
+/// so a watched folder that contains (or is) a download folder costs one canonicalize per dir,
+/// not per file.
 ///
 /// Symlinks are followed — a music folder full of links to an external drive is a normal setup, and
 /// refusing to follow them means those users see an empty library. `seen` (canonical paths) is what
 /// keeps a link that points back up the tree from recursing forever; the depth cap is the backstop
 /// for paths that can't be canonicalized.
-fn walk(dir: &Path, depth: usize, seen: &mut HashSet<PathBuf>, on_file: &mut impl FnMut(&Path)) {
-    if depth > MAX_DEPTH || !seen.insert(dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf())) {
+fn walk(
+    dir: &Path,
+    depth: usize,
+    seen: &mut HashSet<PathBuf>,
+    storage: &[PathBuf],
+    on_file: &mut impl FnMut(&Path),
+) {
+    let real = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
+    if storage.iter().any(|root| real.starts_with(root)) {
+        return; // the engine's own folder — app data, not Local Music
+    }
+    if depth > MAX_DEPTH || !seen.insert(real) {
         return;
     }
     let Ok(entries) = std::fs::read_dir(dir) else { return };
@@ -178,7 +285,7 @@ fn walk(dir: &Path, depth: usize, seen: &mut HashSet<PathBuf>, on_file: &mut imp
         // linked file is treated as what it points at.
         let Ok(meta) = std::fs::metadata(&path) else { continue };
         if meta.is_dir() {
-            walk(&path, depth + 1, seen, on_file);
+            walk(&path, depth + 1, seen, storage, on_file);
         } else if meta.is_file() && is_audio(&path) {
             on_file(&path);
         }
@@ -270,6 +377,65 @@ fn read_track(file: &Path, path: &str, mtime: i64, covers_dir: &Path) -> LocalTr
         duration_secs,
         cover,
         mtime,
+        quality_label: quality_label(tagged.as_ref(), file),
+        size_bytes: std::fs::metadata(file).map(|m| m.len() as i64).unwrap_or(0),
+    }
+}
+
+/// What a Downloads row's format chip reads for this file: the real bitrate and codec when the
+/// tags could be read ("320 kbps MP3"), the extension's codec when they could not. Never empty —
+/// a row missing the chip every finished download wears is a visibly different row.
+fn quality_label(tagged: Option<&lofty::file::TaggedFile>, file: &Path) -> String {
+    let Some(t) = tagged else {
+        return codec_of_extension(file).to_owned();
+    };
+    let codec = codec_of(t.file_type());
+    match t.properties().audio_bitrate().or(t.properties().overall_bitrate()) {
+        Some(kbps) if kbps > 0 => format!("{kbps} kbps {codec}"),
+        _ => codec.to_owned(),
+    }
+}
+
+/// The codec name a download row would carry, by container. Same vocabulary as the download
+/// engine's `actual_label`, so both kinds of row read alike.
+fn codec_of(kind: lofty::file::FileType) -> &'static str {
+    use lofty::file::FileType as F;
+    match kind {
+        F::Mpeg => "MP3",
+        F::Flac => "FLAC",
+        F::Mp4 | F::Aac => "AAC",
+        F::Opus => "Opus",
+        F::Vorbis => "Vorbis",
+        F::Speex => "Speex",
+        F::Wav | F::Aiff => "PCM",
+        F::Ape => "APE",
+        F::Mpc => "MPC",
+        F::WavPack => "WV",
+        // Custom resolvers and anything newer than this build: the download engine says "audio"
+        // for a mime it cannot name, and so does this.
+        _ => "audio",
+    }
+}
+
+/// What the extension says the file is, for files lofty cannot parse (WMA and friends — mpv
+/// plays them anyway). No bitrate: an unknown one is not worth inventing.
+fn codec_of_extension(file: &Path) -> &'static str {
+    let ext = file
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .unwrap_or_default();
+    match ext.as_str() {
+        "mp3" => "MP3",
+        "flac" => "FLAC",
+        "m4a" | "m4b" | "aac" => "AAC",
+        "opus" => "Opus",
+        "ogg" | "oga" => "Vorbis",
+        "wav" | "aiff" | "aif" => "PCM",
+        "wma" => "WMA",
+        "ape" => "APE",
+        "wv" => "WV",
+        _ => "audio",
     }
 }
 
@@ -642,6 +808,9 @@ pub fn playback_data(video_id: &str, path: &str) -> Result<crate::orchestrator::
         is_video: None,
         thumbnail: None,
         stream_client: "local".to_owned(),
+        // A file on disk has no YouTube format behind it.
+        mime_type: None,
+        bitrate: None,
     })
 }
 
@@ -706,6 +875,8 @@ mod tests {
             duration_secs: 10,
             cover: None,
             mtime: 1,
+            quality_label: "MP3".into(),
+            size_bytes: 10,
         }
     }
 
@@ -901,6 +1072,82 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
+    /// Test helper: make `video_id` a `done` download row whose finished file is `path`.
+    fn finish_download_at(db: &Db, video_id: &str, title: &str, path: &Path) {
+        let n = crate::db::NewDownload {
+            video_id: video_id.into(),
+            title: title.into(),
+            artists: "Tester".into(),
+            album: None,
+            thumbnail: None,
+            quality: "HIGH".into(),
+            is_upload: false,
+        };
+        db.put_download(&n, false).unwrap();
+        db.set_download_state_if(video_id, &["queued"], "downloading", None);
+        assert!(db.finish_download(video_id, &path.to_string_lossy(), 10));
+    }
+
+    /// Regression (Adiker quick win 1): `download_dir` is user-settable, and one pointed *into* a
+    /// watched Music folder must not have its finished files indexed as duplicate local tracks.
+    /// The subtree is pruned, and a download an older scan had already indexed is dropped.
+    #[test]
+    fn a_download_folder_inside_the_library_is_not_local_music() {
+        let db = Db::open(std::path::Path::new(":memory:")).unwrap();
+        let dir = std::env::temp_dir().join("limusic-local-exclude-sub");
+        let _ = std::fs::remove_dir_all(&dir);
+        let music = dir.join("Music");
+        let dl = music.join("downloads");
+        std::fs::create_dir_all(&dl).unwrap();
+        let user = music.join("user song.mp3");
+        let ours = dl.join("Downloaded Song [abcdefghijk].m4a");
+        std::fs::write(&user, b"not a real mp3").unwrap();
+        std::fs::write(&ours, b"not a real m4a").unwrap();
+        add_folder(&db, music.to_string_lossy().to_string());
+        db.set_setting("download_dir", &dl.to_string_lossy());
+        finish_download_at(&db, "abcdefghijk", "Downloaded Song", &ours);
+        // An older scan (before the exclusion) indexed the download; this one must prune it.
+        db.put_local_tracks(&[track(&ours.to_string_lossy(), "Tester", "Album", "tester--album")]);
+
+        let lib = scan(&db, &dir.join("covers"));
+        let ids: Vec<&str> = lib.songs.iter().map(|s| s.video_id.as_str()).collect();
+        assert_eq!(ids.len(), 1, "only the user's own file is local music: {ids:?}");
+        assert!(ids[0].ends_with("user song.mp3"), "the user's file stays: {ids:?}");
+        assert!(
+            lib.removed.contains(&format!("{SONG_PREFIX}{}", ours.to_string_lossy())),
+            "the already-indexed download is pruned from the library"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The other half of the same fix: when `download_dir` IS the watched folder, a blanket folder
+    /// skip would hide the user's whole library — only the recorded download goes, their own files
+    /// right next to it stay.
+    #[test]
+    fn a_download_dir_that_is_the_watched_folder_loses_only_recorded_files() {
+        let db = Db::open(std::path::Path::new(":memory:")).unwrap();
+        let dir = std::env::temp_dir().join("limusic-local-exclude-root");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let user = dir.join("user song.mp3");
+        let ours = dir.join("Downloaded Song [abcdefghijk].m4a");
+        std::fs::write(&user, b"not a real mp3").unwrap();
+        std::fs::write(&ours, b"not a real m4a").unwrap();
+        add_folder(&db, dir.to_string_lossy().to_string());
+        db.set_setting("download_dir", &dir.to_string_lossy());
+        finish_download_at(&db, "abcdefghijk", "Downloaded Song", &ours);
+
+        let lib = scan(&db, &dir.join("covers"));
+        let ids: Vec<&str> = lib.songs.iter().map(|s| s.video_id.as_str()).collect();
+        assert_eq!(
+            ids.len(),
+            1,
+            "the user's own files survive their folder being the download dir: {ids:?}"
+        );
+        assert!(ids[0].ends_with("user song.mp3"), "the user's file stays: {ids:?}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     #[test]
     fn forgetting_one_file_only_reports_the_album_when_it_empties() {
         let db = Db::open(std::path::Path::new(":memory:")).unwrap();
@@ -1018,5 +1265,83 @@ mod tests {
     #[test]
     fn a_missing_file_is_not_playable() {
         assert!(playback_data("LOCAL:/nope/gone.mp3", "/nope/gone.mp3").is_err());
+    }
+
+    /// One scan, three files: a tagged FLAC read for everything it carries (title, artist,
+    /// album, length, size, format), a junk `.mp3` that lofty cannot parse but mpv would play
+    /// (listed from its name, labelled by its extension), and a text file that is not music at
+    /// all. This is the metadata the Downloads rows for imported files show.
+    #[test]
+    fn a_scan_reads_tags_duration_size_and_format_off_the_files() {
+        let db = Db::open(Path::new(":memory:")).unwrap();
+        let dir = std::env::temp_dir().join("limusic-local-metadata-test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("notes.txt"), b"not music").unwrap();
+        std::fs::write(dir.join("untagged song.mp3"), b"not a real mp3").unwrap();
+        let flac = dir.join("Weight.flac");
+        std::fs::write(&flac, flac_fixture()).unwrap();
+        add_folder(&db, dir.to_string_lossy().to_string());
+
+        let scan = scan(&db, &dir.join("covers"));
+        let ids: Vec<&str> = scan.songs.iter().map(|s| s.video_id.as_str()).collect();
+        assert_eq!(ids.len(), 2, "both audio files, no notes.txt: {ids:?}");
+
+        let tagged = db.local_tracks(None).into_iter().find(|t| t.path.ends_with("Weight.flac"));
+        let tagged = tagged.expect("the FLAC was read");
+        assert_eq!(tagged.title, "Weight", "the TITLE tag beats the file name");
+        assert_eq!(tagged.artist, "Baliff");
+        assert_eq!(tagged.album, "Test Album");
+        assert_eq!(tagged.duration_secs, 1, "the length comes out of the file itself");
+        assert_eq!(
+            tagged.size_bytes,
+            std::fs::metadata(&flac).unwrap().len() as i64,
+            "and so does the size the row shows"
+        );
+        assert!(
+            tagged.quality_label.ends_with(" kbps FLAC"),
+            "the format chip names what the file really is: {:?}",
+            tagged.quality_label
+        );
+
+        let junk = db.local_tracks(None).into_iter().find(|t| t.path.ends_with(".mp3"));
+        let junk = junk.expect("an unplayable-by-tags file is still listed");
+        assert_eq!(junk.title, "untagged song", "the file name stands in for missing tags");
+        assert_eq!(junk.quality_label, "MP3", "the extension is the floor for the chip");
+        assert!(junk.duration_secs == 0 && junk.size_bytes > 0);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A minimal but valid FLAC: STREAMINFO (one second of 44.1 kHz stereo) plus a Vorbis
+    /// comment block. Hand-built so the test needs no fixture file in the repo.
+    fn flac_fixture() -> Vec<u8> {
+        let mut out: Vec<u8> = b"fLaC".to_vec();
+        out.extend_from_slice(&[0x00, 0x00, 0x00, 0x22]); // STREAMINFO (type 0), 34 bytes
+        out.extend_from_slice(&4096u16.to_be_bytes()); // min block size
+        out.extend_from_slice(&4096u16.to_be_bytes()); // max block size
+        out.extend_from_slice(&[0; 6]); // min/max frame size: unknown
+                                        // 20 bits sample rate, 3 bits channels-1, 5 bits bps-1, 36 bits total samples.
+        let packed: u64 = (44100u64 << 44) | (1u64 << 41) | (15u64 << 36) | 44100u64;
+        out.extend_from_slice(&packed.to_be_bytes());
+        out.extend_from_slice(&[0; 16]); // md5 of the audio: unknown
+
+        let mut comment: Vec<u8> = Vec::new();
+        let vendor = b"limusic test";
+        comment.extend_from_slice(&(vendor.len() as u32).to_le_bytes());
+        comment.extend_from_slice(vendor);
+        let fields: [&[u8]; 3] = [b"TITLE=Weight", b"ARTIST=Baliff", b"ALBUM=Test Album"];
+        comment.extend_from_slice(&(fields.len() as u32).to_le_bytes());
+        for field in fields {
+            comment.extend_from_slice(&(field.len() as u32).to_le_bytes());
+            comment.extend_from_slice(field);
+        }
+        // Last metadata block: Vorbis comment (type 4), then the length in the next 24 bits.
+        let len = comment.len() as u32;
+        out.extend_from_slice(&[0x84, (len >> 16) as u8, (len >> 8) as u8, len as u8]);
+        out.extend_from_slice(&comment);
+        // One second of silence, so the file has an audio stream for lofty to measure a bitrate
+        // from (STREAMINFO alone says nothing about the bytes behind it).
+        out.extend_from_slice(&0u32.to_be_bytes().repeat(44_100));
+        out
     }
 }
