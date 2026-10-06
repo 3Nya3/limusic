@@ -2,6 +2,9 @@
 	import type { Snippet } from 'svelte';
 	import { HugeiconsIcon, type IconSvgElement } from '@hugeicons/svelte';
 	import {
+		AlertCircleIcon,
+		Download01Icon,
+		DownloadCircle01Icon,
 		FavouriteIcon,
 		MusicNote01Icon,
 		PlayIcon,
@@ -19,6 +22,8 @@
 	import { addedLabel, addedTitle, CELL, END, TITLE, type TrackColumn } from '$lib/trackcolumns';
 	import { tagOf } from '$lib/stats';
 	import { myPlays } from './TrackColumns.svelte';
+	import { downloadOf } from '$lib/downloads.svelte';
+	import { DOWNLOAD_BADGE_KEYS } from '$lib/downloads';
 	import SavedInPlaylists from './SavedInPlaylists.svelte';
 	import TrackMenu from './TrackMenu.svelte';
 	import ArtistLine from './ArtistLine.svelte';
@@ -161,6 +166,11 @@
 	// answers the same three questions: a local file is in no YTM playlist, and the compact and
 	// queue variants have no width left for another mark.
 	const inPlaylists = $derived(showRating ? savedPlaylists(song.video_id) : []);
+
+	// The offline-download marker, from the one shared store: the same song is the same file on
+	// every surface this row is drawn on, and the store is what the backend's events keep live.
+	// A cancelled download shows nothing — there is no file and no work in flight.
+	const dl = $derived(api.isLocalId(song.video_id) ? undefined : downloadOf(song.video_id));
 
 	// The whole row is a play target (role="button"), so mirror native button keyboard activation.
 	// Only when the key lands on the row itself — keydowns bubble up from nested interactive
@@ -428,17 +438,36 @@
 		     would pull its checkmark into the tag's place and the column would zig-zag down the list.
 		     The checkmark's slot only exists once something is indexed: signed out, or before the
 		     first crawl, reserving it would be a hole on every row that can never fill. -->
-		{#snippet saved()}
-			{#if showRating && anySaved()}
-				<span class="flex h-7 w-7 shrink-0 items-center justify-center">
-					{#if inPlaylists.length}
-						<SavedInPlaylists playlists={inPlaylists} />
-					{/if}
-				</span>
-			{/if}
-		{/snippet}
-		{#if !columns}{@render saved()}{/if}
-		{#if !hideRating && !columns}
+			{#snippet dlMark()}
+				<!-- Download marker, kept in its own slot so a row without one doesn't pull its neighbours
+				     sideways. `icon` is frozen at mount, so the state picks a branch, not a ternary. -->
+				{#if dl && dl.state !== 'cancelled'}
+					<span
+						class="flex h-7 w-7 shrink-0 items-center justify-center"
+						title={t(DOWNLOAD_BADGE_KEYS[dl.state])}
+					>
+						{#if dl.state === 'done'}
+							<HugeiconsIcon icon={DownloadCircle01Icon} class="h-3.5 w-3.5 text-primary" />
+						{:else if dl.state === 'error'}
+							<HugeiconsIcon icon={AlertCircleIcon} class="h-3.5 w-3.5 text-destructive" />
+						{:else}
+							<HugeiconsIcon icon={Download01Icon} class="h-3.5 w-3.5 text-muted-foreground" />
+						{/if}
+					</span>
+				{/if}
+			{/snippet}
+			{#snippet saved()}
+				{#if showRating && anySaved()}
+					<span class="flex h-7 w-7 shrink-0 items-center justify-center">
+						{#if inPlaylists.length}
+							<SavedInPlaylists playlists={inPlaylists} />
+						{/if}
+					</span>
+				{/if}
+			{/snippet}
+			{#if !columns}{@render dlMark()}{/if}
+			{#if !columns}{@render saved()}{/if}
+			{#if !hideRating && !columns}
 			<span class="flex h-3.5 w-3.5 shrink-0 items-center">
 				{#if song.explicit}
 					<ExplicitIcon class="h-3.5 w-3.5 text-muted-foreground" />
@@ -462,7 +491,7 @@
 		{/if}
 		<!-- Under a column header the checkmark sits by the duration, the thumbs that only show on
 		     hover to its left: at rest the row ends "✓ 3:06" instead of a mark, a gap, then the length. -->
-		{#if columns}{@render saved()}{/if}
+		{#if columns}{@render dlMark()}{@render saved()}{/if}
 		{#if !compact && (columns ? columns.includes('duration') : duration)}
 			<!-- A fixed slot, or every mark to its left moves with the digits (#463). `tabular-nums`
 			     alone isn't enough: DM Sans has no tabular figures, and 10:00 is wider in any font.
