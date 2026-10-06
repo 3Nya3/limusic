@@ -79,21 +79,28 @@ strsim = "0.11"
 unicode-normalization = "0.1"
 
 # Taskbar thumbnail toolbar (#47). Same `windows` version tauri-runtime-wry already pulls in, so
-# `Window::hwnd()` hands us a matching HWND.
+# `Window::hwnd()` hands us a matching HWND. `Win32_Storage_FileSystem` is the module holding
+# `GetDiskFreeSpaceExW` for the download free-space preflight — a feature of this same crate,
+# not a new dependency.
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.61", features = [
   "Win32_Foundation",
   "Win32_Graphics_Gdi",
+  "Win32_Storage_FileSystem",
   "Win32_System_Com",
   "Win32_UI_Shell",
   "Win32_UI_WindowsAndMessaging",
 ] }
 
+# `libc` under cfg(unix) rather than linux-only: the free-space preflight reads `statvfs` on
+# every unix target (Linux CI and the macOS build). Same crate, same lockfile version.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [target.'cfg(target_os = "linux")'.dependencies]
 # The music video's GL surface under the webview (nativevideo.rs). Same version tauri pulls in.
 gtk = "0.18"
 ksni = "0.3.6"
-libc = "0.2"
 # Reaching the WebKitGTK settings wry leaves at browser defaults. Must track wry's version.
 webkit2gtk = { version = "2.0", features = ["v2_40"] }
 # Holding off suspend while playing (inhibit.rs, #347). Already in the tree through notify-rust.
