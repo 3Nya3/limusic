@@ -62,7 +62,9 @@
 		"shuffle_all": "Acak semua",
 		"play_all": "Putar semua",
 		"top_result": "Hasil teratas",
-		"all_results_for": "Semua hasil untuk “{query}”"
+		"all_results_for": "Semua hasil untuk “{query}”",
+		"refresh": "Menyegarkan",
+		"videos": "Video"
 	},
 	"nav": {
 		"home": "Beranda",
@@ -633,6 +635,33 @@
 		"pending": "Mencari {count} trek terpilih pada halaman yang masih dimuat.",
 		"local_playlist": "File lokal tidak dapat ditambahkan ke playlist Youtube.",
 		"account_changed": "Berhenti menambahkan lagu karena akun telah berubah.",
-		"playlist_partial": "Menambahkan {added} ke {playlist}; {duplicates} sudah ada di sana; {remaining} belum dikonfirmasi. {error}"
+		"playlist_partial": "Menambahkan {added} ke {playlist}; {duplicates} sudah ada di sana; {remaining} belum dikonfirmasi. {error}",
+		"remove": "Hapus dari daftar putar ini",
+		"remove_confirm": "Hapus {count}?",
+		"playlists_partial": "Ditambahkan ke {done} dari {total} daftar putar. {error}"
+	},
+	"add_playlist": {
+		"confirm": "Tambahkan ke daftar putar",
+		"confirm_one": "Tambahkan ke daftar putar",
+		"dupes_title": "Duplikat ditemukan",
+		"dupes_there": "Sudah sampai di sana",
+		"dupes_of": "{count} dari {total} sudah ada di sana",
+		"dupes_skip": "Lewati duplikat",
+		"skip_hint": "Tambahkan hanya apa yang kurang",
+		"skip_none": "Tidak ada hal baru yang bisa ditambahkan",
+		"dupes_add": "Tambahkan saja",
+		"anyway_hint": "Simpan salinan kedua",
+		"anyway_hint_local": "Salinan kedua hanya masuk ke playlist YouTube",
+		"adds": "+{count}"
+	},
+	"search": {
+		"recent": "Pencarian terbaru",
+		"clear_recent": "Bersih",
+		"forget": "Hapus “{query}” dari pencarian terbaru",
+		"filters": "Jenis hasil"
+	},
+	"errors": {
+		"unreachable": "Tidak dapat mengakses YouTube Music. Periksa koneksi Anda.",
+		"offline_title": "Tidak ada koneksi"
 	}
 }
