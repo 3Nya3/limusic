@@ -555,8 +555,10 @@ pub fn run() {
             );
 
             // Last.fm scrobbler — parks until a session key exists (titlebar connect flow).
-            let lastfm =
-                lastfm::spawn(db.get_setting("lastfm_session_key").filter(|s| !s.is_empty()));
+            let lastfm = lastfm::spawn(
+                db.get_setting("lastfm_session_key").filter(|s| !s.is_empty()),
+                lastfm::ScrobbleConfig::load(&db),
+            );
 
             // Listen Together session (context/19). Server URL is a DB setting so "home PC → VPS" is
             // config, not a rebuild. The sync channel feeds the guest-playback bridge below.
@@ -940,6 +942,7 @@ pub fn run() {
             commands::lastfm_connect,
             commands::lastfm_disconnect,
             commands::lastfm_status,
+            commands::lastfm_preview,
             commands::theater_fullscreen,
             commands::release_notes,
             commands::can_self_update,

@@ -978,6 +978,28 @@ export const lastfmConnect = () => invoke<void>('lastfm_connect');
 export const lastfmDisconnect = () => invoke<void>('lastfm_disconnect');
 export const onLastfmState = (cb: (s: LastfmState) => void): Promise<UnlistenFn> =>
 	listen<LastfmState>('lastfm-state', (e) => cb(e.payload));
+/** The track fields the scrobbler reads. A `SongItem` is one. */
+export interface ScrobbleTrack {
+	video_id: string;
+	title: string;
+	artists: string;
+	album?: string | null;
+	is_video?: boolean;
+}
+/** `Resolved` in lastfm.rs: what a track scrobbles as, and which settings made it so. */
+export interface ScrobblePreview {
+	artist: string;
+	title: string;
+	album: string;
+	skip: 'edit' | 'incomplete' | null;
+	edit: number | null;
+	split: boolean;
+	rules: number[];
+	errors: [number, string][];
+}
+/** `config` is the Scrobbling tab's state as JSON, saved or not. */
+export const lastfmPreview = (config: string, track: ScrobbleTrack) =>
+	invoke<ScrobblePreview>('lastfm_preview', { config, track });
 
 // --- Listen Together (context/19) -----------------------------------------------------------
 export interface LtUser {
