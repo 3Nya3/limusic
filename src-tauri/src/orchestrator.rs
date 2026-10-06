@@ -47,6 +47,13 @@ pub struct PlaybackData {
     pub is_video: Option<bool>,
     /// Which client produced the stream (diagnostics). context/06.
     pub stream_client: String,
+    /// The format's MIME type, when a `Format` produced this stream. Used by offline downloads to
+    /// name the saved file and its extension; `None` on a cache replay, a local file and rustypipe
+    /// (which reports no mime).
+    pub mime_type: Option<String>,
+    /// The format's bitrate in bits/s, when it reported one. Downloads show it as part of the
+    /// actual quality label ("256 kbps AAC").
+    pub bitrate: Option<i64>,
 }
 
 /// The watch-history ping for one play: `playbackTracking.videostatsPlaybackUrl.baseUrl` plus the
@@ -166,6 +173,45 @@ fn blacklist_blocks(map: &HashMap<String, Instant>, video_id: &str, now: Instant
     map.get(video_id).is_some_and(|at| now.duration_since(*at) < WEB_REMIX_BLACKLIST_TTL)
 }
 
+/// Which identity a stream resolve runs under.
+///
+/// Playback is always [`Identity::Account`]: byte-identical to what it has always done.
+/// Downloads default to [`Identity::Anonymous`] (the `download_use_account` setting opts back
+/// in), which wraps the whole chain in [`innertube::anonymously`] so no `/player`, no probe and
+/// no URL can carry the account — and, because the scope is task-wide, no accidental fallback
+/// inside the chain can reintroduce it either.
+#[derive(Clone)]
+enum Identity {
+    Account,
+    /// The visitorData to send in place of the session's login-bound one (`None` when the
+    /// anonymous bootstrap failed — degrade rather than borrow the account's).
+    Anonymous(Option<String>),
+}
+
+impl Identity {
+    fn is_account(&self) -> bool {
+        matches!(self, Identity::Account)
+    }
+    /// The visitorData this resolve mints PoTokens and `&pot=` against: the session's for the
+    /// account, the anonymous one for downloads. A PoToken is bound to the visitorData it was
+    /// minted with, so this is what keeps the token itself account-neutral too.
+    fn visitor(&self, session: Option<String>) -> Option<String> {
+        match self {
+            Identity::Account => session,
+            Identity::Anonymous(v) => v.clone(),
+        }
+    }
+    /// The cookie the probe and the byte fetch may send. Uploads need it (a `c.youtube.com`
+    /// stream is served only to its owner); anonymous downloads never get one, uploads included —
+    /// an upload cannot be resolved anonymously at all and fails with “sign-in required”.
+    fn cookie(&self, session: Option<String>) -> Option<String> {
+        match self {
+            Identity::Account => session,
+            Identity::Anonymous(_) => None,
+        }
+    }
+}
+
 impl Orchestrator {
     pub fn new(
         it: InnerTube,
@@ -205,7 +251,8 @@ impl Orchestrator {
         blacklist_insert(&mut *self.web_remix_failed.lock().await, video_id, Instant::now());
     }
 
-    /// Resolve a videoId to a playable stream. context/06 full algorithm.
+    /// Resolve a videoId to a playable stream under the signed-in session. context/06 full
+    /// algorithm. This is playback; downloads call [`Self::resolve_anonymous`] instead.
     pub async fn resolve(
         &self,
         video_id: &str,
@@ -213,9 +260,88 @@ impl Orchestrator {
         quality: AudioQuality,
         disabled: &HashSet<String>,
     ) -> Result<PlaybackData, ResolveError> {
+        self.resolve_as(video_id, is_upload, quality, disabled, Identity::Account).await
+    }
+
+    /// The same chain, made anonymous for the whole span of the resolve: no cookie, no SAPISIDHASH,
+    /// no `onBehalfOfUser`, a freshly bootstrapped visitorData and PoTokens bound to *that* — even
+    /// when the user is signed in for playback. There is no authenticated fallback inside: a track
+    /// YouTube will only serve to an account (age-gated, members-only, one of the user's own
+    /// uploads) comes back as [`ResolveError::SignInRequired`] and stays there.
+    ///
+    /// One retry, with a fresh visitor: the anonymous visitorData and its PoToken are cached for
+    /// the life of the process, and an id YouTube has stopped serving streams to fails the same
+    /// way for every later download — which is what a batch that dies en masse looks like from the
+    /// Downloads page. When YouTube *answered* and still produced nothing playable
+    /// ([`worth_anonymous_retry`]), the id is re-scraped, the token minted against the old one is
+    /// dropped so it cannot be replayed, and the whole chain runs once more. Both passes are
+    /// wrapped in [`innertube::anonymously`]: the retry never gets to reach for the account.
+    pub async fn resolve_anonymous(
+        &self,
+        video_id: &str,
+        is_upload: bool,
+        quality: AudioQuality,
+        disabled: &HashSet<String>,
+    ) -> Result<PlaybackData, ResolveError> {
+        let visitor = self.it.anonymous_visitor().await;
+        if visitor.is_none() {
+            tracing::warn!(video_id, "no anonymous visitorData; resolving without a PoToken leg");
+        }
+        let first =
+            self.anonymous_pass(video_id, is_upload, quality, disabled, visitor.clone()).await;
+        let Some(error) = first.as_ref().err() else {
+            return first;
+        };
+        if !worth_anonymous_retry(error) {
+            return first;
+        }
+        tracing::warn!(
+            video_id,
+            error = %error,
+            "anonymous resolve found no playable stream — retrying once with a fresh visitor"
+        );
+        let old = visitor;
+        let fresh = self.it.refresh_anonymous_visitor().await;
+        // The old visitor's token is worthless once its id is gone, and must not be replayed if
+        // the refresh failed and we are retrying on the same id with a newly minted one.
+        self.potoken.invalidate_token_for(old.as_deref()).await;
+        self.anonymous_pass(video_id, is_upload, quality, disabled, fresh).await
+    }
+
+    /// One pass of the chain under the anonymous identity.
+    async fn anonymous_pass(
+        &self,
+        video_id: &str,
+        is_upload: bool,
+        quality: AudioQuality,
+        disabled: &HashSet<String>,
+        visitor: Option<String>,
+    ) -> Result<PlaybackData, ResolveError> {
+        let identity = Identity::Anonymous(visitor.clone());
+        innertube::anonymously(
+            visitor,
+            self.resolve_as(video_id, is_upload, quality, disabled, identity),
+        )
+        .await
+    }
+
+    /// context/06 full algorithm under `identity`. Everything identity-sensitive flows through
+    /// [`Identity`]; the chain, validation, HIGH two-pass and fallbacks are one code path for both.
+    async fn resolve_as(
+        &self,
+        video_id: &str,
+        is_upload: bool,
+        quality: AudioQuality,
+        disabled: &HashSet<String>,
+        identity: Identity,
+    ) -> Result<PlaybackData, ResolveError> {
         let prefer_high = matches!(quality, AudioQuality::High | AudioQuality::Auto);
-        let logged_in = self.it.is_logged_in();
-        let visitor = self.it.visitor_data();
+        // An anonymous resolve is signed out as far as the chain is concerned: the login-only age-gate
+        // retry and the `login_required` skip must not consult the account behind the scope, and a
+        // YouTube "sign in" verdict must surface as SignInRequired rather than being swallowed because
+        // *some* session exists.
+        let logged_in = identity.is_account() && self.it.is_logged_in();
+        let visitor = identity.visitor(self.it.visitor_data());
         // An upload only streams to an authenticated client, so it gets its own chain and never
         // falls through to the anonymous ones (context: clients::UPLOAD_FALLBACK_ORDER, issue #71).
         let order: &[&str] =
@@ -351,7 +477,14 @@ impl Orchestrator {
                 // ahead of it need no token, which is what keeps the chain alive in that state
                 // (context/06 §graceful PoToken degradation).
                 if client.use_web_po_tokens && client_pot.is_none() {
-                    tracing::debug!(client = key, "no PoToken, skipping");
+                    // Warn, not debug: when minting fails this line is the whole difference
+                    // between a three-legged chain and VISIONOS alone, and it fired quietly on
+                    // every row of a batch that died this way.
+                    tracing::warn!(
+                        video_id,
+                        client = key,
+                        "no PoToken for this client — skipping it (chain is one leg thinner)"
+                    );
                     continue;
                 }
                 let client_sts = if client.use_signature_timestamp { sts } else { None };
@@ -436,8 +569,11 @@ impl Orchestrator {
             // The probe sends exactly the headers `build` will hand mpv (same UA, cookie only
             // where mpv gets one), because a probe that carries something the real GET does not
             // is not a prediction of anything. Issue #71.
-            let headers =
-                stream_headers(client.map(|c| c.user_agent.clone()), self.it.cookie(), is_upload);
+            let headers = stream_headers(
+                client.map(|c| c.user_agent.clone()),
+                identity.cookie(self.it.cookie()),
+                is_upload,
+            );
             if self.validate_stream(&url, &headers, content_length(format)).await {
                 let ping = main_ping.clone().or_else(|| playback_ping(&resp, &key));
                 return Ok(self.build(
@@ -475,13 +611,13 @@ impl Orchestrator {
             }
 
             if needs_n {
-                self.self_heal();
+                self.self_heal(visitor.as_deref());
             }
         }
 
         // 6. HIGH wanted but only a non-HIGH found → use the remembered best.
         if let Some(c) = best {
-            let headers = self.headers_for(&c.client, is_upload);
+            let headers = self.headers_for_identity(&c.client, is_upload, &identity);
             return Ok(self.build(
                 video_id,
                 &c.format,
@@ -503,8 +639,8 @@ impl Orchestrator {
             // something about the session rather than about the track. Heal off the hot path so a
             // machine stuck on a rejected PoToken or a stale cipher can get itself out; without
             // this an upload-only failure had no route back at all.
-            self.self_heal();
-            let headers = self.headers_for(&c.client, is_upload);
+            self.self_heal(visitor.as_deref());
+            let headers = self.headers_for_identity(&c.client, is_upload, &identity);
             return Ok(self.build(
                 video_id,
                 &c.format,
@@ -547,6 +683,9 @@ impl Orchestrator {
                 // rustypipe answers without a `musicVideoType`, so the queue row's flag stands.
                 is_video: None,
                 stream_client: "rustypipe".to_owned(),
+                // rustypipe reports no mime or bitrate.
+                mime_type: None,
+                bitrate: None,
             }),
             Err(e) => {
                 tracing::error!(video_id, error = %e, "rustypipe fallback failed");
@@ -752,7 +891,11 @@ impl Orchestrator {
     /// A cipher client's stream was refused, so its config may be stale. Heal off the hot path so
     /// it never blocks falling through (context/06 §7). If the heal changes the config table,
     /// clear the WEB_REMIX failure memory (context/06 §2).
-    fn self_heal(&self) {
+    ///
+    /// `visitor` is the identity the failed stream was minted for: only *that* identity's PoToken
+    /// session token is dropped. An anonymous download whose stream was refused is no reason to
+    /// make playback solve BotGuard again, and vice versa.
+    fn self_heal(&self, visitor: Option<&str>) {
         if !claim_heal() {
             tracing::debug!("self-heal ran recently, not repeating it");
             return;
@@ -760,11 +903,12 @@ impl Orchestrator {
         let cipher = self.cipher.clone();
         let potoken = self.potoken.clone();
         let failed = self.web_remix_failed.clone();
+        let visitor = visitor.map(str::to_owned);
         tauri::async_runtime::spawn(async move {
             // The session PoToken now outlives the process, so a rejected web stream is the only
             // signal left that Google stopped honouring it early. Drop it here rather than replay
             // it for the rest of its nominal 12 hours.
-            potoken.invalidate_session_token().await;
+            potoken.invalidate_token_for(visitor.as_deref()).await;
             if cipher.on_stream_rejected().await {
                 failed.lock().await.clear();
             }
@@ -772,11 +916,24 @@ impl Orchestrator {
     }
 
     /// [`stream_headers`] for a client registry key. `pub(crate)` because a cache hit skips the
-    /// resolve and has to rebuild the same headers from the client it recorded.
+    /// resolve and has to rebuild the same headers from the client it recorded. Playback only:
+    /// always the account identity.
     pub(crate) fn headers_for(&self, client: &str, is_upload: bool) -> HashMap<String, String> {
+        self.headers_for_identity(client, is_upload, &Identity::Account)
+    }
+
+    /// [`stream_headers`] under `identity`: the cookie rides along for an upload only when the
+    /// resolve itself was allowed to use the account — an anonymous download's probe and byte
+    /// fetch must be header-identical to each other *and* cookieless.
+    fn headers_for_identity(
+        &self,
+        client: &str,
+        is_upload: bool,
+        identity: &Identity,
+    ) -> HashMap<String, String> {
         stream_headers(
             self.clients.get(client).map(|c| c.user_agent.clone()),
-            self.it.cookie(),
+            identity.cookie(self.it.cookie()),
             is_upload,
         )
     }
@@ -810,6 +967,8 @@ impl Orchestrator {
             thumbnail: main_resp.as_ref().and_then(best_thumbnail),
             is_video: vd.and_then(|v| v.is_music_video()),
             stream_client: client.to_owned(),
+            mime_type: Some(format.mime_type.clone()),
+            bitrate: Some(format.bitrate),
         }
     }
 }
@@ -886,6 +1045,22 @@ fn is_high(f: &Format) -> bool {
     f.audio_quality.as_deref() == Some("AUDIO_QUALITY_HIGH")
 }
 
+/// Would a second anonymous pass say anything the first one did not?
+///
+/// Only [`ResolveError::AllClientsFailed`] — YouTube *answered* for this track and nothing in the
+/// chain produced a stream the CDN would serve, which is the shape a flagged visitorData, a
+/// rejected PoToken, and a bot check that came back without asking for a login all produce: the
+/// shape that fails a whole download batch at once while playback (cached, or on the account's
+/// own visitor) keeps working.
+///
+/// The other verdicts are not about the chain, so the retry must not run for them:
+/// `SignInRequired` / `UploadUnavailable` are YouTube asking for an account — a second anonymous
+/// pass would ask the same question and pay a BotGuard solve to hear it again; `Unreachable` is
+/// the network; `LocalMissing` never touched YouTube.
+fn worth_anonymous_retry(error: &ResolveError) -> bool {
+    matches!(error, ResolveError::AllClientsFailed(_))
+}
+
 /// Better-than comparison for the HIGH two-pass (context/06 §isBetter): quality rank, then audio
 /// channels, then codec (opus > mp4a), then bitrate.
 fn better(a: &Format, b: Option<&Format>) -> bool {
@@ -934,7 +1109,8 @@ fn best_thumbnail(resp: &PlayerResponse) -> Option<String> {
 mod tests {
     use super::{
         blacklist_blocks, blacklist_insert, claim_heal, content_length, is_youtube_stream,
-        nothing_played, stream_headers, ResolveError, WEB_REMIX_BLACKLIST_TTL,
+        nothing_played, stream_headers, worth_anonymous_retry, ResolveError,
+        WEB_REMIX_BLACKLIST_TTL,
     };
     use std::collections::HashMap;
     use std::time::{Duration, Instant};
@@ -1043,6 +1219,29 @@ mod tests {
             !ResolveError::LocalMissing(v()).affects_every_track(),
             "a deleted local file must keep leaving the queue"
         );
+    }
+
+    /// The retry gate for `resolve_anonymous`: a second anonymous pass is only worth its BotGuard
+    /// solve when YouTube *answered* and nothing played. Everything else is a verdict about the
+    /// account or the network, not about the anonymous chain.
+    #[test]
+    fn only_a_whole_chain_failure_earns_a_fresh_visitor_retry() {
+        let v = || "v".to_owned();
+        assert!(
+            worth_anonymous_retry(&ResolveError::AllClientsFailed(v())),
+            "this is the verdict the mass download failure reports"
+        );
+        for other in [
+            ResolveError::SignInRequired(v()),
+            ResolveError::UploadUnavailable(v()),
+            ResolveError::Unreachable(v()),
+            ResolveError::LocalMissing(v()),
+        ] {
+            assert!(
+                !worth_anonymous_retry(&other),
+                "{other} must not burn a second anonymous pass: {other}"
+            );
+        }
     }
 
     #[test]

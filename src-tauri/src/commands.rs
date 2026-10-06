@@ -241,7 +241,7 @@ pub async fn get_queue(state: St<'_>) -> Result<serde_json::Value, String> {
 /// `visitor_data`) and internal blobs (`queue_json`, `queue_index`, `queue_position`) never cross
 /// into the webview: they'd otherwise ship the login credential to the renderer on every open, and
 /// the webview can't overwrite them either.
-const UI_SETTINGS: [&str; 31] = [
+const UI_SETTINGS: [&str; 37] = [
     "volume",
     "proxy",
     "quality",
@@ -273,6 +273,12 @@ const UI_SETTINGS: [&str; 31] = [
     "crossfade",
     "crossfade_secs",
     "locale",
+    "download_quality",
+    "download_concurrency",
+    "download_dir",
+    "download_use_account",
+    "download_auto_liked",
+    "download_auto_liked_remove",
 ];
 
 /// Resolve the music video for `video_id` and hand back a `limusicvideo://` URL the player view
@@ -413,6 +419,12 @@ pub async fn set_setting(
     if !UI_SETTINGS.contains(&key.as_str()) {
         return Err(format!("unknown setting: {key}"));
     }
+
+    // The download knobs are validated where they land: an out-of-range concurrency or a
+    // download_dir inside the audio cache is refused rather than silently corrected.
+    if key.starts_with("download_") {
+        crate::downloads::validate_setting(&key, &value, state.cache_dir())?;
+    }
     // Registers/removes the login autostart entry on toggle; the OS persists it from there, and
     // startup repoints an existing entry at the running binary (lib.rs). Before the write, so a
     // failure leaves the setting as it was. A dev build would register itself, and at login its
@@ -435,6 +447,22 @@ pub async fn set_setting(
         res.map_err(|e| format!("autostart: {e}"))?;
     }
     state.db.set_setting(&key, &value);
+    // A download knob change reaches the worker now, not at the next track: concurrency is
+    // read at claim time, and the folder at the next file.
+    if key.starts_with("download_") {
+        if let Some(ctx) = crate::downloads::ctx() {
+            ctx.nudge();
+        }
+    }
+    // Toggling auto-download of new likes on syncs the likes *now* instead of at the next
+    // 30-minute wake — the whole reason the toggle exists. Off arms nothing; the write is the
+    // only trigger, so both surfaces (Settings and the Liked playlist's dialog) get it for free.
+    // The unlike option arms the same wake: turning it on should prune now, not in half an hour.
+    if crate::downloads::sync_arms_on_write(&value)
+        && (key == "download_auto_liked" || key == "download_auto_liked_remove")
+    {
+        crate::downloads::kick_auto_liked_sync();
+    }
     // A music video track already playing gets its picture now rather than from the next track.
     if key == "music_videos" && value == "true" {
         state.inner().attach_current_video().await;
@@ -674,6 +702,85 @@ pub async fn app_icon_path(app: tauri::AppHandle) -> Result<Option<String>, Stri
 pub async fn clear_caches(state: St<'_>) -> Result<(), String> {
     state.clear_caches();
     Ok(())
+}
+
+// --- offline downloads ------------------------------------------------------------------------
+
+/// Queue a single track or a batch. `quality` is per-request (HIGH/LOW/AUTO); omitting it uses
+/// the `download_quality` setting. A track already downloaded is returned as it stands (no
+/// re-fetch); one that failed or was cancelled restarts.
+#[tauri::command]
+pub async fn download_items(
+    state: St<'_>,
+    items: Vec<SongItem>,
+    quality: Option<String>,
+) -> Result<Vec<crate::downloads::DownloadItem>, String> {
+    let ctx = crate::downloads::ctx().ok_or("downloads are not ready")?;
+    let quality = crate::downloads::picked_quality(&state.db, quality.as_deref())?;
+    Ok(crate::downloads::enqueue_items(ctx, &items, &quality))
+}
+
+/// Queue up to `count` tracks of a list (`null` → the whole list, capped): a YouTube playlist
+/// or album, Liked Music (`VLLM`), a playlist kept on this machine, or On Repeat. Returns how
+/// many tracks are now actively queued (tracks already downloaded do not count).
+///
+/// `title` is the name the surface that asked already knows (the dialog prints it in its copy):
+/// the walk's own title wins when it carries one, this names the collection when it does not, and
+/// a listing with neither fails rather than being saved under its raw browse id.
+#[tauri::command]
+pub async fn download_playlist(
+    state: St<'_>,
+    playlist_id: String,
+    count: Option<u32>,
+    quality: Option<String>,
+    title: Option<String>,
+) -> Result<u32, String> {
+    let ctx = crate::downloads::ctx().ok_or("downloads are not ready")?;
+    let quality = crate::downloads::picked_quality(&state.db, quality.as_deref())?;
+    let collected =
+        crate::downloads::collect_playlist(state.inner(), &playlist_id, count, title.as_deref())
+            .await?;
+    let items = if let Some(meta) = collected.collection {
+        let queued = crate::downloads::enqueue_collection(
+            ctx,
+            &collected.items,
+            &quality,
+            &meta.collection,
+        )?;
+        if let Some(url) = meta.artwork_url.filter(|url| url.starts_with("http")) {
+            let engine = Arc::clone(ctx);
+            let id = meta.collection.id;
+            tokio::spawn(async move {
+                crate::downloads::save_collection_artwork(&engine, &id, &url).await;
+            });
+        }
+        queued
+    } else {
+        crate::downloads::enqueue_playlist_items(ctx, &collected.items, &quality)
+    };
+    Ok(crate::downloads::queued_count(&items))
+}
+
+/// The whole download-list snapshot: per-track rows plus offline collection summaries.
+#[tauri::command]
+pub async fn downloads_list() -> Result<crate::downloads::DownloadSnapshot, String> {
+    let ctx = crate::downloads::ctx().ok_or("downloads are not ready")?;
+    Ok(crate::downloads::snapshot(ctx))
+}
+
+/// pause | resume | cancel | retry | remove on one track, remove_collection on a collection id,
+/// or collection_removal_preview to read its delete/keep counts without side effects.
+#[tauri::command]
+pub async fn downloads_action(
+    id: String,
+    action: String,
+) -> Result<Option<crate::downloads::CollectionRemovalPreview>, String> {
+    let ctx = crate::downloads::ctx().ok_or("downloads are not ready")?;
+    if action == "collection_removal_preview" {
+        return crate::downloads::collection_removal_preview(ctx, &id).map(Some);
+    }
+    crate::downloads::action(ctx, &id, &action)?;
+    Ok(None)
 }
 
 // --- auth (context/15) ---------------------------------------------------------------------
@@ -2470,7 +2577,7 @@ pub async fn release_notes() -> Result<Vec<ReleaseNote>, String> {
         prerelease: bool,
     }
     let releases: Vec<GhRelease> = crate::http::client()
-        .get("https://api.github.com/repos/SimoHypers/limusic/releases?per_page=20")
+        .get("https://api.github.com/repos/3Nya3/limusic/releases?per_page=20")
         .header("User-Agent", concat!("Limusic/", env!("CARGO_PKG_VERSION")))
         .header("Accept", "application/vnd.github+json")
         .timeout(std::time::Duration::from_secs(15))
@@ -2526,8 +2633,7 @@ pub fn can_self_update(app: tauri::AppHandle) -> bool {
 /// The beta channel's manifest. `beta` is a permanent prerelease holding nothing but this file, and
 /// the release workflows move it to the newest release candidate, or to the newest release once that
 /// is ahead, so the URL never changes.
-const BETA_MANIFEST: &str =
-    "https://github.com/SimoHypers/limusic/releases/download/beta/latest.json";
+const BETA_MANIFEST: &str = "https://github.com/3Nya3/limusic/releases/download/beta/latest.json";
 
 /// What the updater plugin's own `check` command returns, so the UI can wrap it in the plugin's
 /// `Update` class and install it the usual way.
@@ -2827,5 +2933,27 @@ mod tests {
             SongItem { video_id: "abc".into(), title: "Grace".into(), ..Default::default() }
         );
         assert_eq!(row.title, played.title, "the song itself survives");
+    }
+
+    /// The auto-like toggle's key has to be one the webview may read and write: outside this list
+    /// `set_setting` refuses it as "unknown setting", and the checkbox would silently do nothing.
+    /// The unlike option is the same kind of switch and needs the same two guarantees.
+    #[test]
+    fn auto_like_setting_is_readable_and_writable_from_the_webview() {
+        assert!(UI_SETTINGS.contains(&"download_auto_liked"));
+        assert!(UI_SETTINGS.contains(&"download_auto_liked_remove"));
+        // Both join the other download knobs the write path validates.
+        for key in ["download_auto_liked", "download_auto_liked_remove"] {
+            assert!(
+                crate::downloads::validate_setting(key, "true", std::path::Path::new(":memory:"))
+                    .is_ok(),
+                "{key} is validated where it lands"
+            );
+            assert!(
+                crate::downloads::validate_setting(key, "on", std::path::Path::new(":memory:"))
+                    .is_err(),
+                "{key} refuses a non-boolean"
+            );
+        }
     }
 }

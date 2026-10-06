@@ -1204,6 +1204,11 @@ impl AppState {
                 ResolveError::LocalMissing(path.to_owned())
             });
         }
+        // A downloaded track plays from its file, not the network: same videoId, no URL
+        // cache, no watch-history ping, no expiry (downloads.rs::offline_playback).
+        if let Some(data) = crate::downloads::offline_playback(&self.db, video_id) {
+            return Ok(data);
+        }
         // Latency cache first (context/11) — honor expiry, never a source of truth.
         //
         // The URL has to outlive the *track*, not just the load. googlevideo keeps serving a
@@ -1250,6 +1255,9 @@ impl AppState {
                 // to the queue row's flag, which is exactly the thing that can't be trusted.
                 is_video: c.is_video,
                 stream_client: c.client.unwrap_or_else(|| "cache".to_owned()),
+                // A cached URL carries no format metadata; downloads resolve fresh anyway.
+                mime_type: None,
+                bitrate: None,
             });
         }
         let data = self
@@ -3265,13 +3273,22 @@ impl AppState {
         *l = Listen::default();
     }
 
+    /// The audio-cache directory. "Clear caches" empties this; offline downloads must never
+    /// live inside it (see `downloads::validate_setting`).
+    pub fn cache_dir(&self) -> &std::path::Path {
+        &self.cache_dir
+    }
+
     /// Clear both cache tiers (settings "Clear caches"): the SQLite URL cache + mpv's on-disk
     /// audio bytes. Best-effort on the files — the current track may re-buffer. context/14.
     pub fn clear_caches(&self) {
         self.db.clear_stream_cache();
         // The stored PoToken is a cache too, and "clear caches" is where someone goes when
         // playback has started behaving oddly. Dropping it costs one BotGuard bootstrap.
-        self.db.delete_setting("potoken_session");
+        // Both rows: the current multi-identity one and the legacy single-identity key it
+        // migrated from (still readable if a write never happened).
+        self.db.delete_setting(crate::potoken::SESSION_TOKENS_KEY);
+        self.db.delete_setting(crate::potoken::SESSION_TOKEN_KEY);
         if let Ok(entries) = std::fs::read_dir(&self.cache_dir) {
             for e in entries.flatten() {
                 let _ = std::fs::remove_file(e.path());

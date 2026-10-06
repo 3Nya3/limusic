@@ -8,6 +8,7 @@
         ShuffleIcon,
         PlayListAddIcon,
         Radio02Icon,
+        Download01Icon,
         ArrowUpNarrowWideIcon,
         ArrowDownWideNarrowIcon,
         DashboardSquare02Icon,
@@ -45,9 +46,11 @@
         toast,
         noteLibrary,
         toggleSaved,
+        ui,
     } from "$lib/player.svelte";
     import { getCached, putCached } from "$lib/pagecache";
     import { thumb } from "$lib/thumb";
+    import { subtitleCount } from "$lib/trackcount";
     import { anchorMenu, fitMenu, NO_ANCHOR, toBody } from "$lib/menu";
     import { t } from "$lib/i18n.svelte";
 
@@ -437,6 +440,28 @@
                                     icon={Radio02Icon}
                                     class="h-4 w-4"
                                 /> {t("player.start_radio")}
+                            </button>
+                        {/if}
+                        <!-- Offline download of the whole album. A local album is already a
+                             folder of files on this machine, not something to fetch. -->
+                        {#if !isLocal}
+                            <button
+                                class="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
+                                onclick={() => {
+                                    if (!album) return;
+                                    menuOpen = false;
+                                    ui.downloadPlaylist = {
+                                        id,
+                                        title: album.title,
+                                        total: subtitleCount(album.secondSubtitle),
+                                        kind: 'album',
+                                    };
+                                }}
+                            >
+                                <HugeiconsIcon
+                                    icon={Download01Icon}
+                                    class="h-4 w-4"
+                                /> {t("downloads.action_download_album")}
                             </button>
                         {/if}
                         <!-- A local album too: files can go in a playlist on this machine. -->
