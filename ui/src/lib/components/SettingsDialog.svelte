@@ -583,7 +583,7 @@
 	>
 		<Dialog.Description class="sr-only">{t('settings.title')}</Dialog.Description>
 
-		<div class="flex h-[min(38rem,80vh)]">
+		<div class="flex min-w-0 h-[min(38rem,80vh)]">
 			<!-- Tab rail -->
 			<nav class="flex w-52 shrink-0 flex-col border-r bg-muted/40 p-3">
 				<Dialog.Title class="px-3 pt-1 pb-4 font-heading text-base font-semibold">
