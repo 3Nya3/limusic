@@ -6,6 +6,10 @@
 	//
 	// The square is a pointer target with no keyboard equivalent; the hex field is the accessible
 	// path to any colour, and the hue slider is a real slider (arrow keys work).
+	//
+	// Two callbacks: `oninput` on every move, for a preview on a leaf element, and `onchange` once
+	// the pointer lets go (or a hex is typed). The theme's accent lives on <html>, and writing it
+	// per pointer move restyled the whole document each time, which is what made dragging lag.
 	import { untrack } from 'svelte';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import { ColorPickerIcon } from '@hugeicons/core-free-icons';
@@ -14,7 +18,11 @@
 	import { hexToHsv, hsvToHex, type Hsv } from '$lib/color';
 	import { t } from '$lib/i18n.svelte';
 
-	let { value, onchange }: { value: string; onchange: (hex: string) => void } = $props();
+	let {
+		value,
+		onchange,
+		oninput
+	}: { value: string; onchange: (hex: string) => void; oninput?: (hex: string) => void } = $props();
 
 	// HSV is the picker's own state, not derived from `value` on every frame: hex can't say where the
 	// cursor sat (every hue is black at v=0), so a round-trip per drag would make the square jump.
@@ -35,20 +43,24 @@
 
 	const hasEyeDropper = typeof window !== 'undefined' && 'EyeDropper' in window;
 
-	function set(next: Hsv) {
+	function set(next: Hsv, commit = true) {
 		hsv = next;
 		text = hsvToHex(next);
-		onchange(text);
+		oninput?.(text);
+		if (commit) onchange(text);
 	}
 
 	function pick(e: PointerEvent) {
 		const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
 		const clamp = (n: number) => Math.min(1, Math.max(0, n));
-		set({
-			...hsv,
-			s: clamp((e.clientX - r.left) / r.width),
-			v: 1 - clamp((e.clientY - r.top) / r.height)
-		});
+		set(
+			{
+				...hsv,
+				s: clamp((e.clientX - r.left) / r.width),
+				v: 1 - clamp((e.clientY - r.top) / r.height)
+			},
+			false
+		);
 	}
 
 	function typed(hex: string) {
@@ -91,6 +103,7 @@
 		onpointermove={(e) => {
 			if (e.currentTarget.hasPointerCapture(e.pointerId)) pick(e);
 		}}
+		onlostpointercapture={() => onchange(text)}
 	>
 		<div
 			class="pointer-events-none absolute size-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-[0_0_0_1px_rgba(0,0,0,0.5)]"
@@ -98,13 +111,16 @@
 		></div>
 	</div>
 
+	<!-- Rounded: a hex's hue is rarely a whole degree, and the slider snapping it to `step` on mount
+	     reported a change nobody made, which used to save a custom accent just by opening this. -->
 	<Slider
 		type="single"
 		aria-label={t('a11y.hue')}
 		max={360}
 		step={1}
-		value={hsv.h}
-		onValueChange={(h) => set({ ...hsv, h })}
+		value={Math.round(hsv.h)}
+		onValueChange={(h) => set({ ...hsv, h }, false)}
+		onValueCommit={() => onchange(text)}
 		class="[&_[data-slot=slider-range]]:bg-transparent [&_[data-slot=slider-track]]:bg-[linear-gradient(to_right,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00)]"
 	/>
 

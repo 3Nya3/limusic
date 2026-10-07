@@ -176,9 +176,12 @@ export function readBack(): void {
 	effective.fontHeading = g('--font-heading');
 }
 
+/** Text colour for an accent fill. Also used by `ThemeMock`, which mirrors `apply` on a leaf. */
+export const onAccent = (color: string) => (isLight(color) ? ON_LIGHT : ON_DARK);
+
 /** Write the accent quartet as inline vars on <html>, foreground picked for legibility on it. */
 function setAccentVars(color: string): void {
-	const fg = isLight(color) ? ON_LIGHT : ON_DARK;
+	const fg = onAccent(color);
 	const root = document.documentElement;
 	root.style.setProperty('--primary', color);
 	root.style.setProperty('--primary-foreground', fg);

@@ -22,7 +22,12 @@
    regardless of the pointer heuristic. (This is a desktop app; hover always applies.) */
 @custom-variant hover (&:hover);
 
-:root {
+/* `.theme-default` as well as :root, so the default palette can be put on an element the way the
+   presets are. The Appearance tab's miniatures (`ThemeMock.svelte`) carry `theme-<id>` and `dark`
+   themselves, which re-resolves every token for that subtree only: a slider drag restyles the
+   miniature, not the document. */
+:root,
+.theme-default {
 	/* Hue of the neutrals (greys, borders, muted surfaces, dark-mode backgrounds). Every tinted
 	   neutral below reads it, so the Themes tab can reshade the whole default palette from one
 	   number. Tokens at chroma 0 are pure white/black by design and stay that way. Preset palettes

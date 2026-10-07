@@ -369,7 +369,9 @@
 			"discord_status": "Status",
 			"discord_card": "Card",
 			"discord_links": "Clickable",
-			"discord_buttons": "Buttons"
+			"discord_buttons": "Buttons",
+			"colors": "Colors",
+			"interface": "Interface"
 		},
 		"general": {
 			"language": "Interface language",
@@ -400,10 +402,8 @@
 		"themes": {
 			"interface_font": "Interface font",
 			"load_font_file": "Load font from file",
-			"custom_colors": "Custom Colors",
 			"primary_color": "Primary Accent",
 			"background_color": "Background",
-			"reset_theme": "Reset to default theme",
 			"your_fonts": "Your fonts",
 			"custom_font": "Custom…",
 			"font_placeholder": "Font installed on this computer, e.g. Inter",
@@ -437,7 +437,17 @@
 			"app_icon_hint": "A PNG replaces the icon in the tray, this window and Alt-Tab. Shortcuts, the file manager and the Windows taskbar button keep the installed one.",
 			"app_icon_pick": "Choose…",
 			"app_icon_dialog": "Choose an app icon",
-			"app_icon_filter": "PNG image"
+			"app_icon_filter": "PNG image",
+			"mode": "Light or dark",
+			"mode_hint": "System follows your computer's setting and switches with it.",
+			"mode_light": "Light",
+			"mode_dark": "Dark",
+			"mode_system": "System",
+			"accent_hint": "Buttons, the progress bar and anything selected.",
+			"accent_theme": "The theme's own accent",
+			"accent_artwork_note": "While a song plays, the accent comes from its cover. Turn off Adapt colors to artwork to see this one.",
+			"preview": "Preview",
+			"preview_hint": "Sliders and the color picker show here as you drag, and the app follows when you let go."
 		},
 		"playback": {
 			"audio_quality": "Audio quality",
