@@ -98,11 +98,16 @@ export const videoReady: Record<string, true> = $state({});
 const videoUrls = new Map<string, Promise<string | null>>();
 
 /** The picture ladder YouTube publishes, snapped up so the box is never upscaled, capped at 720
- *  because that is already more than the player view's box gets on a 1080p screen. `176` is `11rem`
- *  at the default root font size, the chrome above and below the box (see the `--vid` calc in
- *  NowPlaying.svelte). If the titlebar or the player bar changes height, this changes with it. */
+ *  because that is already more than the player view's box gets on a 1080p screen. What the window
+ *  keeps from the box's height, at the default root font size, mirrors NowPlaying.svelte's two
+ *  layouts. Original: `176` is `11rem`, the chrome above and below the box (the `--vid` calc).
+ *  New layout: `344` is the titlebar and the player bar (~110), the view's top row and padding
+ *  (80), and the title block under the picture (9.5rem, `VIDEO_SIDE`). If any of those changes
+ *  height, this does. */
 export function wantedVideoHeight() {
-	const px = (window.innerHeight - 176) * 0.85;
+	const px = appearance.stagePlayer
+		? window.innerHeight - 344
+		: (window.innerHeight - 176) * 0.85;
 	return [360, 480, 720].find((h) => h >= px) ?? 720;
 }
 

@@ -9,7 +9,7 @@
 	// karaoke sweep). Everything below has already been measured against that once, so the bans are
 	// the design, not a preference:
 	//   - no `filter` / `backdrop-filter` on anything full-screen (the cover wash is baked into a
-	//     48px canvas once per track instead — see `wash` — and upscaled, which is free);
+	//     small canvas once per track instead, see `artroom.svelte.ts`, and upscaled, which is free);
 	//   - no `mask-image` on the lyrics scroller (buffers the whole thing offscreen per frame);
 	//   - no large-radius `box-shadow` over the backdrop (re-blurred on every repaint under it);
 	//   - nothing full-screen animates. A moving viewport-sized layer damages the whole viewport
@@ -48,8 +48,7 @@
 		ui,
 		wheelVolume
 	} from '$lib/player.svelte';
-	import { artworkAccent } from '$lib/artcolor';
-	import { hexToHsv } from '$lib/color';
+	import { artRoom } from '$lib/artroom.svelte';
 	import { appearance, setAppearance } from '$lib/theme.svelte';
 	import { thumb } from '$lib/thumb';
 	import { t } from '$lib/i18n.svelte';
@@ -111,120 +110,8 @@
 	const srcs = $derived([720, 400, 120].map((px) => thumb(playback.now?.thumbnail, px)));
 	const src = $derived(srcs[attempt]);
 
-	// The cover's own colour, lighting the room. Memoized in artcolor, and read here directly rather
-	// than through the "adapt colors to artwork" setting: that setting repaints the whole app, this
-	// is one screen the user opened to look at one album.
-	let accent = $state<string | null>(null);
-	$effect(() => {
-		const url = thumb(playback.now?.thumbnail, 120);
-		if (!url) {
-			accent = null;
-			return;
-		}
-		let alive = true;
-		artworkAccent(url).then((hex) => {
-			if (alive) accent = hex;
-		});
-		return () => {
-			alive = false;
-		};
-	});
-	// The cover wash, baked ONCE per track into a small canvas and then upscaled by CSS. A live
-	// `filter: blur()` on a full-screen element is re-run for the damaged region on every repaint,
-	// which is what made this view crawl; a bitmap upscale is something the compositor does for free.
-	// Same CORS story as artcolor: googleusercontent and ytimg send `access-control-allow-origin: *`,
-	// and a host that doesn't taints the canvas, throws on toDataURL, and lands in the same `null`.
-	// Bounded: insertion-order eviction, the house pattern from `pagecache.ts`. A long listening
-	// session in theater mode is exactly the case that used to keep one base64 PNG (and the CSS
-	// image resource WebKit decodes from it) per cover for the life of the view.
-	const MAX_WASHES = 8;
-	const washes = new Map<string, string>();
-	let wash = $state<string | null>(null);
-	$effect(() => {
-		const url = thumb(playback.now?.thumbnail, 400);
-		if (!url) {
-			wash = null;
-			return;
-		}
-		const hit = washes.get(url);
-		if (hit !== undefined) {
-			wash = hit;
-			return;
-		}
-		let alive = true;
-		bake(url).then((data) => {
-			if (!alive || !data) return;
-			if (washes.size >= MAX_WASHES && !washes.has(url)) {
-				const oldest = washes.keys().next().value;
-				if (oldest !== undefined) washes.delete(oldest);
-			}
-			washes.set(url, data);
-			wash = data;
-		});
-		return () => {
-			alive = false;
-		};
-	});
-
-	// 160px square, blurred at 28px. The size matters in both directions: too small (an earlier
-	// version used 48) and the upscale to a 1080p-plus screen is 40x, where bilinear interpolation
-	// draws its own diamond pattern over whatever the cover was; too big and the one-time blur
-	// starts to cost something. At 160 the source is already smooth, so the upscale has nothing to
-	// invent. Saturation goes up in the same pass because a heavy blur averages colour away.
-	// PNG, not JPEG: at this size lossless costs a few KB, and JPEG's 8x8 blocks on a 160px buffer
-	// arrive on screen as 8x8 *tiles* once CSS has stretched them across the window.
-	const WASH = 160;
-	const WASH_BLUR = 28;
-	async function bake(url: string): Promise<string | null> {
-		try {
-			const img = new Image();
-			img.crossOrigin = 'anonymous';
-			img.src = url;
-			await img.decode();
-			const canvas = document.createElement('canvas');
-			canvas.width = canvas.height = WASH;
-			const ctx = canvas.getContext('2d');
-			if (!ctx) return null;
-			ctx.imageSmoothingQuality = 'high';
-			// Overdrawn past every edge by more than the blur radius. Without it the blur samples the
-			// transparent pixels outside the drawing and leaves a dark frame all the way round, which
-			// the upscale then turns into a vignette nobody asked for.
-			const over = WASH_BLUR * 1.6;
-			const canFilter = typeof ctx.filter === 'string';
-			if (canFilter) {
-				ctx.filter = `blur(${WASH_BLUR}px) saturate(1.5)`;
-				ctx.drawImage(img, -over, -over, WASH + over * 2, WASH + over * 2);
-			} else {
-				// No canvas filters: downscale hard and let the upscale do the smoothing instead.
-				// Rougher, but it is a wash at 45% opacity behind a mesh, not the subject.
-				const small = document.createElement('canvas');
-				small.width = small.height = 20;
-				small.getContext('2d')?.drawImage(img, 0, 0, 20, 20);
-				ctx.drawImage(small, -over, -over, WASH + over * 2, WASH + over * 2);
-			}
-			return canvas.toDataURL('image/png');
-		} catch {
-			return null; // offline, 404, throttled, tainted — the mesh below is the backdrop on its own
-		}
-	}
-
-	// Falls back to the theme's own accent hue, so a greyscale cover (or a cover that hasn't been
-	// read yet) still gets a lit room rather than a flat one.
-	const hue = $derived(accent ? (hexToHsv(accent)?.h ?? null) : null);
-	// Three blobs off one hue: the near-complement keeps it from reading as a single flat tint, and
-	// staggered sizes/positions are what make it look lit rather than gradient-filled.
-	const mesh = $derived.by(() => {
-		const h = hue ?? 265;
-		const a = (deg: number) => (h + deg + 360) % 360;
-		return [
-			`radial-gradient(70% 60% at 12% 18%, hsl(${a(0)} 72% 48% / 0.34), transparent 68%)`,
-			`radial-gradient(60% 55% at 88% 82%, hsl(${a(38)} 70% 45% / 0.28), transparent 68%)`,
-			`radial-gradient(55% 50% at 72% 8%, hsl(${a(-46)} 65% 52% / 0.2), transparent 70%)`
-		].join(',');
-	});
-	// The glow behind the cover, so it sits in light instead of on top of a picture. A radial
-	// gradient, deliberately: this is the shape a big soft box-shadow would draw, at no filter cost.
-	const glow = $derived(`radial-gradient(closest-side, hsl(${hue ?? 265} 80% 55% / 0.5), transparent)`);
+	// The cover's colour and its baked wash (`artroom.svelte.ts`, shared with the player view).
+	const room = artRoom();
 
 	const fmt = (secs: number) => {
 		if (!secs || secs < 0) return '0:00';
@@ -319,14 +206,14 @@
 	<!-- === Backdrop, three layers, none of which repaint with the content over them ===
 	     1. the cover, pre-blurred into a 48px bitmap and upscaled. No live filter. Behind the
 	        artwork-background setting, so it is still a one-click ablation. -->
-	{#if appearance.artworkBackground && wash}
-		{#key wash}
+	{#if appearance.artworkBackground && room.wash}
+		{#key room.wash}
 			<!-- Stretched to the window (`100% 100%`) rather than cropped to it. The source is a
 			     square and the window is not, so `cover` throws away the top and bottom of the
 			     cover's colour; at this blur radius nobody can see that it has been stretched. -->
 			<div
 				in:fade={{ duration: 700 }}
-				style="background-image:url({wash});background-size:100% 100%"
+				style="background-image:url({room.wash});background-size:100% 100%"
 				class="pointer-events-none absolute inset-0 opacity-50 dark:opacity-60"
 			></div>
 		{/key}
@@ -335,7 +222,7 @@
 	        and STATIC. An earlier version drifted this on a keyframe; a full-viewport element moving
 	        every frame damages the whole screen every frame, which drags every repaint on it (and
 	        re-ran the wash's filter, back when the wash had one). Nothing here animates. -->
-	<div class="pointer-events-none absolute -inset-[15%]" style="background-image:{mesh}"></div>
+	<div class="pointer-events-none absolute -inset-[15%]" style="background-image:{room.mesh}"></div>
 	<!-- 3. the vignette that puts the two columns back in the middle and keeps text legible over
 	        whatever the cover happened to be. -->
 	<div
@@ -389,7 +276,7 @@
 				     spill rather than an outline. -->
 				<div
 					class="pointer-events-none absolute -inset-[12%] -z-10 opacity-70"
-					style="background-image:{glow}"
+					style="background-image:{room.glow}"
 				></div>
 				{#key playback.now?.videoId}
 					<div in:scale={{ start: 0.94, duration: 420, easing: cubicOut }} class="relative">

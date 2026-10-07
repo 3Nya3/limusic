@@ -423,6 +423,11 @@
 			<h3 class={LABEL}>{t('settings.sections.player_view')}</h3>
 			<div class={CARD}>
 				{@render row({
+					title: t('settings.themes.stage_player'),
+					desc: t('settings.themes.stage_player_hint'),
+					control: stagePlayerSwitch
+				})}
+				{@render row({
 					title: t('settings.themes.open_player'),
 					desc: t('settings.themes.open_player_hint'),
 					control: openPlayerSwitch
@@ -638,6 +643,10 @@
 {#snippet artworkAccentSwitch()}<Switch
 		checked={appearance.artworkAccent}
 		onCheckedChange={(on) => setAppearance({ artworkAccent: on })}
+	/>{/snippet}
+{#snippet stagePlayerSwitch()}<Switch
+		checked={appearance.stagePlayer}
+		onCheckedChange={(on) => setAppearance({ stagePlayer: on })}
 	/>{/snippet}
 {#snippet openPlayerSwitch()}<Switch
 		checked={appearance.openPlayerOnPlay}

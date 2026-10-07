@@ -104,6 +104,9 @@ export const custom = $state<Custom>({
 export const appearance = $state({
 	/** Blur the playing track's artwork behind the now-playing view. */
 	artworkBackground: true,
+	/** The redesigned now-playing view (title and album under the picture, a lit backdrop, a
+	 *  full-height queue/lyrics column). Opt-in while people get used to it; off is the original. */
+	stagePlayer: false,
 	/**
 	 * The now-playing view carries queue and lyrics itself, as tabs, and the player bar's two
 	 * buttons switch between them while it's open. Off, those buttons only ever open the floating
@@ -462,6 +465,7 @@ export function initTheme(): void {
 		const saved = JSON.parse(localStorage.getItem(APPEARANCE_KEY) ?? '{}');
 		for (const k of [
 			'artworkBackground',
+			'stagePlayer',
 			'tabbedPlayer',
 			'openPlayerOnPlay',
 			'artworkAccent',
