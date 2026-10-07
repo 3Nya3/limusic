@@ -1,7 +1,7 @@
 //! BotGuard minting on a dedicated thread, under `rustypipe-botguard` (deno_core + JSDOM).
 //!
-//! **Not a webview, deliberately.** googlevideo honours the pots built from a ~62-byte
-//! `/GenerateIT` integrity token and rejects the ones built from a 65-66 byte token, and which
+//! **Not a webview, deliberately.** googlevideo honours the pots built from the short `/GenerateIT`
+//! integrity token (62 bytes, 64 since October) and rejects the long one (66, now 68), and which
 //! class you get is decided by the BotGuard snapshot. A minimal-DOM runtime lands in the accepted
 //! class roughly one bootstrap in three; every real browser engine measured 0 in 25 (WebKitGTK,
 //! headless Chromium, headed GPU Chromium, including an exact reproduction of Metrolist's Android
@@ -35,9 +35,12 @@ use rustypipe_botguard::{Botguard, Error as BgError};
 /// Bytes the minter wraps around `identifier + integrity token`. Measured with identifiers 11 and
 /// ~520 bytes long: `pot_len == ident_len + integrity_token_len + 14`, in both token classes.
 const POT_OVERHEAD: usize = 14;
-/// Largest integrity token whose pots googlevideo accepts. The two observed classes are 61-62
-/// (accepted) and 65-66 (rejected) with nothing in between, so the threshold sits in the gap.
-const ACCEPTED_MAX_IT: usize = 63;
+/// Largest integrity token whose pots googlevideo accepts. Measured 2026-08-25: 61-62 accepted,
+/// 65-66 rejected. Measured 2026-10-07: both classes grew, 64 accepted and 68 rejected, on one
+/// anonymous WEB_REMIX URL (no pot 403). 64 is the one cut that separates every size ever seen, so
+/// a return to the old sizes still classifies right. When the warn below fires on every launch
+/// with new sizes, re-measure and move this.
+const ACCEPTED_MAX_IT: usize = 64;
 /// How many bootstraps to spend looking for the accepted class. At the measured ~1-in-3 rate this
 /// misses about once in 25 launches; a miss keeps the last runtime and mints from it anyway.
 const MAX_BOOTSTRAPS: usize = 8;
@@ -229,8 +232,8 @@ async fn bootstrap(
     }
     // Keep the last one rather than degrade with nothing. A rejected-class token costs one HEAD
     // (the orchestrator validates every URL and falls through cleanly), and it might work: the
-    // 61-62 / 65-66 byte split is one measurement session's, so if YouTube moves the wrapper by a
-    // byte then every mint misclassifies and this warn is the only thing that says so.
+    // byte split has moved before (`ACCEPTED_MAX_IT`), and when it does every mint misclassifies
+    // and this warn is the only thing that says so.
     let (bg, token, lifetime, it) = last.expect("MAX_BOOTSTRAPS >= 1");
     tracing::warn!(
         it_bytes = it,
@@ -258,9 +261,9 @@ fn integrity_token_len(pot: &str, ident: &str) -> Option<usize> {
 mod tests {
     use super::*;
 
-    /// Real tokens from `progress/active/webremix-403-harness`, both HEAD-tested against one live
-    /// WEB_REMIX stream URL. If this arithmetic drifts, every mint is classified wrong and
-    /// WEB_REMIX silently stops resolving again, so pin it to measured bytes.
+    /// Real tokens, each pair tested against one live WEB_REMIX stream URL. If this arithmetic
+    /// drifts, every mint is classified wrong and WEB_REMIX silently stops resolving again, so pin
+    /// it to measured bytes.
     #[test]
     fn integrity_token_len_recovers_the_class() {
         // videoId-bound (11 chars), integrity token 62 bytes -> 87 byte pot -> HEAD 200.
@@ -271,6 +274,14 @@ mod tests {
         assert_eq!(integrity_token_len(rejected, "PtHEr7siapo"), Some(66));
         assert!(integrity_token_len(accepted, "PtHEr7siapo").is_some_and(|n| n <= ACCEPTED_MAX_IT));
         assert!(!integrity_token_len(rejected, "PtHEr7siapo").is_some_and(|n| n <= ACCEPTED_MAX_IT));
+
+        // 2026-10-07, both classes grown: 64 -> 206 and 68 -> 403 on the last 256 bytes.
+        let accepted = "MldAxqY0sPmld0CGvy1qox-s0QDoTXL3AJxdjPbq4pBS89h7h4WOHpy1fuY5Zz8HPfFLGHe-ixzcpqQE_VVUZI_zB5WChS3SEWfX2XX75JvoXRs3CVaQAGg=";
+        let rejected = "MlvyqrBNLadFw_LuU-t15y1qI2R2voSyIh5klPfZ2-HJ0cqb9PFteuTvWuZrV9Lrm2xy9fuY4DHk1PS4KMyL9RqGDRXH6_NulJN3UlFbyBCCHL7QCQzKbGshvqFF";
+        assert_eq!(integrity_token_len(accepted, "GFBgHNvwfpQ"), Some(64));
+        assert_eq!(integrity_token_len(rejected, "GFBgHNvwfpQ"), Some(68));
+        assert!(integrity_token_len(accepted, "GFBgHNvwfpQ").is_some_and(|n| n <= ACCEPTED_MAX_IT));
+        assert!(!integrity_token_len(rejected, "GFBgHNvwfpQ").is_some_and(|n| n <= ACCEPTED_MAX_IT));
     }
 
     /// A JS error is "YouTube shipped new BotGuard today", not "this machine cannot run JS". If it
