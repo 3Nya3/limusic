@@ -226,6 +226,11 @@ fn new_mpv(cache_dir: &str) -> Result<Mpv, Error> {
     // "youtube-dl failed: not found" -> "Failed to recognize file format", so the user was told
     // their audio format was wrong when the download had been refused (issue #292).
     mpv.set_property("ytdl", "no")?;
+    // What the system mixer calls the stream. mpv's own names are "mpv" and `<media title> - mpv`,
+    // and the media title of a proxied stream is the last segment of its loopback URL, so KDE's
+    // mixer listed "e09087d13ce71f6d - mpv" (issue #409).
+    mpv.set_property("audio-client-name", "Limusic")?;
+    mpv.set_property("title", "Limusic")?;
     mpv.set_property("gapless-audio", "yes")?;
     // mpv's native Matroska demuxer floors WebM DiscardPadding nanoseconds to Opus samples. For
     // values one nanosecond below a sample boundary (YouTube emits 6,833,333 ns), that leaves one
@@ -947,6 +952,13 @@ fn preload(decks: &Decks, mpv: &Arc<Mpv>, url: &str) -> Result<(), Error> {
     }
     mpv.set_property("pause", true)?;
     mpv.set_property("volume", 0.0)?;
+    // Off the audio device until its fade starts (`start_crossfade` puts it back). A paused deck
+    // with a file loaded still holds an output stream, so Linux mixers listed this one for the
+    // whole track as a second app next to the one playing, with a volume slider of its own that
+    // the user's changes never reached (issue #409). Linux only: Windows groups a process's
+    // streams under one mixer entry and macOS has no per-app mixer.
+    #[cfg(target_os = "linux")]
+    mpv.set_property("ao", "null")?;
     // Not `preloaded = true`: that waits for this deck's `FileLoaded` (see the field). Armed
     // before the load, so a `drop_preload` landing during it invalidates this generation.
     decks.preload_armed.store(decks.preload_gen.load(Ordering::SeqCst), Ordering::SeqCst);
@@ -1007,6 +1019,16 @@ fn start_crossfade(decks: &Arc<Decks>, from: usize, fade: f64) {
     decks.fading.store(true, Ordering::Release);
     decks.active.store(1 - from, Ordering::SeqCst);
     video::deck_swapped(decks);
+    // Back on the real device (see `preload`). mpv reopens the output from where the null one had
+    // prefilled to, 0.2 s into the track, so seek back to the start: a preload never has a
+    // `start=`. Measured on mpv 0.41: without the seek the incoming track lost its first 0.2 s.
+    #[cfg(target_os = "linux")]
+    {
+        if let Err(e) = incoming.set_property("ao", "") {
+            tracing::warn!(error = %e, "crossfade deck refused its audio device, it will be silent");
+        }
+        let _ = incoming.command("seek", &["0", "absolute"]);
+    }
     let _ = incoming.set_property("pause", false);
     let _ = decks.tx.send(PlayerEvent::TrackEnded);
     // mpv reported the incoming track's duration when it was *preloaded*, while this deck was
