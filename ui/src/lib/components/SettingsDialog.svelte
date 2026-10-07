@@ -628,7 +628,10 @@
 				{:else if loaded && tab === 'scrobbling'}
 					<ScrobbleSettings {settings} />
 				{:else}
-				<div class="min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-6 py-5">
+				<!-- relative: an absolute child (the lyrics sources' sr-only live region) would otherwise
+				     be laid out against the dialog, outside this pane, and make the overflow-hidden dialog
+				     scrollable. scrollIntoView then scrolls the dialog too and clips its rail (#406). -->
+				<div class="relative min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-6 py-5">
 					{#if !loaded}
 						<p class="text-sm text-muted-foreground">{t('common.loading')}</p>
 					{:else if tab === 'general'}
