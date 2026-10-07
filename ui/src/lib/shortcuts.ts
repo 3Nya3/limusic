@@ -46,7 +46,7 @@ const isMuteKey = (e: KeyboardEvent) => keyOf(e) === 'm' && (!IS_MAC || e.shiftK
 const VOLUME_STEP = 5;
 
 /** Somewhere a bare space or `;` is a character, not a command. */
-const typing = (t: EventTarget | null) =>
+export const typing = (t: EventTarget | null) =>
 	t instanceof HTMLElement &&
 	(t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName));
 
