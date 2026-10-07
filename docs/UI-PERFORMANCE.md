@@ -61,6 +61,15 @@ restyles the whole document: 160-200 ms and about 10 MB that WebKitGTK never giv
 (#217). Transitioning a registered (`@property`) custom property does that once a frame. Keep the
 artwork tint to the fills listed in `layout.css`.
 
+**A control that sets a root token previews on a leaf and commits on release.** A slider or colour
+picker writing `<html>` per pointer move queues one whole-document restyle per move. The old
+Appearance tint slider took 5.6-8.2 s of main thread to play out a 0.75 s drag on WebKitGTK 2.52
+(~120 ms a frame). Now a drag only restyles `ThemeMock`, which carries its own `theme-<id>` class and
+inline overrides, and `<html>` is written once on `onValueCommit`: the same drag runs at 16 ms frames
+with nothing blocked. Keep the live preview to one miniature: seven gallery miniatures following
+the drag cost 60 of 150 frames at 4x CPU on Chromium, the single preview none
+(`AppearanceSettings.svelte`).
+
 **A `requestAnimationFrame` loop runs only while its output is on screen and changing.** Gate it the
 way `LyricsView.svelte` gates the karaoke clock (`needsFrameClock`), so the app reaches idle frames.
 
