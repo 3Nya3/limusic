@@ -507,7 +507,11 @@ impl Presence {
             if self.sent.is_some() && self.is_new_card() {
                 if let Some(rem) = TRACK_SETTLE.checked_sub(self.track_at.elapsed()) {
                     let d = rem.max(MIN_WAIT);
-                    tracing::trace!(reason = "track_settle", wait_ms = d.as_millis(), "discord rpc waiting");
+                    tracing::trace!(
+                        reason = "track_settle",
+                        wait_ms = d.as_millis(),
+                        "discord rpc waiting"
+                    );
                     return Act::Wait(d);
                 }
             }
@@ -517,7 +521,11 @@ impl Presence {
             if self.duration <= 0.0 && self.is_new_card() {
                 if let Some(rem) = DURATION_GRACE.checked_sub(self.track_at.elapsed()) {
                     let d = rem.max(MIN_WAIT);
-                    tracing::trace!(reason = "duration_grace", wait_ms = d.as_millis(), "discord rpc waiting");
+                    tracing::trace!(
+                        reason = "duration_grace",
+                        wait_ms = d.as_millis(),
+                        "discord rpc waiting"
+                    );
                     return Act::Wait(d);
                 }
             }
@@ -683,7 +691,8 @@ impl Presence {
                 // The artwork stands for the release, so it links the album when there is one and the
                 // song otherwise.
                 if cfg.link_cover {
-                    if let Some(u) = link_for("album", &track).or_else(|| link_for("title", &track)) {
+                    if let Some(u) = link_for("album", &track).or_else(|| link_for("title", &track))
+                    {
                         assets = assets.large_url(u);
                     }
                 }
@@ -1316,7 +1325,10 @@ mod tests {
         for i in 0..5 {
             p.apply(Msg::Track(track(&format!("new_{i}"))));
         }
-        assert!(matches!(p.plan(), Act::Wait(_)), "quick track changes with card up must wait, not push");
+        assert!(
+            matches!(p.plan(), Act::Wait(_)),
+            "quick track changes with card up must wait, not push"
+        );
     }
 
     #[test]
