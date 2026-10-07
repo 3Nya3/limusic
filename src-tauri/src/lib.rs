@@ -949,6 +949,7 @@ pub fn run() {
             commands::can_self_update,
             commands::check_beta_update,
             commands::open_external,
+            commands::quit_app,
             commands::diagnostics,
             commands::diagnostics_summary,
             commands::save_diagnostics,
@@ -971,11 +972,6 @@ pub fn run() {
                             api.prevent_close();
                             let _ = window.hide();
                             tray::set_main_visible(window.app_handle(), false);
-                        } else if let Some(state) = window.app_handle().try_state::<Arc<AppState>>()
-                        {
-                            // Really quitting: persist the exact resume position, the same thing
-                            // the tray's Quit item does.
-                            state.flush_position();
                         }
                     }
                     // Nothing in the widget closes it, but a WM shortcut still can. Turn that into
@@ -1003,6 +999,15 @@ pub fn run() {
                 if label == "main" {
                     handle.exit(0);
                 }
+            }
+
+            // The single place that saves positions on exit. It covers `app.exit`,
+            // `request_restart`, the main window closing, and macOS Cmd+Q from the native menu.
+            if let tauri::RunEvent::Exit = &event {
+                if let Some(state) = handle.try_state::<Arc<AppState>>() {
+                    state.flush_position();
+                }
+                mini::save_position(handle);
             }
         });
 }

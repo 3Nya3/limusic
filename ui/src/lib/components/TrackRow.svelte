@@ -19,6 +19,7 @@
 	import ArtistLine from './ArtistLine.svelte';
 	import ExplicitIcon from './ExplicitIcon.svelte';
 	import { t } from '$lib/i18n.svelte';
+	import { keyOf } from '$lib/shortcuts';
 	import type { TrackSelection } from '$lib/selection.svelte';
 	import { Checkbox } from './ui/checkbox';
 
@@ -153,7 +154,7 @@
 			return;
 		}
 		if (selection && selectable) {
-			if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+			if ((e.ctrlKey || e.metaKey) && keyOf(e) === 'a') {
 				e.preventDefault();
 				e.stopPropagation();
 				selection.selectAll();
@@ -253,7 +254,7 @@
 					if (!e.repeat) select(e.shiftKey);
 				}
 				if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); selection!.exit(); }
-				if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+				if ((e.ctrlKey || e.metaKey) && keyOf(e) === 'a') {
 					e.preventDefault(); e.stopPropagation(); selection!.selectAll();
 				}
 			}}

@@ -483,6 +483,8 @@ export const checkBetaUpdate = () =>
 	);
 /** Open an http(s) link in the real browser, never in the webview itself. */
 export const openExternal = (url: string) => invoke<void>('open_external', { url });
+/** Real quit (not close-to-tray). Same path as the tray's Quit item. */
+export const quitApp = () => invoke<void>('quit_app');
 
 /** Environment + the redacted tail of `limusic.log`, for pasting into a bug report. */
 export const diagnostics = () => invoke<string>('diagnostics');

@@ -70,12 +70,6 @@ fn handle_menu(app: &AppHandle, id: &str) {
     match id {
         "show" => show_main(app),
         "quit" | "restart" => {
-            // Users now quit mid-song from the tray; persist the exact resume position first.
-            if let Some(state) = app.try_state::<Arc<AppState>>() {
-                state.flush_position();
-            }
-            // Same for the widget's own position, if that's what they were quitting from.
-            crate::mini::save_position(app);
             if id == "restart" {
                 // `request_restart`, not `restart`: it goes through RunEvent::Exit, which is
                 // where the single-instance plugin releases the D-Bus name. Skip that and the
