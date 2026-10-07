@@ -667,7 +667,7 @@ async function pushSaved(
 /**
  * Is this card in the library, wherever the library happens to live: saved on this machine, or on
  * the signed-in account. Albums and artists only answer once `loadLibraryExtras` has run, which is
- * why the menus kick it off when they open.
+ * why it runs with the library at startup and on sign-in, and again from a menu if that failed.
  *
  * Songs are not here: their library is Liked Music (Library ▸ Songs browses `FEmusic_liked_videos`),
  * so `isLiked` is the answer and TrackMenu uses it.
@@ -1561,6 +1561,7 @@ export function initApp(mini = false): () => void {
 			// are still there, and the backend answers both without touching YouTube.
 			if (!mini) {
 				loadLibrary(true);
+				if (a.signedIn) loadLibraryExtras();
 				loadSavedIndex();
 			}
 			if (!a.signedIn) {
@@ -1630,6 +1631,10 @@ export function initApp(mini = false): () => void {
 				return;
 			}
 			loadLibrary();
+			// Saved albums and artists too, rather than when the first card menu opens: that menu is
+			// already on screen by the time they arrive, offering "Save to library" for albums the
+			// account already holds (#364).
+			if (a.signedIn) loadLibraryExtras();
 			// The crawl behind this is the app's only bulk request, so it runs once here (and on a
 			// sign-in), never on navigation. It settles into the background while the first page
 			// paints from the stored index. Signed out there is no crawl, and the answer is the
