@@ -605,7 +605,10 @@
 			"status_skip_edit": "Yaptığınız düzenleme bu parçayı kapatır.",
 			"status_incomplete": "Hiçbir şey gönderilmedi: başlık ve sanatçı verisi yok.",
 			"status_at": "{time} tarihinde skroplandı.",
-			"status_done": "{time} tarihinde skroplandı."
+			"status_done": "{time} tarihinde skroplandı.",
+			"replace_placeholder": "Şununla değiştir",
+			"preset_video_tags": "(Official Video), (Lyrics) ve buna benzer ifadeleri kaldır",
+			"preset_explicit": "Başlıklardan \"(Explicit)\" ve \"(Clean)\" ifadelerini kaldır"
 		}
 	},
 	"dialogs": {
@@ -1017,11 +1020,44 @@
 		"tab_missing": "Bulunamadı ({count})",
 		"tab_matched": "Bulundu ({count})",
 		"nothing_here": "Burada bir şey yok.",
-		"left_out": "İptal et",
+		"left_out": "İptal edildi",
 		"not_found_row": "Youtube Music'de yok",
 		"preview_play": "Oynat",
 		"change": "Değiştir",
 		"choose": "Seç",
-		"search_ytm": "YouTube Music'te ara"
+		"search_ytm": "YouTube Music'te ara",
+		"no_candidates": "Hiçbir öneri yok. Aramayı deneyin.",
+		"keep": "Doğru görünüyor",
+		"skip": "İptal et",
+		"name_label": "Çalma listesi adı",
+		"many_lists": "{count} adet çalma listesi oluşturulacak, her birinin adı Spotify'daki adıyla aynı olacaktır.",
+		"device_only": "Oturum kapatıldığında, çalma listeleri bu cihazda saklanır.",
+		"create": "Çalma listesi oluştur",
+		"create_many": "{count} adet çalma listesi oluştur",
+		"creating_title": "Çalma listeleriniz oluşturuluyor",
+		"creating_progress": "{done} / {total} tamamlandı",
+		"done_title": "Her şey hazır",
+		"result_added": "{count} müzik",
+		"result_missing": "{count} tanesi Youtube Music'te bulunmuyor",
+		"open": "Aç",
+		"copy_missing": "Eksik müzikleri kopyala",
+		"copied": "{count} müzik kopyalandı",
+		"failed_title": "İçe aktarma durduruldu",
+		"try_again": "Yeniden dene",
+		"try_again_at": "{time}'de yeniden dene",
+		"cancelled_title": "İçe aktarma durduruldu",
+		"pill_matching": "İçe aktarılıyor {percent}%",
+		"pill_review": "İçe aktarma hazır",
+		"pill_creating": "Çalma listeleri oluşturuluyor",
+		"pill_done": "İçe aktarma tamamlandı",
+		"pill_failed": "İçe aktarma durduruldu",
+		"pill_updating": "Spotify'dan güncelleniyor",
+		"from_spotify": "Spotify'dan",
+		"update": "Güncelle",
+		"updating": "Güncelleniyor…",
+		"errors": {
+			"nothing_read": "Önce bir çalma listesi seçin",
+			"cooldown": "YouTube Music, Limusic’ten hızını azaltmasını istedi; bu nedenle içe aktarma işlemleri {time} tarihine kadar askıya alındı. Şu ana kadar bulunan tüm içerikler kaydedildi."
+		}
 	}
 }
