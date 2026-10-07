@@ -618,10 +618,10 @@
 			"preview_card": "Thẻ hồ sơ"
 		},
 		"scrobbling": {
-			"account_disconnected": "",
-			"account_connecting": "",
-			"connect": "",
-			"open_profile": "",
+			"account_disconnected": "Kết nối tài khoản Last.fm để scrobble những bài bạn nghe.",
+			"account_connecting": "Đang chờ bạn chấp nhận Limusic trên trình duyệt.",
+			"connect": "Kết nối",
+			"open_profile": "Mở hồ sơ Last.fm của bạn",
 			"since": "",
 			"stat_scrobbles": "",
 			"stat_artists": "",
