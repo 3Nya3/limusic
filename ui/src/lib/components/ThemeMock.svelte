@@ -5,9 +5,8 @@
 	// Appearance tab follow a slider live: dragging restyles a few dozen elements instead of the
 	// whole document (docs/UI-PERFORMANCE.md, "Per-track and per-tick writes land on a leaf").
 	//
-	// Sized in em off the root's font-size, so the theme gallery and the big preview are the same
-	// markup at two scales. Radii are scaled by --k for the same reason: a real 0.45rem corner on a
-	// card this small would read as a pill.
+	// Sized in em off the root's font-size. Radii are scaled by --k: a real corner on a card this
+	// small would read as a pill.
 	import { onAccent, type Custom, type ThemeId } from '$lib/theme.svelte';
 
 	type Overrides = Pick<Custom, 'accent' | 'hue' | 'radius' | 'fontSans' | 'fontHeading'>;
@@ -21,21 +20,19 @@
 		id: ThemeId;
 		dark: boolean;
 		overrides: Overrides;
-		/** Real text and artwork, for the big preview. Without it the miniature is bars only. */
-		detail?: { heading: string; title: string; artist: string; play: string; cover?: string };
+		detail: { heading: string; title: string; artist: string; play: string; cover?: string };
 	} = $props();
 
 	const fg = $derived(overrides.accent ? onAccent(overrides.accent) : null);
 	let coverFailed = $state(false);
 	$effect(() => {
-		void detail?.cover;
+		void detail.cover;
 		coverFailed = false;
 	});
 </script>
 
 <div
 	class="mock theme-{id} {dark ? 'dark' : ''}"
-	class:big={!!detail}
 	style:--primary={overrides.accent}
 	style:--primary-foreground={fg}
 	style:--accent={overrides.accent}
@@ -55,12 +52,8 @@
 			<i class="nav"></i>
 		</div>
 		<div class="main">
-			{#if detail}
-				<p class="heading">{detail.heading}</p>
-				<span class="pill">{detail.play}</span>
-			{:else}
-				<i class="heading-bar"></i>
-			{/if}
+			<p class="heading">{detail.heading}</p>
+			<span class="pill">{detail.play}</span>
 			<!-- Cut off at the bottom when it doesn't fit, like a page that scrolls on. -->
 			<div class="shelf">
 				{#each [0, 1, 2] as n (n)}
@@ -74,19 +67,14 @@
 		</div>
 	</div>
 	<div class="bar">
-		{#if detail?.cover && !coverFailed}
+		{#if detail.cover && !coverFailed}
 			<img class="cover" src={detail.cover} alt="" onerror={() => (coverFailed = true)} />
 		{:else}
 			<i class="cover"></i>
 		{/if}
 		<div class="meta">
-			{#if detail}
-				<span class="title">{detail.title}</span>
-				<span class="artist">{detail.artist}</span>
-			{:else}
-				<i class="line"></i>
-				<i class="line faint"></i>
-			{/if}
+			<span class="title">{detail.title}</span>
+			<span class="artist">{detail.artist}</span>
 		</div>
 		<div class="track"><i class="fill"></i></div>
 		<i class="play"></i>
@@ -96,21 +84,16 @@
 <style>
 	/* Every colour is a token, so the miniature is whatever palette its classes resolve to. */
 	.mock {
-		--k: 0.35;
+		--k: 0.7;
 		display: flex;
 		flex-direction: column;
 		aspect-ratio: 16 / 10;
 		overflow: hidden;
-		font-size: 5px;
+		font-size: 10px;
 		font-family: var(--font-sans);
 		color: var(--foreground);
 		background: var(--background);
 		border: 1px solid var(--border);
-		border-radius: calc(var(--radius) * 1.2);
-	}
-	.mock.big {
-		--k: 0.7;
-		font-size: 10px;
 		border-radius: calc(var(--radius) * 1.6);
 	}
 	i {
@@ -171,13 +154,6 @@
 		line-height: 1.1;
 		white-space: nowrap;
 		text-overflow: ellipsis;
-	}
-	.heading-bar {
-		width: 45%;
-		height: 1.3em;
-		border-radius: calc(var(--radius) * var(--k));
-		background: var(--foreground);
-		opacity: 0.8;
 	}
 	.shelf {
 		display: grid;

@@ -1,6 +1,6 @@
 <script lang="ts">
-	// The Appearance tab. Palettes are picked from miniatures of the app rather than by name, and a
-	// bigger miniature beside the controls shows the result before the app takes it.
+	// The Appearance tab. A miniature of the app beside the controls shows the result before the app
+	// takes it.
 	//
 	// Performance is the reason for the shape. Every theme token lives on <html>, and a custom
 	// property written there restyles the whole document: 160-200 ms on WebKitGTK (#217). The old
@@ -311,43 +311,33 @@
 		<section class={GROUP}>
 			<h3 class={LABEL}>{t('settings.sections.theme')}</h3>
 			<div class={CARD}>
-				<div
-					class="grid grid-cols-[repeat(auto-fill,minmax(7rem,1fr))] gap-2 p-3"
-					role="group"
-					aria-label={t('a11y.theme')}
-				>
+				<!-- Chips, not miniatures: the preview beside this column already shows the chosen
+				     palette in full. Each swatch carries the palette's own classes, so it is the
+				     preset's background and accent whatever is applied on top. -->
+				<div class="flex flex-wrap gap-2 p-4" role="group" aria-label={t('a11y.theme')}>
 					{#each THEMES as th (th.id)}
-						{@const on = theme.id === th.id}
 						<button
 							type="button"
 							onclick={() => applyTheme(th.id)}
-							aria-pressed={on}
-							class="flex cursor-pointer flex-col gap-1.5 rounded-xl border p-1.5 text-left transition-colors {on
-								? 'border-primary bg-primary/8'
-								: 'border-transparent hover:bg-muted/70'}"
+							aria-pressed={theme.id === th.id}
+							class="flex cursor-pointer items-center gap-2 rounded-full border py-1.5 pr-3.5 pl-2 text-sm transition-colors {theme.id ===
+							th.id
+								? 'border-primary bg-primary/10 font-medium'
+								: 'text-muted-foreground hover:bg-muted hover:text-foreground'}"
 						>
-							<!-- `custom`, not `live`: seven miniatures following a drag cost 60 of 150
-							     frames at 4x CPU in Chromium, the big preview alone costs none
-							     (perf/appearance.mjs). Only the preview needs to move with the pointer. -->
-							<ThemeMock id={th.id} dark={isDark} overrides={custom} />
-							<span class="flex items-center gap-1 px-1 pb-0.5 text-xs font-medium">
-								<span class="truncate">{th.label}</span>
-								{#if on}
-									<HugeiconsIcon
-										icon={Tick02Icon}
-										size={14}
-										strokeWidth={2.4}
-										class="ml-auto shrink-0 text-primary"
-									/>
-								{/if}
-							</span>
+							<span
+								class="theme-{th.id} {isDark
+									? 'dark'
+									: ''} size-4 shrink-0 rounded-full bg-[linear-gradient(135deg,var(--background)_50%,var(--primary)_50%)] ring-1 ring-foreground/20"
+							></span>
+							{th.label}
 						</button>
 					{/each}
 				</div>
 				{@render row({
 					title: t('settings.themes.mode'),
 					desc: t('settings.themes.mode_hint'),
-					control: modePicker
+					below: modePicker
 				})}
 			</div>
 		</section>
@@ -473,9 +463,10 @@
 	</aside>
 </div>
 
-<!-- Segmented, like audio quality: one exclusive choice. -->
+<!-- Segmented, like audio quality: one exclusive choice. Under the description rather than beside
+     the title, so a wide font or a long translation doesn't squeeze the title onto two lines. -->
 {#snippet modePicker()}
-	<div class="flex rounded-lg bg-muted p-0.5">
+	<div class="inline-flex rounded-lg bg-muted p-0.5">
 		{#each MODES as m (m.id)}
 			<button
 				type="button"
