@@ -581,7 +581,8 @@
 			"minutes_off": "Désactivé",
 			"minutes_hint": "Les morceaux longs sont comptabilisés une fois cette durée écoulée, même avant le pourcentage ci-dessus. Last.fm utilise 4 minutes. Les morceaux de moins de 30 secondes ne sont jamais comptabilisés.",
 			"section_metadata": "Ce qui est envoyé",
-			"split_titles": "Lire l'artiste à partir des titres de vidéos"
+			"split_titles": "Lire l'artiste à partir des titres de vidéos",
+			"section_rules": "Règles"
 		}
 	},
 	"dialogs": {
