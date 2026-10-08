@@ -287,7 +287,8 @@
 			"discord_hint": "Rich Presence kartınızın nasıl görüneceği.",
 			"hotkeys": "Genel Klavye Kısayolları",
 			"hotkeys_hint": "Oynatmayı kontrol etmek için sistem geneli kısayollar.",
-			"scrobbling": "Skroplama"
+			"scrobbling": "Skroplama",
+			"scrobbling_hint": "Last.fm’in nasıl çalıştığı ve bir dinlemenin ne zaman sayılacağı."
 		},
 		"sections": {
 			"language": "Dil (Language)",
@@ -608,7 +609,21 @@
 			"status_done": "{time} tarihinde skroplandı.",
 			"replace_placeholder": "Şununla değiştir",
 			"preset_video_tags": "(Official Video), (Lyrics) ve buna benzer ifadeleri kaldır",
-			"preset_explicit": "Başlıklardan \"(Explicit)\" ve \"(Clean)\" ifadelerini kaldır"
+			"preset_explicit": "Başlıklardan \"(Explicit)\" ve \"(Clean)\" ifadelerini kaldır",
+			"rule_applied": "Bu parçayı değiştirir",
+			"import_hint": "Bir Pano Scrobbler veya Web Scrobbler dışa aktarımından",
+			"import_skipped": "Burada karşılığı bulunmayan, iptal edilen: {count}.",
+			"import_unknown": "Bu dosya, Pano Scrobbler veya Web Scrobbler'dan dışa aktarılmış bir dosya değil.",
+			"edit_hint": "Bu parça her çalındığında kullanılır. YouTube Music’in ayarını kullanmak için bir alanı boş bırakın.",
+			"preview_back": "Şimdi çalana geri dön",
+			"applied_edit": "Düzenlemeniz",
+			"applied_split": "Başlık ayrımı",
+			"since": "{date} tarihinden beri skroplanıyor",
+			"enable": "Skropla",
+			"section_timing": "Bir oynatmanın ne zaman sayılacağı",
+			"percent_hint": "Bir parçanın ne kadarının çalınması gerektiği. Last.fm'in kendi kuralı yarısıdır. Bu değeri artırın ki, erken atladığınız şarkılar sayılmasın.",
+			"minutes_off": "Kapalı",
+			"section_metadata": "Gönderilecekler"
 		}
 	},
 	"dialogs": {
@@ -975,7 +990,8 @@
 		"anyway_hint": "İkinci bir kopyasını sakla",
 		"anyway_hint_local": "İkinci kopyalar yalnızca YouTube çalma listelerine eklenir",
 		"adds": "+{count}",
-		"dupes_of": "{total} tanenin {count} tanesi zaten var"
+		"dupes_of": "{total} tanenin {count} tanesi zaten var",
+		"dupes_skip": "Tekrarlayanları atla"
 	},
 	"import": {
 		"button": "İçe aktar",
@@ -1057,7 +1073,26 @@
 		"updating": "Güncelleniyor…",
 		"errors": {
 			"nothing_read": "Önce bir çalma listesi seçin",
-			"cooldown": "YouTube Music, Limusic’ten hızını azaltmasını istedi; bu nedenle içe aktarma işlemleri {time} tarihine kadar askıya alındı. Şu ana kadar bulunan tüm içerikler kaydedildi."
-		}
+			"cooldown": "YouTube Music, Limusic’ten hızını azaltmasını istedi; bu nedenle içe aktarma işlemleri {time} tarihine kadar askıya alındı. Şu ana kadar bulunan tüm içerikler kaydedildi.",
+			"not_spotify": "Bu bir Spotify çalma listesi ya da albüm bağlantısı değil.",
+			"private": "Bu çalma listesi gizlidir, bu nedenle bağlantı kullanılarak içe aktarılamaz. Çalma listesini aktarmak için aşağıdan Spotify verilerini talep edin.",
+			"unreadable": "Dosya okunamadı. Spotify'ın size e-posta ile gönderdiği zip dosyasını, içindeki JSON dosyalarından birini veya bir CSV dosyasını kullanın.",
+			"empty": "Listede hiçbir şarkı yok.",
+			"csv_columns": "Bu CSV dosyasında şarkı başlıklarını içeren bir sütun bulunmuyor.",
+			"spotify_changed": "Spotify, çalma listelerini paylaşma şeklini değiştirdi. Limusic’teki bir güncelleme bu sorunu çözecektir.",
+			"busy": "Bir içe aktarma işlemi hâla devam ediyor.",
+			"gone": "Bu içe aktarma artık açık değil",
+			"not_found": "Youtube Music'te bulunamadı."
+		},
+		"failed_hint": "Şu ana kadar bulunan şarkılar kaydedildi, bu sayede yeniden denediğinizde kaldığınız yerden devam edilir.",
+		"cancelled_desc": "Şu ana kadar bulunan şarkılar kaydedildi, bu sayede yeni bir içe aktarma yaptığınızda bu işlemin kaldığı yerden devam edilir.",
+		"toast_review": "Spotify içe aktarma işleminiz hazır. İşlemi tamamlamak için kenar çubuğundan menüyü açın.",
+		"toast_done": "Spotify çalma listeleriniz kitaplığınıza eklendi.",
+		"resolving": "Youtube Music'te aranıyor…",
+		"update_tooltip": "Spotify çalma listesine yeni eklenenleri içe aktarın ve çalma listesinden çıkarılanları silin",
+		"update_done": "Spotify'dan güncellendi: {added} eklendi, {removed} kaldırıldı",
+		"update_none": "Spotify ile zaten güncel durumdasınız",
+		"nudge_desc": "Birkaç tıklamayla çalma listelerinizi ve Beğenilen Şarkılarınızı aktarın.",
+		"nudge_title": "Spotify'dan mı geliyorsunuz?"
 	}
 }
