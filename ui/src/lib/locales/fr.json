@@ -147,7 +147,8 @@
 		"autoplay": "Lecture automatique",
 		"songs_left": "{count} morceaux restants",
 		"songs_left_one": "1 morceau restant",
-		"queue_ends": "La file d’attente se termine après ce morceau."
+		"queue_ends": "La file d’attente se termine après ce morceau.",
+		"edit_scrobble": "Modifier la réécoute"
 	},
 	"home": {
 		"good_morning": "Bonjour",
@@ -251,7 +252,9 @@
 		"saved_in": "Enregistré dans",
 		"saved_in_one": "Enregistré dans {playlist}",
 		"saved_in_many": "Enregistré dans {count} playlists",
-		"saved_in_more": "et {count} de plus"
+		"saved_in_more": "et {count} de plus",
+		"subscriptions_tab": "Abonnements",
+		"no_subscriptions": "Aucun abonnement pour le moment. Abonnez-vous à un artiste depuis sa page pour le conserver ici."
 	},
 	"local": {
 		"scanning": "Analyse du dossier…",
@@ -283,7 +286,9 @@
 			"discord": "Discord",
 			"discord_hint": "Apparence de votre carte Rich Presence.",
 			"hotkeys": "Raccourcis globaux",
-			"hotkeys_hint": "Raccourcis système pour contrôler la lecture partout."
+			"hotkeys_hint": "Raccourcis système pour contrôler la lecture partout.",
+			"scrobbling": "Réécoute",
+			"scrobbling_hint": "Ce que Last.fm reçoit, et quand une lecture est comptabilisée."
 		},
 		"sections": {
 			"language": "Langue",
@@ -553,6 +558,30 @@
 			"action_toggle_repeat_hint": "Alterner entre les modes de répétition : désactivé, tout, un seul.",
 			"action_show_app": "Afficher l'application",
 			"action_show_app_hint": "Amener la fenêtre de Limusic au premier plan."
+		},
+		"scrobbling": {
+			"account_disconnected": "Connectez votre compte Last.fm pour scrobbler ce que vous écoutez.",
+			"account_connecting": "En attente de votre approbation pour Limusic dans votre navigateur.",
+			"connect": "Connection",
+			"open_profile": "Ouvrez votre dernier profil Last.fm",
+			"since": "Scrobbling depuis le {date}",
+			"stat_scrobbles": "Réécouter",
+			"stat_artists": "Artistes",
+			"stat_tracks": "Pistes",
+			"enable": "Scrobbler",
+			"enable_hint": "Désactivez pour suspendre le scrobbling sans déconnecter votre compte.",
+			"now_playing": "Afficher la lecture en cours",
+			"now_playing_hint": "Informer Last.fm lorsqu'un morceau commence, afin que votre profil l'affiche en direct.",
+			"section_timing": "Quand une lecture est comptabilisée",
+			"percent": "Scrobbler après",
+			"percent_value": "{n} %",
+			"percent_hint": "Durée d'écoute requise. Par défaut sur Last.fm : 50 %. Augmentez cette valeur pour ignorer les morceaux zappés rapidement.",
+			"minutes": "Ou après",
+			"minutes_value": "{n} Minutes",
+			"minutes_off": "Désactivé",
+			"minutes_hint": "Les morceaux longs sont comptabilisés une fois cette durée écoulée, même avant le pourcentage ci-dessus. Last.fm utilise 4 minutes. Les morceaux de moins de 30 secondes ne sont jamais comptabilisés.",
+			"section_metadata": "Ce qui est envoyé",
+			"split_titles": "Lire l'artiste à partir des titres de vidéos"
 		}
 	},
 	"dialogs": {
@@ -610,9 +639,9 @@
 		},
 		"link": {
 			"title": "Ouvrir un lien",
-			"desc": "Collez un lien YouTube Music vers un morceau, une playlist, un album ou un artiste.",
+			"desc": "Collez un lien YouTube Music ou Spotify vers un morceau, une playlist, un album ou un artiste.",
 			"open": "Ouvrir",
-			"invalid_link": "Ce lien n'est pas un lien YouTube Music valide"
+			"invalid_link": "Ce lien n'est pas un lien YouTube Music ou Spotify valide"
 		},
 		"listen_together": {
 			"title": "Écouter ensemble",
