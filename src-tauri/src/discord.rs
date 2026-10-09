@@ -32,10 +32,12 @@
 //! attempt stalled it for the whole retry interval) before anything showed up.
 //!
 //! Sending is rate-limited, because Discord silently drops presence updates that arrive too close
-//! together — and a dropped update is invisible (the socket ACKs it). Two rules keep state from
+//! together — and a dropped update is invisible (the socket ACKs it). Four rules keep state from
 //! getting stranded behind that: a **trailing-edge floor** (when a push is due but too soon, the
 //! loop sleeps until the floor expires and then sends whatever is current — never discards it),
-//! and a short **grace** on a brand-new track so its length can land before the first push. Without
+//! a short **grace** on a brand-new track so its length can land before the first push, a
+//! **frame window** (`MAX_FRAMES` per `FRAME_WINDOW`) ensuring we do not exceed Discord's rate limits,
+//! and a **track settle** (`TRACK_SETTLE`) that collapses rapid skip bursts into one push. Without
 //! the grace, a track change pushed a bar-less card and needed a second push milliseconds later,
 //! which Discord dropped — leaving the card stuck as an elapsed counter with no progress bar.
 
@@ -78,12 +80,24 @@ const SEEK_DRIFT_MS: i64 = 2_000;
 /// Never send two updates inside this window — Discord drops the second, and does so silently.
 /// Pending state is not discarded: the loop wakes when the floor expires and sends the latest.
 const SEND_FLOOR: Duration = Duration::from_millis(1_500);
+/// A playing card is re-sent after this long so a silently lost activity heals itself (45 s:
+/// about two frame windows, so at most one refresh falls in any window and it takes at most one
+/// slot, yet a lost activity is repaired within a minute).
 const REFRESH_INTERVAL: Duration = Duration::from_secs(45);
 /// How long a new track waits for mpv to report its length before we give up and push a card with
 /// no progress bar. Collapses the track-change burst (track + length + play state) into one push.
 const DURATION_GRACE: Duration = Duration::from_millis(800);
+/// Discord gateway docs state: "Clients may only update their game status 5 times per 20 seconds"
+/// (<https://docs.discord.com/developers/events/gateway-events>, Activity Object section). The local
+/// client forwards our IPC updates to the gateway so this limit applies to us, and updates beyond it
+/// are dropped silently.
 const MAX_FRAMES: usize = 5;
+/// The sliding window MAX_FRAMES is counted in (21 s: 20 s plus one second of slack).
 const FRAME_WINDOW: Duration = Duration::from_secs(21);
+/// A skip burst arrives as track changes within about a second of each other; waiting this long
+/// after a change (when a card is already up) collapses the burst into one push (1 s: long enough
+/// to span the gap between presses in a skip burst, short enough that a single skip still shows
+/// up almost immediately).
 const TRACK_SETTLE: Duration = Duration::from_millis(1000);
 /// Floor for any computed wait — handing `recv_timeout` a zero duration would spin.
 const MIN_WAIT: Duration = Duration::from_millis(10);
@@ -498,21 +512,11 @@ impl Presence {
             self.track.is_some() && (self.playing || (self.cfg.show_paused && self.played));
         if want_card {
             if !self.wants_push() {
-                if let Some(last) = self.last_send {
-                    let rem = REFRESH_INTERVAL.saturating_sub(last.elapsed());
-                    return Act::Wait(rem.max(MIN_WAIT));
-                }
                 return Act::Idle;
             }
             if self.sent.is_some() && self.is_new_card() {
                 if let Some(rem) = TRACK_SETTLE.checked_sub(self.track_at.elapsed()) {
-                    let d = rem.max(MIN_WAIT);
-                    tracing::trace!(
-                        reason = "track_settle",
-                        wait_ms = d.as_millis(),
-                        "discord rpc waiting"
-                    );
-                    return Act::Wait(d);
+                    return Act::Wait(rem.max(MIN_WAIT));
                 }
             }
             // A new track whose length mpv hasn't reported yet: hold the first push briefly. Push
@@ -520,13 +524,7 @@ impl Presence {
             // lands — which Discord drops for arriving too soon, stranding the card without its bar.
             if self.duration <= 0.0 && self.is_new_card() {
                 if let Some(rem) = DURATION_GRACE.checked_sub(self.track_at.elapsed()) {
-                    let d = rem.max(MIN_WAIT);
-                    tracing::trace!(
-                        reason = "duration_grace",
-                        wait_ms = d.as_millis(),
-                        "discord rpc waiting"
-                    );
-                    return Act::Wait(d);
+                    return Act::Wait(rem.max(MIN_WAIT));
                 }
             }
         } else if self.sent.is_none() {
@@ -535,12 +533,9 @@ impl Presence {
         // Trailing edge: too soon to send, so come back when the floor expires — and send whatever
         // is current *then*. Never drop the update; a dropped one is invisible (the socket ACKs it).
         if let Some(rem) = self.floor_remaining() {
-            let d = rem.max(MIN_WAIT);
-            tracing::trace!(reason = "send_floor", wait_ms = d.as_millis(), "discord rpc waiting");
-            return Act::Wait(d);
+            return Act::Wait(rem.max(MIN_WAIT));
         }
         if want_card {
-            tracing::trace!(reason = "want_card", "discord rpc pushing");
             Act::Push
         } else {
             Act::Clear
@@ -558,11 +553,6 @@ impl Presence {
         if sent.video_id != track.video_id {
             return true;
         }
-        if let Some(last) = self.last_send {
-            if last.elapsed() >= REFRESH_INTERVAL {
-                return true;
-            }
-        }
         // Pausing or resuming changes the card itself (the timeline goes away and comes back), so
         // it has to re-push even though the track did not change.
         if sent.playing != self.playing {
@@ -577,6 +567,11 @@ impl Presence {
         // frozen position does not — without this the seek check would re-push once per tick.
         if !self.playing {
             return false;
+        }
+        // A playing card is re-sent so Discord recovers from a silently dropped update; a paused
+        // card is not, there is nothing to recover and it would send all night.
+        if self.last_send.is_some_and(|t| t.elapsed() >= REFRESH_INTERVAL) {
+            return true;
         }
         // Seek detection: our aged position no longer matches the timeline we pushed. Doing it
         // here, off the pushed timestamps, catches every seek — UI, media key, or Listen Together —
@@ -805,7 +800,6 @@ impl Presence {
 fn check_response(client: &mut DiscordIpcClient, what: &str) -> bool {
     match client.recv() {
         Ok((op, resp)) => {
-            tracing::debug!(what, op, "discord response received");
             if op != 1 {
                 tracing::warn!(what, op, "discord response opcode is not a normal frame");
             }
@@ -899,14 +893,6 @@ fn discord_thumb(url: &str) -> Option<String> {
 mod tests {
     use super::*;
 
-    fn quiet(a: Act) -> bool {
-        match a {
-            Act::Idle => true,
-            Act::Wait(d) => d >= Duration::from_secs(30),
-            _ => false,
-        }
-    }
-
     /// `spawn` refuses to run without one, so a bad edit here silently disables the whole feature.
     #[test]
     fn app_id_is_a_snowflake() {
@@ -957,10 +943,10 @@ mod tests {
         let mut p = playing("seed", 5.0);
         p.duration = 200.0;
         sent_now(&mut p, 5);
-        assert!(quiet(p.plan()));
+        assert_eq!(p.plan(), Act::Idle);
         p.apply(Msg::Album { video_id: "other".into(), album: "Nope".into() });
         assert_eq!(p.track.as_ref().unwrap().album, None);
-        assert!(quiet(p.plan()));
+        assert_eq!(p.plan(), Act::Idle);
         p.apply(Msg::Album { video_id: "seed".into(), album: "After Hours".into() });
         assert_eq!(p.track.as_ref().unwrap().album.as_deref(), Some("After Hours"));
         assert_eq!(p.plan(), Act::Push);
@@ -999,7 +985,7 @@ mod tests {
             duration: 185.0,
         });
         p.last_send = Some(Instant::now());
-        assert!(quiet(p.plan()), "one push per track change, not two");
+        assert_eq!(p.plan(), Act::Idle, "one push per track change, not two");
     }
 
     /// If mpv never reports a length, the card must still go out — just without a bar.
@@ -1058,7 +1044,7 @@ mod tests {
 
         p.apply(Msg::Position { pos: 31.0, at: Instant::now() });
         assert!(!p.wants_push(), "a tick on the pushed timeline must not push");
-        assert!(quiet(p.plan()));
+        assert_eq!(p.plan(), Act::Idle);
 
         p.apply(Msg::Position { pos: 120.0, at: Instant::now() });
         assert!(p.wants_push(), "a scrub must push");
@@ -1237,7 +1223,7 @@ mod tests {
         p.duration = 185.0;
         p.last_send = Some(Instant::now() - Duration::from_secs(5));
         assert!(!p.wants_push(), "ten minutes paused is not ten minutes of seeking");
-        assert!(quiet(p.plan()));
+        assert_eq!(p.plan(), Act::Idle);
 
         p.apply(Msg::Playing(true));
         assert!(p.wants_push(), "resuming must re-push: the bar has to come back");
@@ -1271,7 +1257,7 @@ mod tests {
         p.apply(Msg::Config(Box::new(RpcConfig { show_paused: true, ..Default::default() })));
         p.apply(Msg::Playing(false));
         sent_now(&mut p, 30);
-        assert!(quiet(p.plan()), "the paused card is up and current");
+        assert_eq!(p.plan(), Act::Idle, "the paused card is up and current");
 
         p.apply(Msg::Config(Box::new(RpcConfig::default())));
         assert_eq!(p.plan(), Act::Clear);
@@ -1310,12 +1296,27 @@ mod tests {
         let mut p = playing("abc", 10.0);
         sent_now(&mut p, 10);
         let now = Instant::now();
-        for _ in 0..MAX_FRAMES {
-            p.sends.push_back(now);
+        p.last_send = Some(now - Duration::from_secs(2));
+        p.sends.clear();
+        // Discord's documented limit is 5 updates per 20s; fill exactly that many, not MAX_FRAMES,
+        // so changing the constant makes this test fail.
+        for _ in 0..5 {
+            p.sends.push_back(now - Duration::from_secs(5));
         }
-        p.last_send = Some(now);
         p.apply(Msg::Position { pos: 20.0, at: now });
-        assert!(matches!(p.plan(), Act::Wait(_)), "when sends.len() >= MAX_FRAMES, plan must wait");
+        let expected_wait = FRAME_WINDOW - Duration::from_secs(5);
+        match p.plan() {
+            Act::Wait(d) => {
+                assert!(
+                    d >= expected_wait - Duration::from_secs(1)
+                        && d <= expected_wait + Duration::from_secs(1),
+                    "expected wait within 1s of {expected_wait:?}, got {d:?}"
+                );
+            }
+            other => panic!("expected Act::Wait, got {other:?}"),
+        }
+        p.sends.pop_back();
+        assert_eq!(p.plan(), Act::Push, "four frames in the window leave room for one more");
     }
 
     #[test]
@@ -1325,10 +1326,16 @@ mod tests {
         for i in 0..5 {
             p.apply(Msg::Track(track(&format!("new_{i}"))));
         }
-        assert!(
-            matches!(p.plan(), Act::Wait(_)),
-            "quick track changes with card up must wait, not push"
-        );
+        p.apply(Msg::Duration(185.0));
+        match p.plan() {
+            Act::Wait(d) => {
+                assert!(
+                    d <= TRACK_SETTLE && d > Duration::ZERO,
+                    "expected 0 < d <= {TRACK_SETTLE:?}, got {d:?}"
+                );
+            }
+            other => panic!("expected Act::Wait, got {other:?}"),
+        }
     }
 
     #[test]
@@ -1348,9 +1355,26 @@ mod tests {
         p.last_send = Some(Instant::now() - Duration::from_secs(5));
         p.apply(Msg::Position { pos: 10.0, at: Instant::now() });
         assert!(!p.wants_push());
-        match p.plan() {
-            Act::Wait(_) | Act::Idle => {}
-            other => panic!("expected Wait or Idle, got {other:?}"),
-        }
+        assert_eq!(p.plan(), Act::Idle);
+    }
+
+    #[test]
+    fn a_paused_card_does_not_refresh_after_50s() {
+        let cfg = RpcConfig { show_paused: true, ..Default::default() };
+        let mut p = Presence::new(true, cfg);
+        p.apply(Msg::Track(track("abc")));
+        p.apply(Msg::Playing(true));
+        p.apply(Msg::Position { pos: 30.0, at: Instant::now() });
+        p.apply(Msg::Playing(false));
+        p.sent = Some(Sent {
+            video_id: "abc".into(),
+            playing: false,
+            start_ms: now_ms() - 600_000,
+            duration: 185.0,
+        });
+        p.duration = 185.0;
+        p.last_send = Some(Instant::now() - Duration::from_secs(50));
+        assert!(!p.wants_push());
+        assert_eq!(p.plan(), Act::Idle);
     }
 }
