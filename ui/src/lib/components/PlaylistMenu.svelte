@@ -158,9 +158,9 @@
 	function openMenu(e: MouseEvent) {
 		e.preventDefault(); // a right-click must not also raise WebKit's own menu
 		e.stopPropagation();
-		// Saved albums and artists are only fetched by the Library page, and without them every card
-		// outside it would offer "Save to library" for something the account already holds. Cached
-		// after the first menu, so this is one pair of requests per session.
+		// Saved albums and artists load with the library at startup and on sign-in, and without them
+		// every card would offer "Save to library" for something the account already holds. Once
+		// they're in, this is a no-op: it only retries a load that failed.
 		if (auth.account?.signedIn && (item.kind === 'album' || item.kind === 'artist'))
 			loadLibraryExtras();
 		anchor = anchorMenu(e, { align: 'right' });
