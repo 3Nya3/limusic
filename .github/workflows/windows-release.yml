@@ -47,10 +47,15 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # Pinned libmpv dev build (shinchiro). Baseline x86_64 — NOT the `-v3-` variant, which requires
-  # AVX2 and would crash on older CPUs. libmpv2 needs mpv >= 0.35 (client API 2.x). Bump
-  # deliberately: a new mpv is a new 117 MB DLL in the installer.
-  MPV_DEV_URL: https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20261009/mpv-dev-x86_64-20261009-git-36abaa32d0.7z
+  # Pinned libmpv dev build from shinchiro/mpv-winbuild-cmake, mirrored on this repo's `deps`
+  # prerelease because shinchiro keeps only ~30 daily builds: v1.2.0's Windows leg died on a 404
+  # when the pinned one was pruned. Baseline x86_64, NOT the `-v3-` variant, which requires AVX2
+  # and would crash on older CPUs. libmpv2 needs mpv >= 0.35 (client API 2.x). Bump deliberately,
+  # a new mpv is a new 117 MB DLL in the installer: download a current plain `mpv-dev-x86_64-*.7z`
+  # from shinchiro, check its sha256 against the digest on that release,
+  # `gh release upload deps <file>`, then update both lines below.
+  MPV_DEV_URL: https://github.com/SimoHypers/limusic/releases/download/deps/mpv-dev-x86_64-20261009-git-36abaa32d0.7z
+  MPV_DEV_SHA256: 8a15fc07996a33235778256157151c42cbaceee976f0a98860f55047856935b2
   MPV_DIR: ${{ github.workspace }}\.libmpv
 
 jobs:
@@ -216,6 +221,7 @@ jobs:
           $ErrorActionPreference = "Stop"
           New-Item -ItemType Directory -Force -Path "$env:MPV_DIR" | Out-Null
           curl.exe -fsSL -o "$env:MPV_DIR\mpv-dev.7z" "$env:MPV_DEV_URL"
+          if ((Get-FileHash "$env:MPV_DIR\mpv-dev.7z" -Algorithm SHA256).Hash -ne $env:MPV_DEV_SHA256) { throw "mpv-dev.7z does not match MPV_DEV_SHA256" }
           7z x "$env:MPV_DIR\mpv-dev.7z" -o"$env:MPV_DIR" -y | Out-Null
           if (-not (Test-Path "$env:MPV_DIR\libmpv-2.dll")) { throw "libmpv-2.dll not found in the dev package — did MPV_DEV_URL change shape?" }
 
