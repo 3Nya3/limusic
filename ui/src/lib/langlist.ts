@@ -1,6 +1,6 @@
-// The two computed bits behind the language picker, kept pure so `langlist.check.ts` can run them
-// without a DOM or a Svelte runtime: which languages a query matches, and how much of a catalog
-// Weblate has actually landed.
+// The computed bits behind the language picker, kept pure so `langlist.check.ts` can run them
+// without a DOM or a Svelte runtime: which languages a query matches, how much of a catalog
+// Weblate has actually landed, and which catalog a system language gets.
 
 /** The fields the search reads. `LocaleInfo` satisfies it; the check file makes its own. */
 export interface Searchable {
@@ -52,4 +52,35 @@ function translated(english: unknown, catalog: unknown): number {
 export function coverage(catalog: unknown, english: unknown): number {
 	const total = translated(english, english);
 	return total > 0 ? translated(english, catalog) / total : 1;
+}
+
+/**
+ * Chinese catalogs differ by script, and a system tag usually names only the region. Bare `zh` is
+ * Simplified because that is what most of its speakers write.
+ */
+const ZH_SCRIPT: Record<string, string> = {
+	zh: 'zh-Hans',
+	'zh-cn': 'zh-Hans',
+	'zh-sg': 'zh-Hans',
+	'zh-tw': 'zh-Hant',
+	'zh-hk': 'zh-Hant',
+	'zh-mo': 'zh-Hant'
+};
+
+/**
+ * The catalog for a system language tag (`navigator.language`), or undefined. Exact tag first
+ * ('pt-br' -> pt-BR), then the Chinese region map, then a catalog the tag starts with ('tr-TR' -> tr,
+ * 'zh-Hans-CN' -> zh-Hans), then any catalog for that language ('pt-PT' -> pt-BR). The last one is a
+ * guess, but a Portuguese catalog beats English for a Portuguese speaker.
+ */
+export function pickLocale(ids: string[], tag: string): string | undefined {
+	const raw = tag.toLowerCase();
+	const base = raw.split('-')[0];
+	const zh = ZH_SCRIPT[raw];
+	return (
+		ids.find((k) => k.toLowerCase() === raw) ??
+		(zh && ids.includes(zh) ? zh : undefined) ??
+		ids.find((k) => raw.startsWith(`${k.toLowerCase()}-`)) ??
+		ids.find((k) => k.toLowerCase().split('-')[0] === base)
+	);
 }

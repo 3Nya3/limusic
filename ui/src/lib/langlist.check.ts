@@ -1,4 +1,4 @@
-// Self-check for the language picker's two computed bits (`langlist.ts`). No test runner in `ui/`,
+// Self-check for the language picker's computed bits (`langlist.ts`). No test runner in `ui/`,
 // node 22 runs TypeScript directly:
 //
 //     node --experimental-strip-types ui/src/lib/langlist.check.ts
@@ -7,7 +7,7 @@
 // cannot read depends on: the search has to find a language by its English name, by its id, and by
 // its native name typed without accents. Plus the coverage fraction, because a wrong denominator
 // would quietly label a finished catalog as half done.
-import { coverage, fold, matchLocales } from './langlist.ts';
+import { coverage, fold, matchLocales, pickLocale } from './langlist.ts';
 
 function ok(cond: boolean, what: string): void {
 	if (!cond) throw new Error(`FAIL: ${what}`);
@@ -47,5 +47,18 @@ ok(
 	'a key English dropped does not stand in for a missing one'
 );
 ok(coverage({}, {}) === 1, 'no reference keys is not a division by zero');
+
+// --- system language -> catalog ------------------------------------------------------------------
+const shipped = ['en', 'pt-BR', 'tr', 'zh-Hant', 'zh-Hans'];
+ok(pickLocale(shipped, 'pt-BR') === 'pt-BR', 'an exact tag wins');
+ok(pickLocale(shipped, 'tr-TR') === 'tr', 'a region falls back to the bare language');
+ok(pickLocale(shipped, 'pt-PT') === 'pt-BR', 'another region of a language takes its catalog');
+ok(pickLocale(shipped, 'zh-CN') === 'zh-Hans', 'mainland Chinese gets Simplified');
+ok(pickLocale(shipped, 'zh-TW') === 'zh-Hant', 'Taiwan gets Traditional');
+ok(pickLocale(shipped, 'zh-HK') === 'zh-Hant', 'Hong Kong gets Traditional');
+ok(pickLocale(shipped, 'zh-Hans-CN') === 'zh-Hans', 'a script subtag is read directly');
+ok(pickLocale(shipped, 'zh') === 'zh-Hans', 'bare zh is Simplified');
+ok(pickLocale(['en', 'zh-Hant'], 'zh-CN') === 'zh-Hant', 'Traditional beats English if it is all there is');
+ok(pickLocale(shipped, 'de-DE') === undefined, 'no catalog is undefined, the caller picks English');
 
 console.log('ok');

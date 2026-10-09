@@ -13,8 +13,11 @@ import pl from './pl.json';
 import ptBR from './pt_BR.json';
 import ro from './ro.json';
 import ru from './ru.json';
+import ta from './ta.json';
 import tr from './tr.json';
 import uk from './uk.json';
+import vi from './vi.json';
+import zhHans from './zh_Hans.json';
 import zhHant from './zh_Hant.json';
 
 export type Translations = typeof en;
@@ -37,7 +40,10 @@ export type LocaleId =
 	| 'pl'
 	| 'de'
 	| 'it'
-	| 'ja';
+	| 'ja'
+	| 'vi'
+	| 'zh-Hans'
+	| 'ta';
 
 export interface LocaleInfo {
 	id: LocaleId;
@@ -65,8 +71,11 @@ export const LOCALES: LocaleInfo[] = [
 	{ id: 'pt-BR', nativeLabel: 'Português (Brasil)', englishLabel: 'Portuguese (Brazil)' },
 	{ id: 'ro', nativeLabel: 'Română', englishLabel: 'Romanian' },
 	{ id: 'ru', nativeLabel: 'Русский', englishLabel: 'Russian' },
+	{ id: 'ta', nativeLabel: 'தமிழ்', englishLabel: 'Tamil' },
 	{ id: 'tr', nativeLabel: 'Türkçe', englishLabel: 'Turkish' },
 	{ id: 'uk', nativeLabel: 'Українська', englishLabel: 'Ukrainian' },
+	{ id: 'vi', nativeLabel: 'Tiếng Việt', englishLabel: 'Vietnamese' },
+	{ id: 'zh-Hans', nativeLabel: '简体中文', englishLabel: 'Chinese (Simplified)' },
 	{ id: 'zh-Hant', nativeLabel: '繁體中文', englishLabel: 'Chinese (Traditional)' }
 ];
 
@@ -91,5 +100,8 @@ export const translations: Record<LocaleId, DeepPartial<Translations>> = {
 	pl,
 	de,
 	it,
-	ja
+	ja,
+	vi,
+	'zh-Hans': zhHans,
+	ta
 };

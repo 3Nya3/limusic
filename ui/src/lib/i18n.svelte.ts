@@ -5,7 +5,7 @@
 import { browser } from '$app/environment';
 import { invoke } from '@tauri-apps/api/core';
 import { translations, LOCALES, type LocaleId, type Translations } from './locales';
-import { coverage } from './langlist';
+import { coverage, pickLocale } from './langlist';
 
 export type { LocaleId };
 
@@ -31,16 +31,7 @@ function getInitialLocale(): LocaleId {
 	const saved = localStorage.getItem(LOCALE_STORAGE_KEY);
 	// hasOwn, not `in`: localStorage is user-writable, and `in` would accept 'constructor'.
 	if (saved && Object.hasOwn(translations, saved)) return saved as LocaleId;
-	const raw = navigator.language?.toLowerCase() ?? '';
-	const base = raw.split('-')[0];
-	const ids = Object.keys(translations);
-	// Exact tag first ('pt-br' -> pt-BR), then the bare language ('tr-TR' -> tr), then any catalog
-	// for that language ('pt' or 'pt-PT' -> pt-BR). The last one is a guess, but a Portuguese
-	// catalog beats English for a Portuguese speaker, and an exact pt-PT would have won above.
-	const hit =
-		ids.find((k) => k.toLowerCase() === raw) ??
-		ids.find((k) => k.toLowerCase() === base) ??
-		ids.find((k) => k.toLowerCase().split('-')[0] === base);
+	const hit = pickLocale(Object.keys(translations), navigator.language ?? '');
 	return (hit as LocaleId) ?? 'en';
 }
 
