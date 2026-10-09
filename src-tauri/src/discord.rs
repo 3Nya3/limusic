@@ -707,12 +707,13 @@ impl Presence {
         // The floor is charged for every frame we put on the wire, accepted or not.
         self.note_frame();
         self.cfg_dirty = false;
+        let log_id = if track.local { "<local>" } else { track.video_id.as_str() };
         if client.set_activity(act).is_ok() && check_response(&mut client, "set_activity") {
             // Recorded even if Discord rejected the payload (warn-logged in check_response):
             // retrying an identical rejected frame in a loop helps nobody; the next real change
             // sends a fresh one.
             tracing::info!(
-                video_id = %track.video_id,
+                video_id = %log_id,
                 playing = self.playing,
                 has_duration = self.duration > 0.0,
                 pos_secs = pos,
@@ -727,7 +728,7 @@ impl Presence {
             self.client = Some(client);
         } else {
             // Broken socket — Discord quit. Drop it; the reconnect tick picks it back up.
-            tracing::warn!(video_id = %track.video_id, "discord presence push failed");
+            tracing::warn!(video_id = %log_id, "discord presence push failed");
             self.sent = None;
         }
     }
