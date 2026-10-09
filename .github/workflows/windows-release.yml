@@ -47,15 +47,18 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # Pinned libmpv dev build from shinchiro/mpv-winbuild-cmake, mirrored on this repo's `deps`
-  # prerelease because shinchiro keeps only ~30 daily builds: v1.2.0's Windows leg died on a 404
-  # when the pinned one was pruned. Baseline x86_64, NOT the `-v3-` variant, which requires AVX2
-  # and would crash on older CPUs. libmpv2 needs mpv >= 0.35 (client API 2.x). Bump deliberately,
-  # a new mpv is a new 117 MB DLL in the installer: download a current plain `mpv-dev-x86_64-*.7z`
-  # from shinchiro, check its sha256 against the digest on that release,
+  # Pinned libmpv, served from this repo's `deps` prerelease: shinchiro (mpv-winbuild-cmake) keeps
+  # only ~30 daily builds, so a pin straight to theirs 404s within two months. This one is
+  # libmpv-2.dll from shinchiro's 20260610 build (mpv v0.41.0-744-g304426c39), repacked out of our
+  # own v1.1.0 installer, so it is the exact DLL 1.1.0 and the 1.2.0 RCs shipped. Their later builds
+  # import vulkan-1.dll, which only a GPU driver installs, and 1.2.0 would not start without it
+  # (#436); the import check in the libmpv step refuses that now. Baseline x86_64, NOT the `-v3-`
+  # variant, which requires AVX2 and would crash on older CPUs. libmpv2 needs mpv >= 0.35 (client
+  # API 2.x). Bump deliberately, a new mpv is a new 117 MB DLL in the installer: a 7z with
+  # libmpv-2.dll at its root (a shinchiro `mpv-dev-x86_64-*.7z` works as is), uploaded with
   # `gh release upload deps <file>`, then update both lines below.
-  MPV_DEV_URL: https://github.com/SimoHypers/limusic/releases/download/deps/mpv-dev-x86_64-20261009-git-36abaa32d0.7z
-  MPV_DEV_SHA256: 8a15fc07996a33235778256157151c42cbaceee976f0a98860f55047856935b2
+  MPV_DEV_URL: https://github.com/SimoHypers/limusic/releases/download/deps/libmpv-2-x86_64-20260610-git-304426c.7z
+  MPV_DEV_SHA256: af708edcdf6ed12ac7b2bb31b4cbeba0bf7d4eef345a715ef5de782c0ddd6671
   MPV_DIR: ${{ github.workspace }}\.libmpv
 
 jobs:
@@ -240,6 +243,22 @@ jobs:
           @("EXPORTS") + ($names | ForEach-Object { "    $_" }) | Set-Content -Path mpv.def -Encoding ascii
           & lib /def:mpv.def /name:libmpv-2.dll /out:mpv.lib /machine:x64
           if (-not (Test-Path "$env:MPV_DIR\mpv.lib")) { throw "lib.exe did not produce mpv.lib" }
+
+          # Every DLL libmpv imports has to be part of Windows itself, or the app cannot start on a PC
+          # that lacks it (#436: vulkan-1.dll comes with GPU drivers, not with Windows). A bump that
+          # adds an import fails here until someone checks the new name ships with Windows and adds it.
+          $system = @('ADVAPI32.dll', 'AVICAP32.dll', 'AVRT.dll', 'bcrypt.dll', 'bcryptprimitives.dll',
+            'CFGMGR32.dll', 'CRYPT32.dll', 'd2d1.dll', 'dwmapi.dll', 'DWrite.dll', 'GDI32.dll', 'IMM32.dll',
+            'IPHLPAPI.DLL', 'KERNEL32.dll', 'Normaliz.dll', 'ntdll.dll', 'ole32.dll', 'OLEAUT32.dll',
+            'OPENGL32.dll', 'Secur32.dll', 'SETUPAPI.dll', 'SHCORE.dll', 'SHELL32.dll', 'SHLWAPI.dll',
+            'USER32.dll', 'UxTheme.dll', 'VERSION.dll', 'WINMM.dll', 'WLDAP32.dll', 'WS2_32.dll')
+          $imports = & dumpbin /dependents libmpv-2.dll |
+            Select-String -Pattern '^\s+(\S+\.dll)\s*$' |
+            ForEach-Object { $_.Matches[0].Groups[1].Value }
+          if ($imports.Count -lt 10) { throw "parsed only $($imports.Count) imports from libmpv-2.dll, dumpbin output format changed?" }
+          $foreign = $imports | Where-Object { $_ -notlike 'api-ms-win-*' -and $system -notcontains $_ }
+          if ($foreign) { throw "libmpv-2.dll imports DLLs that are not part of Windows: $($foreign -join ', ')" }
+          Write-Host "libmpv-2.dll imports $($imports.Count) DLLs, all part of Windows"
           Write-Host "mpv.lib built from $($names.Count) exports"
 
           # tauri.windows.conf.json lists libmpv-2.dll under bundle.resources, so the installer
