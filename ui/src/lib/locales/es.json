@@ -256,7 +256,12 @@
 		"saved_in_many": "Guardada en {count} playlists",
 		"saved_in_more": "y {count} más",
 		"subscriptions_tab": "Subscripciones",
-		"no_subscriptions": "Aún no te has suscrito a nadie. Suscríbete a un artista desde su pagina y guárdalos aquí."
+		"no_subscriptions": "Aún no te has suscrito a nadie. Suscríbete a un artista desde su pagina y guárdalos aquí.",
+		"suggestions": "Sugerencias",
+		"suggestions_hint": "Basado en lo que hay en esta playlist",
+		"suggestions_failed": "No se pudieron cargar sugerencias.",
+		"suggestion_add": "Añadir {title} a esta playlist",
+		"suggestion_added": "Añadida"
 	},
 	"local": {
 		"scanning": "Escaneando carpeta...",
@@ -290,7 +295,7 @@
 			"hotkeys": "Atajos globales",
 			"hotkeys_hint": "Atajos globales para controlar la reproducción.",
 			"scrobbling": "Scrobbleo",
-			"scrobbling_hint": "Lo que Last.fm obtiene y lo que cuenta como reproducción."
+			"scrobbling_hint": "Lo que el scrobbleo envía y lo que cuenta como reproducción."
 		},
 		"sections": {
 			"language": "Idioma",
@@ -585,7 +590,7 @@
 			"enable": "Scrobbleo",
 			"enable_hint": "Desactívalo para detener el scrobbleo sin desconectar tu cuenta.",
 			"now_playing": "Muestra que esta reproduciéndose",
-			"now_playing_hint": "Comunica la pista a Last.fm cuando empieza, para que tu perfil lo muestre en vivo.",
+			"now_playing_hint": "Anuncia cuando empieza una pista, para que tu perfil lo muestre en vivo.",
 			"section_timing": "Cuando cuenta una reproducción",
 			"percent": "Scrobble después de",
 			"percent_value": "{n}%",
@@ -637,13 +642,23 @@
 			"applied_edit": "Tu edición",
 			"applied_split": "Division del título",
 			"applied_rule": "Regla {n}",
-			"status_disconnected": "Last.fm no esta conectado, nada es enviado.",
+			"status_disconnected": "Ningún servicio de scrobbleo esta conectado, nada es enviado.",
 			"status_paused": "Scrobbleo esta desactivado.",
 			"status_skip_edit": "Tu edición desactiva esta pista.",
 			"status_incomplete": "Nada es enviado: no hay título o artista.",
 			"status_short": "Muy corto para scrobblear.",
 			"status_at": "Se scrobbleará al {time}.",
-			"status_done": "Se scrobbleó al {time}."
+			"status_done": "Se scrobbleó al {time}.",
+			"stat_listens": "Escuchadas",
+			"lb_open_profile": "Abre tu perfil de ListenBrainz",
+			"lb_disconnected": "Conecta tu cuenta de ListenBrainz para enviarle lo que escuchas.",
+			"lb_validating": "Verificando ese token con ListenBrainz.",
+			"lb_token_hint": "Pega tu token de usuario aquí. Puedes copiarlo desde la pagina de configuración de ListenBrainz.",
+			"lb_open_settings": "Abrir la configuración de ListenBrainz",
+			"lb_token_placeholder": "Token de usuario de ListenBrainz",
+			"lb_problem_email": "Verifica tu correo de MetaBrainz para que ListenBrainz acepte lo que escuchas.",
+			"lb_problem_rejected": "ListenBrainz ya no acepta este token. Conéctate otra vez con uno nuevo.",
+			"lb_verify_email": "Verificar email"
 		}
 	},
 	"dialogs": {
@@ -777,7 +792,9 @@
 		"lastfm_connecting": "Conectando a Last.fm — haz clic para cancelar",
 		"lastfm_scrobble_to": "Registrar en Last.fm",
 		"disconnect": "Desconectar",
-		"lastfm_settings": "Configuración de Scrobbleo"
+		"lastfm_settings": "Configuración de Scrobbleo",
+		"listenbrainz_connected_as": "Enviando escuchados como {user}",
+		"listenbrainz_disconnected": "ListenBrainz desconectado"
 	},
 	"a11y": {
 		"close": "Cerrar",
@@ -986,7 +1003,8 @@
 		"playlist_partial": "Se añadió {added} a {playlist}; {duplicates} ya estaban allí; {remaining} sin confirmar. {error}",
 		"remove": "Quitar de esta playlist",
 		"remove_confirm": "¿Quitar {count}?",
-		"playlists_partial": "Añadido a {done} de {total} playlists. {error}"
+		"playlists_partial": "Añadido a {done} de {total} playlists. {error}",
+		"play_on_repeat": "Reproducir solo la selección, en bucle"
 	},
 	"errors": {
 		"unreachable": "No se pudo conectar con YouTube Music. Comprueba tu conexión.",
@@ -1115,6 +1133,7 @@
 			"gone": "Esa importación ya no está activa.",
 			"not_found": "No se pudo encontrar eso en YouTube Music.",
 			"cooldown": "YouTube Music le pidió a Limusic que bajara la velocidad, así que los importes se pausaron hasta las {time}. Todo lo que se ha encontrado se conserva."
-		}
+		},
+		"paste_link_hint": "¿Solo en YouTube como un video? Pega su link."
 	}
 }
