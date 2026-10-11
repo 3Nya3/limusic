@@ -256,7 +256,11 @@
 		"saved_in_many": "{count} çalma listesine kaydedildi",
 		"saved_in_more": "ve {count} tane daha",
 		"no_subscriptions": "Henüz aboneliğiniz yok. Bir sanatçıyı buraya eklemek için sanatçının sayfasından abone olun.",
-		"subscriptions_tab": "Abonelikler"
+		"subscriptions_tab": "Abonelikler",
+		"suggestion_added": "Eklendi",
+		"suggestions": "Öneriler",
+		"suggestions_hint": "Bu çalma listesindeki şarkılara göre oluşturulur",
+		"suggestions_failed": "Öneriler yüklenemedi."
 	},
 	"local": {
 		"scanning": "Klasör taranıyor...",
@@ -643,7 +647,14 @@
 			"rule_enabled": "Bu kuralı kullan",
 			"rules_hint": "Gönderilen verilerde arama ve değiştirme işlemi, her bir parça üzerinde sırayla uygulanır.",
 			"find_hint": "Bir düzenli ifade (regex). Eşleşmeyi ilgili alana taşımak için bir gruba (?<artist>…), (?<title>…) veya (?<album>…) adını verin.",
-			"split_titles_hint": "Bir kanala atıf yapılan yüklemelerin başlığında genellikle gerçek sanatçının adı “Sanatçı - Şarkı” şeklinde belirtilir. Bunları o sanatçı ve şarkı olarak skropla. Bu sadece videolar için geçerlidir, şarkılar için geçerli değildir."
+			"split_titles_hint": "Bir kanala atıf yapılan yüklemelerin başlığında genellikle gerçek sanatçının adı “Sanatçı - Şarkı” şeklinde belirtilir. Bunları o sanatçı ve şarkı olarak skropla. Bu sadece videolar için geçerlidir, şarkılar için geçerli değildir.",
+			"stat_listens": "Dinleme",
+			"lb_open_profile": "ListenBrainz profilinizi açın",
+			"lb_disconnected": "ListenBrainz hesabınızı bağlayarak dinlediğiniz şarkıları aktarın.",
+			"lb_validating": "Token ListenBrainz ile konrol ediliyor.",
+			"lb_token_hint": "Kullanıcı tokeninizi buraya yapıştırın. Bunu ListenBrainz ayarlar sayfasından kopyalayabilirsiniz.",
+			"lb_open_settings": "ListenBrainz ayarlarını aç",
+			"lb_token_placeholder": "ListenBrainz kullanıcı tokeni"
 		}
 	},
 	"dialogs": {
