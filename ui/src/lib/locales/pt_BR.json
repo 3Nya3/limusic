@@ -150,7 +150,8 @@
 		"queue_ends": "A fila termina após esta música.",
 		"edit_scrobble": "Editar scrobble",
 		"song": "Música",
-		"video": "Vídeo"
+		"video": "Vídeo",
+		"comments": "Comentários"
 	},
 	"home": {
 		"good_morning": "Bom dia",
@@ -346,7 +347,9 @@
 			"track_notifications": "Notificações de músicas",
 			"track_notifications_hint": "Mostra uma notificação quando uma nova música começa a tocar enquanto o Limusic está em segundo plano.",
 			"start_minimized": "Iniciar na bandeja ao ligar o sistema",
-			"start_minimized_hint": "Quando o Limusic inicia junto com o sistema, ele fica na bandeja até você abri-lo. Se você mesmo abrir o app, a janela sempre será exibida."
+			"start_minimized_hint": "Quando o Limusic inicia junto com o sistema, ele fica na bandeja até você abri-lo. Se você mesmo abrir o app, a janela sempre será exibida.",
+			"track_notifications_focused": "Também ao usar o Limusic",
+			"track_notifications_focused_hint": "Mostrar uma notificação também quando a próxima música começar sozinha enquanto o Limusic for a janela ativa. Músicas que você mesmo escolhe nunca exibem uma."
 		},
 		"themes": {
 			"interface_font": "Fonte da interface",
@@ -838,7 +841,8 @@
 		"collapse_sidebar": "Recolher barra lateral",
 		"show_artwork": "Mostrar capa",
 		"show_video": "Mostrar vídeo",
-		"zoom": "Escala da interface"
+		"zoom": "Escala da interface",
+		"close_comments": "Fechar comentários"
 	},
 	"lyrics": {
 		"title": "Letra",
@@ -971,7 +975,16 @@
 		"could_not_add": "Não foi possível adicionar esse item, tente abri-lo em vez disso",
 		"added_to_playlists": "Adicionado a {count} playlists",
 		"added_to_playlists_dupes": "Adicionado a {count} playlists. Duplicatas ignoradas: {dupes}",
-		"already_in_selected": "Tudo já está nas playlists selecionadas"
+		"already_in_selected": "Tudo já está nas playlists selecionadas",
+		"could_not_load_comments": "Não foi possível carregar os comentários",
+		"comment_action_rejected": "O YouTube não aceitou isso. Seu voto não foi alterado.",
+		"comment_action_failed": "Não foi possível atualizar seu voto. Tente novamente.",
+		"comment_write_rejected": "O YouTube não aceitou isso. Seu texto ainda está aqui.",
+		"comment_write_failed": "Não foi possível enviar isso. Seu texto ainda está aqui.",
+		"comment_write_unconfirmed": "Não foi possível confirmar se seu comentário foi publicado. Verifique antes de enviá-lo novamente.",
+		"comment_posted": "Publicado. Ele aparecerá na próxima vez que os comentários forem carregados.",
+		"comment_delete_failed": "Não foi possível excluir. Verifique sua conexão e tente novamente.",
+		"comment_gone": "Esse comentário não existe mais."
 	},
 	"history": {
 		"title": "Histórico",
@@ -1135,5 +1148,51 @@
 			"cooldown": "O YouTube Music pediu para o Limusic desacelerar, então as importações estão pausadas até às {time}. Tudo o que foi encontrado até agora está salvo."
 		},
 		"paste_link_hint": "Está só no YouTube como vídeo? Cole o link."
+	},
+	"comments": {
+		"title": "Comentários",
+		"sort_top": "Principais",
+		"sort_newest": "Mais recentes",
+		"count": "{count} comentários",
+		"count_one": "1 comentário",
+		"replies": "{count} respostas",
+		"replies_one": "1 resposta",
+		"show_replies": "Ver respostas",
+		"hide_replies": "Ocultar respostas",
+		"show_more_replies": "Mostrar mais respostas",
+		"load_more": "Carregar mais",
+		"disabled": "Os comentários estão desativados ou indisponíveis para esta faixa.",
+		"empty": "Sem comentários ainda.",
+		"load_failed": "Não foi possível carregar os comentários.",
+		"retry": "Tentar novamente",
+		"pinned": "Fixado",
+		"hearted": "Recebeu coração do criador",
+		"verified": "Verificado",
+		"creator": "Criador",
+		"artist": "Artista",
+		"show_more": "Mostrar mais",
+		"show_less": "Mostrar menos",
+		"vote": "Seu voto",
+		"like": "Curtir",
+		"remove_like": "Remover curtida",
+		"dislike": "Não curtir",
+		"remove_dislike": "Remover não curtida",
+		"reload_needed": "Estes comentários estão desatualizados. Recarregue-os para continuar.",
+		"reload": "Recarregar",
+		"composer_label": "Escrever um comentário",
+		"add_placeholder": "Adicionar um comentário...",
+		"reply_placeholder": "Adicionar uma resposta...",
+		"edit_label": "Editar seu comentário",
+		"reply": "Responder",
+		"edit": "Editar",
+		"delete": "Excluir",
+		"post": "Comentar",
+		"post_reply": "Responder",
+		"save": "Salvar",
+		"sending": "Enviando...",
+		"delete_title": "Excluir este comentário?",
+		"delete_desc": "Isso não pode ser desfeito. Qualquer resposta a ele também será excluída.",
+		"held": "Comentários em {title}",
+		"follow_current": "Mostrar faixa atual"
 	}
 }
