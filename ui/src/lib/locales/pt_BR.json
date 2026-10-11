@@ -256,7 +256,12 @@
 		"saved_in_many": "Salvo em {count} playlists",
 		"saved_in_more": "e mais {count}",
 		"subscriptions_tab": "Inscrições",
-		"no_subscriptions": "Ainda não há inscrições. Inscreva-se na página de um artista para mantê-lo aqui."
+		"no_subscriptions": "Ainda não há inscrições. Inscreva-se na página de um artista para mantê-lo aqui.",
+		"suggestions": "Sugestões",
+		"suggestions_hint": "Com base no que há nesta playlist",
+		"suggestions_failed": "Não foi possível carregar as sugestões.",
+		"suggestion_add": "Adicionar {title} a esta playlist",
+		"suggestion_added": "Adicionada"
 	},
 	"local": {
 		"scanning": "Verificando pasta...",
@@ -290,7 +295,7 @@
 			"hotkeys": "Atalhos globais",
 			"hotkeys_hint": "Atalhos globais para controlar a reprodução.",
 			"scrobbling": "Scrobbling",
-			"scrobbling_hint": "O que o Last.fm recebe e quando uma reprodução é contabilizada."
+			"scrobbling_hint": "O que o scrobbling envia e quando uma reprodução é contabilizada."
 		},
 		"sections": {
 			"language": "Idioma",
@@ -585,7 +590,7 @@
 			"enable": "Ativar scrobble",
 			"enable_hint": "Desative para parar de registrar por um tempo sem desconectar sua conta.",
 			"now_playing": "Mostrar o que está tocando",
-			"now_playing_hint": "Avise o Last.fm quando uma faixa começar, para que seu perfil a mostre ao vivo.",
+			"now_playing_hint": "Anuncie a faixa assim que ela começar, para que seu perfil a mostre ao vivo.",
 			"section_timing": "Quando uma reprodução é contabilizada",
 			"percent": "Registrar após",
 			"percent_value": "{n}%",
@@ -637,13 +642,23 @@
 			"applied_edit": "Sua edição",
 			"applied_split": "Título dividido",
 			"applied_rule": "Regra {n}",
-			"status_disconnected": "O Last.fm não está conectado, então nada é enviado.",
+			"status_disconnected": "Nenhum serviço de scrobbling está conectado, então nada é enviado.",
 			"status_paused": "O scrobbling está desativado.",
 			"status_skip_edit": "Sua edição desativa esta faixa.",
 			"status_incomplete": "Nada é enviado: não sobrou título nem artista.",
 			"status_short": "Muito curta para registrar.",
 			"status_at": "Registra às {time}.",
-			"status_done": "Registrado às {time}."
+			"status_done": "Registrado às {time}.",
+			"stat_listens": "Reproduções",
+			"lb_open_profile": "Abrir seu perfil do ListenBrainz",
+			"lb_disconnected": "Conecte sua conta do ListenBrainz para enviar o que você ouve.",
+			"lb_validating": "Verificando esse token com o ListenBrainz.",
+			"lb_token_hint": "Cole seu token de usuário aqui. Você pode copiá-lo na página de configurações do ListenBrainz.",
+			"lb_open_settings": "Abrir configurações do ListenBrainz",
+			"lb_token_placeholder": "Token de usuário do ListenBrainz",
+			"lb_problem_email": "Verifique seu e-mail do MetaBrainz para que o ListenBrainz aceite suas reproduções.",
+			"lb_problem_rejected": "O ListenBrainz não aceita mais este token. Conecte-se novamente com um novo.",
+			"lb_verify_email": "Verificar e-mail"
 		}
 	},
 	"dialogs": {
@@ -777,7 +792,9 @@
 		"lastfm_connecting": "Conectando ao Last.fm — clique para cancelar",
 		"lastfm_scrobble_to": "Fazer scrobble no Last.fm",
 		"disconnect": "Desconectar",
-		"lastfm_settings": "Configurações de scrobbling"
+		"lastfm_settings": "Configurações de scrobbling",
+		"listenbrainz_connected_as": "Enviando reproduções como {user}",
+		"listenbrainz_disconnected": "ListenBrainz desconectado"
 	},
 	"a11y": {
 		"close": "Fechar",
@@ -986,7 +1003,8 @@
 		"playlist_partial": "Total adicionado à {playlist}: {added}; Total de duplicatas: {duplicates}; Total não confirmado: {remaining}. {error}",
 		"remove": "Remover desta playlist",
 		"remove_confirm": "Remover {count}?",
-		"playlists_partial": "Adicionado a {done} de {total} playlists. {error}"
+		"playlists_partial": "Adicionado a {done} de {total} playlists. {error}",
+		"play_on_repeat": "Tocar apenas estas em repetição"
 	},
 	"errors": {
 		"unreachable": "Não foi possível acessar o YouTube Music. Verifique sua conexão.",
@@ -1115,6 +1133,7 @@
 			"gone": "Essa importação não está mais aberta.",
 			"not_found": "Não foi possível encontrar isso no YouTube Music.",
 			"cooldown": "O YouTube Music pediu para o Limusic desacelerar, então as importações estão pausadas até às {time}. Tudo o que foi encontrado até agora está salvo."
-		}
+		},
+		"paste_link_hint": "Está só no YouTube como vídeo? Cole o link."
 	}
 }
