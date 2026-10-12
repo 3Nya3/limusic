@@ -64,7 +64,8 @@
 		"top_result": "Resultado principal",
 		"all_results_for": "Todos los resultados de \"{query}\"",
 		"refresh": "Actualizar",
-		"videos": "Videos"
+		"videos": "Videos",
+		"restore": "Restaurar"
 	},
 	"nav": {
 		"home": "Inicio",
@@ -198,7 +199,8 @@
 		"subscribed": "Suscrito",
 		"top_songs": "Canciones principales",
 		"subscribe_to": "Suscribirse a {name}",
-		"unsubscribe_from": "Desuscribirse de {name}"
+		"unsubscribe_from": "Desuscribirse de {name}",
+		"appears_on": "Aparece en"
 	},
 	"library": {
 		"title": "Biblioteca",
@@ -262,7 +264,8 @@
 		"suggestions_hint": "Basado en lo que hay en esta playlist",
 		"suggestions_failed": "No se pudieron cargar sugerencias.",
 		"suggestion_add": "Añadir {title} a esta playlist",
-		"suggestion_added": "Añadida"
+		"suggestion_added": "Añadida",
+		"saved_in_count": "{count} playlists"
 	},
 	"local": {
 		"scanning": "Escaneando carpeta...",
