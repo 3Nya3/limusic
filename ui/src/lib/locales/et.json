@@ -20,7 +20,8 @@
 		"local_playlist": "Kohalikke faile ei saa YouTube'i esitusloendisse lisada.",
 		"account_changed": "Lugude lisamine peatati, sest konto vahetus.",
 		"playlist_partial": "{added} lisatud loendisse {playlist}; {duplicates} oli juba olemas; {remaining} kinnitamata. {error}",
-		"playlists_partial": "Lisatud {done}/{total} esitusloendisse. {error}"
+		"playlists_partial": "Lisatud {done}/{total} esitusloendisse. {error}",
+		"play_on_repeat": "Korda ainult neid lugusid"
 	},
 	"add_playlist": {
 		"confirm": "Lisa esitusloenditesse",
@@ -199,7 +200,8 @@
 		"remove_dislike": "Eemalda mittemeeldimine",
 		"add_to_playlist": "Lisa esitusloendisse",
 		"pin_to_top": "Kinnita üles",
-		"unpin": "Eemalda kinnitus"
+		"unpin": "Eemalda kinnitus",
+		"comments": "Kommentaarid"
 	},
 	"home": {
 		"good_morning": "Tere hommikust",
@@ -268,7 +270,7 @@
 		"subscriptions_tab": "Tellimused",
 		"matching_songs": "{count} vastet",
 		"matching_songs_so_far": "Seni {count} vastet",
-		"sync_idle_tooltip": "Lisa selles seadmes salvestatud {count} oma YouTube Musicu kogusse",
+		"sync_idle_tooltip": "Lisa selles seadmes salvestatud {count} üksust oma YouTube Musicu kogusse",
 		"save_to_library": "Salvesta kogusse",
 		"in_library": "Kogus",
 		"no_matching_tracks": "Päringule „{query}“ ei vasta ükski lugu.",
@@ -314,7 +316,12 @@
 		"saved_in": "Salvestatud loendisse",
 		"saved_in_one": "Salvestatud loendisse {playlist}",
 		"saved_in_many": "Salvestatud {count} esitusloendisse",
-		"saved_in_more": "ja veel {count}"
+		"saved_in_more": "ja veel {count}",
+		"suggestions": "Soovitused",
+		"suggestions_hint": "Põhineb selle esitusloendi sisul",
+		"suggestions_failed": "Soovituste laadimine ebaõnnestus.",
+		"suggestion_add": "Lisa {title} sellesse esitusloendisse",
+		"suggestion_added": "Lisatud"
 	},
 	"local": {
 		"scanning": "Kausta skannimine...",
@@ -399,7 +406,9 @@
 			"proxy_hint": "Suuna kõik võrgupäringud läbi kohandatud puhverserveri.",
 			"proxy_placeholder": "http://host:port (tühi = puudub)",
 			"stream_clients": "Voo kliendid",
-			"stream_clients_hint": "Lülita klient välja, et see voogude leidmisel vahele jätta. Keskkonnamuutuja {var} kirjutab selle üle."
+			"stream_clients_hint": "Lülita klient välja, et see voogude leidmisel vahele jätta. Keskkonnamuutuja {var} kirjutab selle üle.",
+			"track_notifications_focused": "Ka Limusicu kasutamisel",
+			"track_notifications_focused_hint": "Näita teavitust ka siis, kui järgmine lugu hakkab automaatselt mängima ja Limusic on aktiivne aken. Ise valitud lugude puhul teavitust ei näidata."
 		},
 		"themes": {
 			"interface_font": "Kasutajaliidese font",
@@ -701,7 +710,17 @@
 			"status_incomplete": "Midagi ei saadeta: pealkirja või esitajat pole alles.",
 			"status_short": "Liiga lühike scrobble'imiseks.",
 			"status_at": "Scrobble'itakse kell {time}.",
-			"status_done": "Scrobble'itud kell {time}."
+			"status_done": "Scrobble'itud kell {time}.",
+			"stat_listens": "Kuulamised",
+			"lb_open_profile": "Ava oma ListenBrainzi profiil",
+			"lb_disconnected": "Ühenda oma ListenBrainzi konto, et saata sinna kuulatud lood.",
+			"lb_validating": "Tokeni kontrollimine ListenBrainziga...",
+			"lb_token_hint": "Kleebi siia oma kasutajatoken. Saad selle kopeerida oma ListenBrainzi seadete lehelt.",
+			"lb_open_settings": "Ava ListenBrainzi seaded",
+			"lb_token_placeholder": "ListenBrainzi kasutajatoken",
+			"lb_problem_email": "Kinnita oma MetaBrainzi e-posti aadress, et ListenBrainz võtaks kuulamisi vastu.",
+			"lb_problem_rejected": "ListenBrainz ei aktsepteeri enam seda tokenit. Ühenda uuesti uue tokeniga.",
+			"lb_verify_email": "Kinnita e-post"
 		}
 	},
 	"dialogs": {
@@ -835,7 +854,9 @@
 		"lastfm_connecting": "Last.fm-iga ühendamine – klõpsa tühistamiseks",
 		"lastfm_scrobble_to": "Scrobble'i Last.fm-i",
 		"lastfm_settings": "Scrobble'imise seaded",
-		"disconnect": "Katkesta ühendus"
+		"disconnect": "Katkesta ühendus",
+		"listenbrainz_connected_as": "Kuulamiste saatmine kasutajana {user}",
+		"listenbrainz_disconnected": "ListenBrainz pole ühendatud"
 	},
 	"a11y": {
 		"close": "Sulge",
@@ -879,7 +900,8 @@
 		"expand_sidebar": "Laienda külgriba",
 		"collapse_sidebar": "Ahenda külgriba",
 		"show_artwork": "Näita kaanepilti",
-		"show_video": "Näita videot"
+		"show_video": "Näita videot",
+		"close_comments": "Sulge kommentaarid"
 	},
 	"lyrics": {
 		"title": "Laulusõnad",
@@ -1012,7 +1034,16 @@
 		"subscribed": "Tellitud: {name}",
 		"unsubscribed": "Tellimus tühistatud",
 		"signed_in_as": "Sisse logitud kasutajana {name}",
-		"switched_to": "Vahetatud: {name}"
+		"switched_to": "Vahetatud: {name}",
+		"could_not_load_comments": "Kommentaaride laadimine ebaõnnestus",
+		"comment_action_rejected": "YouTube ei võtnud seda vastu. Sinu häält ei muudetud.",
+		"comment_action_failed": "Hääle uuendamine ebaõnnestus. Proovi uuesti.",
+		"comment_write_rejected": "YouTube ei võtnud seda vastu. Sinu tekst on endiselt alles.",
+		"comment_write_failed": "Saatmine ebaõnnestus. Sinu tekst on endiselt alles.",
+		"comment_write_unconfirmed": "Kommentaari postitamist ei õnnestunud kinnitada. Kontrolli enne uuesti saatmist.",
+		"comment_posted": "Postitatud. See ilmub kommentaaride järgmisel laadimisel.",
+		"comment_delete_failed": "Kustutamine ebaõnnestus. Kontrolli ühendust ja proovi uuesti.",
+		"comment_gone": "Seda kommentaari pole enam olemas."
 	},
 	"import": {
 		"button": "Impordi",
@@ -1029,13 +1060,13 @@
 		"data_desc": "Kõik, ka privaatsed esitusloendid ja Meeldivad lood. Küsi Spotifylt oma kontoandmeid ja need saabuvad e-postiga, tavaliselt paari päeva jooksul.",
 		"request_data": "Taotle seda Spotifys",
 		"choose_file": "Vali fail",
-		"file_filter": "Spotify andmed või CSV",
+		"file_filter": "Spotify data või CSV",
 		"drop_hint": "Kui e-kiri saabub, lohista zip-fail siia. Sobivad ka Exportify, TuneMyMusicu või Soundiizi CSV-failid.",
 		"liked_songs": "Meeldivad lood",
 		"liked_songs_playlist": "Meeldivad lood Spotifyst",
 		"by": "Autor: {owner}",
 		"songs_count": "{count} lugu",
-		"truncated": "Spotify jagas selle esitusloendi ainult esimest 100 lugu. Kogu loendi toomiseks kasuta oma Spotify andmeid.",
+		"truncated": "Spotify jagas sellest esitusloendist ainult esimesed 100 lugu. Kogu loendi toomiseks kasuta oma Spotify andmeid.",
 		"lists_found": "{count} esitusloendit",
 		"select_all": "Vali kõik",
 		"select_none": "Tühista valik",
@@ -1097,7 +1128,7 @@
 		"from_spotify": "Spotifyst",
 		"update": "Uuenda",
 		"updating": "Uuendamine…",
-		"update_tooltip": "Lisa Spotify esitusloendisse lisandunu ja eemalda sealt lahkunu",
+		"update_tooltip": "Lisa Spotify esitusloendisse lisandunu ja eemalda sealt eemaldatu",
 		"update_done": "Uuendatud Spotifyst: {added} lisatud, {removed} eemaldatud",
 		"update_none": "Juba Spotifyga ajakohane",
 		"nudge_title": "Tuled Spotifyst?",
@@ -1115,6 +1146,53 @@
 			"gone": "See import pole enam avatud.",
 			"not_found": "Seda ei leitud YouTube Musicust.",
 			"cooldown": "YouTube Music palus Limusicul aeglustada, seega on import peatatud kuni {time}. Kõik seni leitu on salvestatud."
-		}
+		},
+		"paste_link_hint": "Ainult YouTube'is videona? Kleebi selle link."
+	},
+	"comments": {
+		"title": "Kommentaarid",
+		"sort_top": "Parimad",
+		"sort_newest": "Uusimad",
+		"count": "{count} kommentaari",
+		"count_one": "1 kommentaar",
+		"replies": "{count} vastust",
+		"replies_one": "1 vastus",
+		"show_replies": "Vaata vastuseid",
+		"hide_replies": "Peida vastused",
+		"show_more_replies": "Näita rohkem vastuseid",
+		"load_more": "Laadi rohkem",
+		"disabled": "Kommentaarid on selle loo jaoks välja lülitatud või pole saadaval.",
+		"empty": "Kommentaare veel pole.",
+		"load_failed": "Kommentaaride laadimine ebaõnnestus.",
+		"retry": "Proovi uuesti",
+		"pinned": "Kinnitatud",
+		"hearted": "Autori südamega märgitud",
+		"verified": "Kinnitatud",
+		"creator": "Looja",
+		"artist": "Esitaja",
+		"show_more": "Näita rohkem",
+		"show_less": "Näita vähem",
+		"vote": "Sinu hääl",
+		"like": "Meeldib",
+		"remove_like": "Eemalda meeldimine",
+		"dislike": "Ei meeldi",
+		"remove_dislike": "Eemalda mittemeeldimine",
+		"reload_needed": "Need kommentaarid on aegunud. Jätkamiseks laadi need uuesti.",
+		"reload": "Laadi uuesti",
+		"composer_label": "Kirjuta kommentaar",
+		"add_placeholder": "Lisa kommentaar...",
+		"reply_placeholder": "Lisa vastus...",
+		"edit_label": "Muuda oma kommentaari",
+		"reply": "Vasta",
+		"edit": "Muuda",
+		"delete": "Kustuta",
+		"post": "Kommenteeri",
+		"post_reply": "Vasta",
+		"save": "Salvesta",
+		"sending": "Saatmine...",
+		"delete_title": "Kas kustutada see kommentaar?",
+		"delete_desc": "Seda ei saa tagasi võtta. Kustutatakse ka kõik selle vastused.",
+		"held": "Loo „{title}“ kommentaarid",
+		"follow_current": "Näita praegust lugu"
 	}
 }
