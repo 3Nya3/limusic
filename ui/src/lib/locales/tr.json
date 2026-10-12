@@ -654,7 +654,7 @@
 			"stat_listens": "Dinleme",
 			"lb_open_profile": "ListenBrainz profilinizi açın",
 			"lb_disconnected": "ListenBrainz hesabınızı bağlayarak dinlediğiniz şarkıları aktarın.",
-			"lb_validating": "Token ListenBrainz ile konrol ediliyor.",
+			"lb_validating": "Token ListenBrainz ile kontrol ediliyor.",
 			"lb_token_hint": "Kullanıcı tokeninizi buraya yapıştırın. Bunu ListenBrainz ayarlar sayfasından kopyalayabilirsiniz.",
 			"lb_open_settings": "ListenBrainz ayarlarını aç",
 			"lb_token_placeholder": "ListenBrainz kullanıcı tokeni",
