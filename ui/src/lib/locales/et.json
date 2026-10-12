@@ -102,7 +102,8 @@
 		"shuffle_all": "Esita kõik juhuslikult",
 		"play_all": "Esita kõik",
 		"top_result": "Parim tulemus",
-		"all_results_for": "Kõik tulemused päringule „{query}“"
+		"all_results_for": "Kõik tulemused päringule „{query}“",
+		"restore": "Taasta"
 	},
 	"search": {
 		"recent": "Hiljutised otsingud",
@@ -257,7 +258,8 @@
 		"subscribed": "Tellitud",
 		"subscribe_to": "Telli {name}",
 		"unsubscribe_from": "Tühista tellimus: {name}",
-		"top_songs": "Populaarseimad lood"
+		"top_songs": "Populaarseimad lood",
+		"appears_on": "Esineb veel"
 	},
 	"library": {
 		"title": "Kogu",
@@ -321,7 +323,8 @@
 		"suggestions_hint": "Põhineb selle esitusloendi sisul",
 		"suggestions_failed": "Soovituste laadimine ebaõnnestus.",
 		"suggestion_add": "Lisa {title} sellesse esitusloendisse",
-		"suggestion_added": "Lisatud"
+		"suggestion_added": "Lisatud",
+		"saved_in_count": "{count} esitusloendit"
 	},
 	"local": {
 		"scanning": "Kausta skannimine...",
