@@ -64,7 +64,8 @@
 		"top_result": "Melhor resultado",
 		"all_results_for": "Todos os resultados para “{query}”",
 		"refresh": "Atualizar",
-		"videos": "Vídeos"
+		"videos": "Vídeos",
+		"restore": "Restaurar"
 	},
 	"nav": {
 		"home": "Início",
@@ -198,7 +199,8 @@
 		"subscribed": "Inscrito",
 		"top_songs": "Principais músicas",
 		"subscribe_to": "Inscrever-se em {name}",
-		"unsubscribe_from": "Cancelar inscrição de {name}"
+		"unsubscribe_from": "Cancelar inscrição de {name}",
+		"appears_on": "Presente em"
 	},
 	"library": {
 		"title": "Biblioteca",
@@ -262,7 +264,8 @@
 		"suggestions_hint": "Com base no que há nesta playlist",
 		"suggestions_failed": "Não foi possível carregar as sugestões.",
 		"suggestion_add": "Adicionar {title} a esta playlist",
-		"suggestion_added": "Adicionada"
+		"suggestion_added": "Adicionada",
+		"saved_in_count": "{count} playlists"
 	},
 	"local": {
 		"scanning": "Verificando pasta...",
