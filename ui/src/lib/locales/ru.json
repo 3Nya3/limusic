@@ -64,7 +64,8 @@
 		"refresh": "Обновить",
 		"videos": "Видео",
 		"top_result": "Лучший результат",
-		"all_results_for": "Все результаты по запросу «{query}»"
+		"all_results_for": "Все результаты по запросу «{query}»",
+		"restore": "Восстановить"
 	},
 	"nav": {
 		"home": "Главная",
@@ -198,7 +199,8 @@
 		"subscribed": "Вы подписаны",
 		"top_songs": "Популярные треки",
 		"unsubscribe_from": "Отписаться от «{name}»",
-		"subscribe_to": "Подписаться на «{name}»"
+		"subscribe_to": "Подписаться на «{name}»",
+		"appears_on": "Появляется на"
 	},
 	"library": {
 		"title": "Медиатека",
