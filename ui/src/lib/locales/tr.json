@@ -64,7 +64,8 @@
 		"top_result": "En iyi sonuç",
 		"all_results_for": "\"{query}\" sorgusu için bütün sonuçlar",
 		"refresh": "Yenile",
-		"videos": "Videolar"
+		"videos": "Videolar",
+		"restore": "Geri al"
 	},
 	"nav": {
 		"home": "Ana Sayfa",
@@ -198,7 +199,8 @@
 		"subscribed": "Abone olundu",
 		"top_songs": "En popüler şarkılar",
 		"subscribe_to": "{name} isimli sanatçıyı takip et",
-		"unsubscribe_from": "{name} isimli sanatçıyı takibi bırak"
+		"unsubscribe_from": "{name} isimli sanatçıyı takibi bırak",
+		"appears_on": "Yer aldığı albümler"
 	},
 	"library": {
 		"title": "Kitaplık",
@@ -261,7 +263,9 @@
 		"suggestion_added": "Eklendi",
 		"suggestions": "Öneriler",
 		"suggestions_hint": "Bu çalma listesindeki şarkılar baz alınarak oluşturulur",
-		"suggestions_failed": "Öneriler yüklenemedi."
+		"suggestions_failed": "Öneriler yüklenemedi.",
+		"suggestion_add": "{title} parçasını bu çalma listesine ekle",
+		"saved_in_count": "{count} çalma listesi"
 	},
 	"local": {
 		"scanning": "Klasör taranıyor...",
@@ -347,7 +351,7 @@
 			"track_notifications_hint": "Limusic arka plandayken yeni bir şarkı başladığında bildirim göster.",
 			"start_minimized": "Başlangıçta sistem tepsisine başlat",
 			"start_minimized_hint": "Limusic sisteminle birlikte başladığında siz açana kadar tepside kalır. Kendiniz açtığınızda ise pencere her zaman gösterilir.",
-			"track_notifications_focused": "Ayrıca Limusic'i kullanırken",
+			"track_notifications_focused": "Ayrıca Limusic'i kullanırken bildirimler",
 			"track_notifications_focused_hint": "Ayrıca, Limusic penceresi aktifken bir sonraki şarkı kendiliğinden başladığında bir bildirim göster. Kendi seçtiğin şarkılarda ise böyle bir bildirim gösterilmez."
 		},
 		"themes": {
@@ -658,7 +662,9 @@
 			"lb_token_hint": "Kullanıcı tokeninizi buraya yapıştırın. Bunu ListenBrainz ayarlar sayfasından kopyalayabilirsiniz.",
 			"lb_open_settings": "ListenBrainz ayarlarını aç",
 			"lb_token_placeholder": "ListenBrainz kullanıcı tokeni",
-			"lb_verify_email": "E-postayı doğrula"
+			"lb_verify_email": "E-postayı doğrula",
+			"lb_problem_email": "ListenBrainz'in dinlediklerinizi kabul etmesi için MetaBrainz e-posta adresinizi doğrulayın.",
+			"lb_problem_rejected": "ListenBrainz artık bu tokeni kabul etmiyor. Yeni bir token kullanarak yeniden bağlanın."
 		}
 	},
 	"dialogs": {
@@ -793,7 +799,8 @@
 		"lastfm_scrobble_to": "Last.fm'e scrobble et",
 		"disconnect": "Bağlantıyı kes",
 		"lastfm_settings": "Skroplama ayarları",
-		"listenbrainz_disconnected": "ListenBrainz bağlantısı kesildi"
+		"listenbrainz_disconnected": "ListenBrainz bağlantısı kesildi",
+		"listenbrainz_connected_as": "Dinlemeler {user} olarak gönderiliyor"
 	},
 	"a11y": {
 		"close": "Kapat",
@@ -978,7 +985,9 @@
 		"comment_gone": "Bu yorum artık mevcut değil.",
 		"comment_delete_failed": "Silinemedi. Bağlantınızı kontrol edin ve tekrar deneyin.",
 		"comment_write_rejected": "YouTube bunu kabul etmedi. Metnin hâlâ duruyor.",
-		"comment_write_failed": "Gönderilemedi. Metnin hâlâ duruyor."
+		"comment_write_failed": "Gönderilemedi. Metnin hâlâ duruyor.",
+		"comment_write_unconfirmed": "Yorumunuzun yayınlanıp yayınlanmadığından emin olamadık. Tekrar göndermeden önce lütfen kontrol edin.",
+		"comment_posted": "Yayınlandı. Yorumlar yeniden yüklendiğinde görünecektir."
 	},
 	"history": {
 		"title": "Geçmiş",
@@ -1010,7 +1019,8 @@
 		"playlist_partial": "{playlist} listesine {added} eklendi; {duplicates} zaten listede vardı; {remaining} onaylanmadı. {error}",
 		"remove": "Bu çalma listesinden kaldır",
 		"remove_confirm": "{count} kaldır?",
-		"playlists_partial": "{total} oynatma listesinin {done} tanesi eklendi. {error}"
+		"playlists_partial": "{total} oynatma listesinin {done} tanesi eklendi. {error}",
+		"play_on_repeat": "Tekrar modunda sadece bunları çal"
 	},
 	"errors": {
 		"unreachable": "YouTube Music'e erişilemedi. Bağlantınızı kontrol edin.",
@@ -1139,7 +1149,8 @@
 		"update_done": "Spotify'dan güncellendi: {added} eklendi, {removed} kaldırıldı",
 		"update_none": "Spotify ile zaten güncel durumdasınız",
 		"nudge_desc": "Birkaç tıklamayla çalma listelerinizi ve Beğenilen Şarkılarınızı aktarın.",
-		"nudge_title": "Spotify'dan mı geliyorsunuz?"
+		"nudge_title": "Spotify'dan mı geliyorsunuz?",
+		"paste_link_hint": "YouTube'da sadece video olarak mı var? Bağlantısını yapıştırın."
 	},
 	"comments": {
 		"title": "Yorumlar",
@@ -1180,6 +1191,11 @@
 		"sending": "Gönderiliyor...",
 		"delete_title": "Yorumu silmek istediğinizden emin misiniz?",
 		"follow_current": "Şuanki parçayı göster",
-		"held": "{title} parçasının yorumları"
+		"held": "{title} parçasının yorumları",
+		"post_reply": "Yanıtla",
+		"delete_desc": "Bu işlem geri alınamaz. Bu içeriğe yapılan tüm yanıtlar da silinecektir.",
+		"hearted": "Üretici tarafından beğenildi",
+		"creator": "Üretici",
+		"reload_needed": "Yorumlar güncel değil. Devam etmek için sayfayı yeniden yükleyin."
 	}
 }
