@@ -202,7 +202,8 @@
 		"add_to_playlist": "Lisa esitusloendisse",
 		"pin_to_top": "Kinnita üles",
 		"unpin": "Eemalda kinnitus",
-		"comments": "Kommentaarid"
+		"comments": "Kommentaarid",
+		"up_next": "Järgmisena esitamisel"
 	},
 	"home": {
 		"good_morning": "Tere hommikust",
@@ -463,7 +464,9 @@
 			"accent_theme": "Teema enda rõhuvärv",
 			"accent_artwork_note": "Loo mängimise ajal tuleb rõhuvärv selle kaanepildilt. Selle nägemiseks lülita välja „Kohanda värvid kaanepildiga“.",
 			"preview": "Eelvaade",
-			"preview_hint": "Liugurid ja värvivalija kuvatakse siin lohistamise ajal ning rakendus järgib, kui lahti lased."
+			"preview_hint": "Liugurid ja värvivalija kuvatakse siin lohistamise ajal ning rakendus järgib, kui lahti lased.",
+			"blur_playlist_header": "Hägusta esitusloendi päised",
+			"blur_playlist_header_hint": "Näita esitusloendi kaanepilti pealkirja taga hägustatuna. Sellega kuvad kaanepildid sujuvatena, mis täislaiusele venitatuna näevad välja pikseldatuna."
 		},
 		"playback": {
 			"audio_quality": "Helikvaliteet",
@@ -514,7 +517,9 @@
 			"lyrics_move_source": "Liiguta allikat {name}",
 			"lyrics_moved_source": "{name} liigutati kohale {position}/{total}",
 			"lyrics_use_source": "Kasuta allikat {name}",
-			"lyrics_sources_none": "Kõik allikad on väljas, seega laulusõnu ei leita."
+			"lyrics_sources_none": "Kõik allikad on väljas, seega laulusõnu ei leita.",
+			"videos_first": "Esmalt esita videot",
+			"videos_first_hint": "Kui albumi laulul on muusikavideo, siis algab esitus videoga. Lülita see välja, kui tahad esmalt kuulda laulu. Pleieri vaates asuv nupp „Laul/Video“ võimaldab mõlematpidi nende vahel vahetada."
 		},
 		"hotkeys": {
 			"title": "Globaalsed kiirklahvid",
