@@ -1212,6 +1212,17 @@ export function refreshView() {
 	ui.epoch++;
 }
 
+/**
+ * After a language change. The page remount alone leaves the sidebar and Library on YouTube's text
+ * in the old language ("43 itens", "Playlist automática"), since the library store outlives routes.
+ */
+export function refreshLanguage() {
+	refreshView();
+	loadLibrary(true);
+	if (library.extrasLoaded) loadLibraryExtras(true);
+	if (library.uploadAlbumsLoaded) loadUploadAlbums(true);
+}
+
 export function openChannelPicker(required = false) {
 	ui.channelPickerRequired = required;
 	ui.channelIdentities = [];
@@ -1624,7 +1635,7 @@ export function initApp(mini = false): () => void {
 			// system, and on the first launch after this shipped. Put it right and refetch: the pages
 			// already on screen were painted in the stale language.
 			if (s.locale !== currentLocale.id) {
-				pushLocaleToRust(currentLocale.id).then(refreshView);
+				pushLocaleToRust(currentLocale.id).then(refreshLanguage);
 			}
 		})
 		.catch(() => {});
