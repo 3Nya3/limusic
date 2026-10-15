@@ -240,9 +240,6 @@
 		"sections_hint": "Jaotise liigutamiseks lohista seda või fokusseeri selle pide ja kasuta nooleklahve. Peidetud jaotised hoiavad oma kohta.",
 		"move_section": "Liiguta jaotist {title}",
 		"moved_section": "{title} liigutati kohale {position}/{total}",
-		"new_section": "Uus",
-		"show_new": "Näita uusi jaotisi",
-		"show_new_desc": "YouTube lisab ja nimetab riiuleid aja jooksul ümber. Kui see on väljas, saabuvad uued peidetuna ja ootavad siin, kuni need sisse lülitad.",
 		"all_hidden": "Kõik avalehel on välja lülitatud."
 	},
 	"history": {

@@ -190,9 +190,6 @@
 		"sections_hint": "Arrastra una sección para moverla, o selecciona su botón de arrastre y usa las flechas. Las secciones ocultas conservan su posición.",
 		"move_section": "Mover {title}",
 		"moved_section": "{title} movido a la posición {position} de {total}",
-		"new_section": "Nueva",
-		"show_new": "Mostrar nuevas secciones",
-		"show_new_desc": "YouTube agrega y renombra secciones con el tiempo. Si desactivas esta opción, las nuevas secciones se añadirán ocultas y esperarán aquí hasta que las actives.",
 		"all_hidden": "Todo en el inicio esta desactivado."
 	},
 	"artist": {

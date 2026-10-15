@@ -208,9 +208,6 @@
 		"sections_hint": "拖曳區塊或使用方向鍵來調整排列順序。已隱藏的區塊會保留其原本位置。",
 		"move_section": "移動「{title}」",
 		"moved_section": "「{title}」已移動至第 {position} 個（共 {total} 個）",
-		"new_section": "新版塊",
-		"show_new": "顯示新版塊",
-		"show_new_desc": "YouTube 會隨時間新增或更名分類區塊。關閉時，新區塊預設為隱藏，直到您手動開啟。",
 		"all_hidden": "首頁上的所有區塊皆已關閉。"
 	},
 	"history": {

@@ -188,9 +188,6 @@
 		"sections_hint": "Trage o secțiune pentru a o muta sau selectează mânerul și folosește tastele săgeți. Secțiunile ascunse își păstrează poziția.",
 		"move_section": "Mută secțiunea {title}",
 		"moved_section": "Secțiunea {title} a fost mutată pe poziția {position} din {total}",
-		"new_section": "Nou",
-		"show_new": "Arată secțiunile noi",
-		"show_new_desc": "YouTube adaugă și redenumește secțiuni periodic. Când opțiunea este dezactivată, acestea rămân ascunse până le activezi manual.",
 		"all_hidden": "Toate secțiunile de pe Acasă sunt dezactivate."
 	},
 	"history": {

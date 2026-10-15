@@ -189,9 +189,6 @@
 		"sections_hint": "Bir bölümü taşımak için sürükleyin ya da tutacağına odaklanıp ok tuşlarını kullanın. Gizli bölümler yerlerini korur.",
 		"move_section": "Taşı: {title}",
 		"moved_section": "{title} öğesi, {total} öğe arasında {position}. sıraya taşındı",
-		"new_section": "Yeni",
-		"show_new": "Yeni kısımları göster",
-		"show_new_desc": "YouTube zamanla raflar ekler ve yeniden adlandırır. Kapalıyken, bunlar gizli olarak gelir ve sen açana kadar burada bekler.",
 		"all_hidden": "Ana sayfadaki her şey kapatıldı."
 	},
 	"artist": {
