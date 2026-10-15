@@ -18,6 +18,7 @@ mod listenbrainz;
 mod listentogether;
 mod local;
 mod lyrics;
+mod matugen;
 mod media;
 mod mini;
 #[cfg(target_os = "linux")]
@@ -1001,6 +1002,9 @@ pub fn run() {
             commands::forget_video_stream,
             commands::native_video_rect,
             commands::ambient_frame,
+            commands::get_matugen_theme,
+            commands::start_matugen_watcher,
+            commands::stop_matugen_watcher,
             commands::get_settings,
             commands::set_setting,
             commands::get_global_hotkeys,

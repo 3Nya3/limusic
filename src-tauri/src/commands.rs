@@ -2719,6 +2719,21 @@ pub fn theater_fullscreen(window: tauri::WebviewWindow, on: bool) -> Result<(), 
     }
 }
 
+#[tauri::command]
+pub fn get_matugen_theme(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    crate::matugen::read(&app)
+}
+
+#[tauri::command]
+pub fn start_matugen_watcher(app: tauri::AppHandle) -> Result<(), String> {
+    crate::matugen::start(app)
+}
+
+#[tauri::command]
+pub fn stop_matugen_watcher() {
+    crate::matugen::stop();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1260,3 +1260,9 @@ export const onLtState = (cb: (s: LtState) => void): Promise<UnlistenFn> =>
 	listen<LtState>('lt-state', (e) => cb(e.payload));
 export const onLtNotice = (cb: (msg: string) => void): Promise<UnlistenFn> =>
 	listen<string>('lt-notice', (e) => cb(e.payload));
+
+export const getMatugenTheme = () => invoke<string | null>('get_matugen_theme');
+export const onMatugenThemeChanged = (cb: (css: string | null) => void): Promise<UnlistenFn> =>
+	listen<string | null>('matugen-theme-changed', (event) => cb(event.payload));
+export const startMatugenWatcher = () => invoke<void>('start_matugen_watcher');
+export const stopMatugenWatcher = () => invoke<void>('stop_matugen_watcher');
