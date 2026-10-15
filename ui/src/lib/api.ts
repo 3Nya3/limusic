@@ -335,7 +335,10 @@ export interface AlbumPage {
 
 export interface ArtistPage {
 	name?: string;
+	/** Wide hero/banner image from the page header. */
 	thumbnail?: string;
+	/** Round channel avatar. Only channels YouTube Music doesn't treat as artists have one. */
+	avatar?: string;
 	description?: string;
 	subscribers?: string;
 	monthlyListeners?: string;

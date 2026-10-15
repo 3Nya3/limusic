@@ -246,8 +246,13 @@ pub struct PlaylistSuggestions {
 #[serde(rename_all = "camelCase")]
 pub struct ArtistPage {
     pub name: Option<String>,
-    /// The wide hero/banner image from the immersive header.
+    /// The wide hero/banner image from the page header.
     pub thumbnail: Option<String>,
+    /// The round channel avatar. Only `musicVisualHeaderRenderer` (a channel YouTube Music
+    /// doesn't treat as an artist) carries one; `musicImmersiveHeaderRenderer` has the banner
+    /// alone.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avatar: Option<String>,
     pub description: Option<String>,
     /// e.g. "32.7M subscribers" (the long form; the short one is a bare "32.7M").
     pub subscribers: Option<String>,
@@ -944,7 +949,9 @@ pub fn parse_artist(root: &Value, browse_id: &str) -> ArtistPage {
     let header = find_all(root, "musicImmersiveHeaderRenderer")
         .into_iter()
         .next()
-        .or_else(|| find_all(root, "musicHeaderRenderer").into_iter().next());
+        .or_else(|| find_all(root, "musicHeaderRenderer").into_iter().next())
+        // A channel YouTube Music doesn't treat as an artist answers with this one instead.
+        .or_else(|| find_all(root, "musicVisualHeaderRenderer").into_iter().next());
 
     let name = header.and_then(|h| runs_text(h.get("title")));
     let description = header.and_then(|h| runs_text(h.get("description")));
@@ -953,6 +960,7 @@ pub fn parse_artist(root: &Value, browse_id: &str) -> ArtistPage {
         .and_then(|h| h.get("thumbnail"))
         .and_then(last_thumbnail)
         .or_else(|| header.and_then(last_thumbnail));
+    let avatar = header.and_then(|h| h.get("foregroundThumbnail")).and_then(last_thumbnail);
 
     let sub = header.and_then(|h| find_all(h, "subscribeButtonRenderer").into_iter().next());
     let channel_id = sub
@@ -1007,6 +1015,7 @@ pub fn parse_artist(root: &Value, browse_id: &str) -> ArtistPage {
     ArtistPage {
         name,
         thumbnail,
+        avatar,
         description,
         subscribers,
         monthly_listeners,
@@ -1321,6 +1330,34 @@ mod tests {
             "title": { "runs": [{ "text": "An Artist" }] }
         } } });
         assert_eq!(parse_artist(&bare, "UCx").radio_playlist_id, None);
+    }
+
+    // A channel YouTube Music doesn't treat as an artist comes back with a visual header, not an
+    // immersive one. Its banner and its round avatar are two different images.
+    #[test]
+    fn parses_a_channel_with_a_visual_header() {
+        let root = json!({ "header": { "musicVisualHeaderRenderer": {
+            "title": { "runs": [{ "text": "A Channel" }] },
+            "subscriptionButton": { "subscribeButtonRenderer": {
+                "subscribed": false,
+                "channelId": "UCchannel",
+                "subscriberCountText": { "runs": [{ "text": "1.2K" }] },
+                "longSubscriberCountText": { "runs": [{ "text": "1.2K subscribers" }] }
+            } },
+            "thumbnail": { "musicThumbnailRenderer": { "thumbnail": { "thumbnails": [
+                { "url": "https://banner/540" }, { "url": "https://banner/1440" }
+            ] } } },
+            "foregroundThumbnail": { "musicThumbnailRenderer": { "thumbnail": { "thumbnails": [
+                { "url": "https://avatar/60" }, { "url": "https://avatar/544" }
+            ] } } }
+        } } });
+        let a = parse_artist(&root, "UCx");
+        assert_eq!(a.name.as_deref(), Some("A Channel"));
+        assert_eq!(a.thumbnail.as_deref(), Some("https://banner/1440"));
+        assert_eq!(a.avatar.as_deref(), Some("https://avatar/544"));
+        assert_eq!(a.subscribers.as_deref(), Some("1.2K subscribers"));
+        assert_eq!(a.channel_id, "UCchannel");
+        assert!(!a.subscribed);
     }
 
     // History comes back as one `musicShelfRenderer` per day, not one shelf of rows: the day title
