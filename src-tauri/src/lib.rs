@@ -555,6 +555,14 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle().clone();
 
+            // GtkSettings belongs to the main thread, which is where setup runs (#481).
+            #[cfg(target_os = "linux")]
+            if let Some(layout) = gtk::Settings::default()
+                .and_then(|s| gtk::prelude::GtkSettingsExt::gtk_decoration_layout(&s))
+            {
+                let _ = commands::BUTTON_LAYOUT.set(layout.into());
+            }
+
             // App data dir for the SQLite file and mpv's on-disk audio cache.
             let data_dir = app.path().app_data_dir().unwrap_or_else(|_| std::env::temp_dir());
             std::fs::create_dir_all(&data_dir).ok();
