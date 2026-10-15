@@ -584,8 +584,6 @@ export async function seedOnRepeatPick() {
  * that keeps its slot comes back where it was.
  */
 export function saveHome(patch: Partial<pl.HomeLayout>) {
-	// Spread, not a fresh object: `seen` is written by the feed, not by the panel, and rebuilding
-	// `home` from the lists the panel owns used to drop it.
 	personal.home = { ...personal.home, ...patch };
 	savePersonal();
 }
@@ -595,9 +593,9 @@ export function resetHome() {
 	savePersonal();
 }
 
-/** Remember the shelves this page of the feed carried, for Edit home. See `pl.noteSections`. */
-export function noteHomeSections(titles: string[]) {
-	if (pl.noteSections(personal, titles)) savePersonal();
+/** Carry a pre-#476 arrangement over from shelf titles to kinds. See `pl.adoptKinds`. */
+export function adoptHomeKinds(sections: { title: string; kind?: string }[]) {
+	if (pl.adoptKinds(personal, sections)) savePersonal();
 }
 
 /** Called from every card click app-wide, so only persist when the id was actually on the grid. */

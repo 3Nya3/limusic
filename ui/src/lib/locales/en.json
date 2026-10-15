@@ -240,9 +240,20 @@
 		"sections_hint": "Drag a section to move it, or focus its handle and use the arrow keys. Hidden sections keep their place.",
 		"move_section": "Move {title}",
 		"moved_section": "{title} moved to position {position} of {total}",
-		"new_section": "New",
-		"show_new": "Show new sections",
-		"show_new_desc": "YouTube adds and renames shelves over time. Turned off, they arrive hidden and wait here until you switch them on.",
+		"kinds": {
+			"listen_again": "Listen again",
+			"quick_picks": "Quick picks",
+			"from_library": "From your library",
+			"community": "From the community",
+			"fresh_finds": "Fresh finds, old favourites",
+			"albums_for_you": "Albums for you",
+			"trending": "Trending songs for you",
+			"featured_playlists": "Featured playlists for you",
+			"new_releases": "New releases",
+			"mixed_for_you": "Mixed for you",
+			"daily_discover": "Your daily discover",
+			"music_videos": "Music videos for you"
+		},
 		"all_hidden": "Everything on home is switched off."
 	},
 	"history": {
