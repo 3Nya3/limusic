@@ -152,7 +152,8 @@
 		"edit_scrobble": "Editar scrobble",
 		"song": "Canción",
 		"video": "Video",
-		"comments": "Comentarios"
+		"comments": "Comentarios",
+		"up_next": "A continuación"
 	},
 	"home": {
 		"good_morning": "Buenos días",
@@ -404,7 +405,9 @@
 			"accent_theme": "El acento propio del tema",
 			"accent_artwork_note": "Mientras se reproduce una canción, el color de acento se basa en su portada. Desactiva la opción «Adaptar colores a la ilustración» para verla.",
 			"preview": "Previa",
-			"preview_hint": "Los controles deslizantes y el selector de color aparecen aquí a medida que arrastras, y la aplicación responde cuando sueltas."
+			"preview_hint": "Los controles deslizantes y el selector de color aparecen aquí a medida que arrastras, y la aplicación responde cuando sueltas.",
+			"blur_playlist_header": "Desenfocar cabecera de playlist",
+			"blur_playlist_header_hint": "Muestra la portada de la playlist desenfocada detrás de la cabecera. Suaviza las portadas que se ven pixeladas al estirarse a todo lo ancho."
 		},
 		"playback": {
 			"audio_quality": "Calidad de audio",
@@ -455,7 +458,9 @@
 			"ambient_light_gpu": "Por debajo de los 1000 puntos en la prueba de rendimiento de PassMark, la vista del reproductor podría dar tirones mientras se reproduce un video musical.",
 			"ambient_light_gpu_check": "Busca tu tarjeta gráfica",
 			"shuffle_whole_queue": "Mezclar toda la cola",
-			"shuffle_whole_queue_hint": "\"Aleatorio\" mezcla las canciones agregadas con \"Agregar a la cola\" junto con la lista actual. Si la desactivas, se reproducirán al final en el orden en que las añadiste. \"Agregar a continuación\" siempre se reproduce justo después."
+			"shuffle_whole_queue_hint": "\"Aleatorio\" mezcla las canciones agregadas con \"Agregar a la cola\" junto con la lista actual. Si la desactivas, se reproducirán al final en el orden en que las añadiste. \"Agregar a continuación\" siempre se reproduce justo después.",
+			"videos_first": "Reproducir el video primero",
+			"videos_first_hint": "Canciones de álbumes que tengan un video musical inician con el video. Desactiva esto si quieres iniciar con la canción. El interruptor de Canción/Video en el reproductor los cambia de todas formas."
 		},
 		"data": {
 			"clear_cache": "Limpiar caché de imágenes y streams",
@@ -639,7 +644,7 @@
 			"edits_show_less": "Mostrar menos",
 			"edit_track": "Editar esta pista",
 			"edit_hint": "Se usa cada vez que esta pista se reproduce. Deja el campo vacío para mantener la de YouTube Music.",
-			"edit_remove": "Quitar edición",
+			"edit_remove": "Restaurar",
 			"skip_track": "No Scrobblear esta pista",
 			"not_scrobbled": "Sin Scrobblear",
 			"preview_picked": "Pista seleccionada",
