@@ -70,6 +70,10 @@ pub struct BrowseItem {
 #[serde(rename_all = "camelCase")]
 pub struct Section {
     pub title: String,
+    /// Which of home's known sections this is, whatever language the title is in (#476). `None`
+    /// for anything else, which home leaves out; a mood chip's feed shows it all.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<&'static str>,
     pub items: Vec<BrowseItem>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub more_browse_id: Option<String>,
@@ -351,7 +355,8 @@ pub fn parse_home(root: &Value) -> HomePage {
                 more.and_then(|e| e.get("browseId")).and_then(Value::as_str).map(str::to_owned);
             let more_params =
                 more.and_then(|e| e.get("params")).and_then(Value::as_str).map(str::to_owned);
-            sections.push(Section { title, items, more_browse_id, more_params });
+            let kind = super::home_shelves::kind(&title, more_browse_id.as_deref());
+            sections.push(Section { title, kind, items, more_browse_id, more_params });
         }
     }
     HomePage { chips, sections, continuation: continuation_token(root) }
@@ -1447,6 +1452,8 @@ mod tests {
         assert_eq!(home.sections.len(), 3);
         let s = &home.sections[0];
         assert_eq!(s.title, "Mixed for you");
+        assert_eq!(s.kind, Some("mixed_for_you"));
+        assert_eq!(home.sections[1].kind, None, "not one of home's sections");
         assert_eq!(s.items.len(), 2);
         assert_eq!(s.items[0].kind, "playlist");
         assert_eq!(s.items[0].id, "VLPL123");

@@ -161,6 +161,8 @@ export interface BrowseItem {
 
 export interface HomeSection {
 	title: string;
+	/** Which of home's known sections this is (`HOME_KINDS`), in any language. Absent otherwise. */
+	kind?: string;
 	items: BrowseItem[];
 	moreBrowseId?: string;
 	moreParams?: string;
