@@ -107,9 +107,13 @@
 	let forgotten = $state<HomeSection | null>(null);
 	let seeking = $state(false); // walking continuations to find it — the slot shows a skeleton
 	// Home shows only the shelves it knows (`HOME_KINDS`); a mood chip's feed shows whatever it sends.
+	// So does a signed-out home: it carries five of the kinds and seven general shelves (charts,
+	// moods), and without those it is half empty. It is also the same feed every visit, which is
+	// what makes listing whatever it sent harmless there.
 	const homeKinds = new Set<string>(HOME_KINDS);
+	const everything = $derived(!!selected || auth.account?.signedIn === false);
 	const feed = $derived(
-		home?.sections.filter((s) => !isForgotten(s) && (selected || homeKinds.has(s.kind!))) ?? []
+		home?.sections.filter((s) => !isForgotten(s) && (everything || homeKinds.has(s.kind!))) ?? []
 	);
 
 	// --- the arrangement the user set in Edit home (personal.ts) --------------------------------
@@ -151,14 +155,16 @@
 	/**
 	 * What Edit home lists: ours and every kind home knows, whether or not the feed has sent it yet
 	 * (it arrives a page at a time, and a section can be hidden or moved before the page gets to it).
-	 * Under our own labels, so the list reads the same before anything has loaded.
+	 * Under our own labels, so the list reads the same before anything has loaded. Signed out, the
+	 * other shelves loaded so far join them, under YouTube's title.
 	 */
-	const known = $derived(
-		arrangeSections(
-			[...local, ...HOME_KINDS.map((k) => ({ key: k, title: t(`home.kinds.${k}`) }))],
-			personal
-		)
-	);
+	const known = $derived.by(() => {
+		const rows = new Map<string, { key: string; title: string }>();
+		for (const b of local) rows.set(b.key, b);
+		for (const k of HOME_KINDS) rows.set(k, { key: k, title: t(`home.kinds.${k}`) });
+		if (!selected) for (const b of blocks) if (!rows.has(b.key)) rows.set(b.key, b);
+		return arrangeSections([...rows.values()], personal);
+	});
 
 	// Older arrangements are keyed by shelf title; move them over as the feed names the kinds.
 	// Untracked: it reads the arrangement it rewrites, which would re-run this effect.
