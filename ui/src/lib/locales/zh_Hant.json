@@ -241,7 +241,7 @@
 		"matching_songs_so_far": "目前找到 {count} 首相符",
 		"sync_idle_tooltip": "將這部裝置儲存的 {count} 首歌曲同步新增至您的 YouTube Music 收藏庫",
 		"save_to_library": "儲存至收藏庫",
-		"in_library": "已收藏",
+		"in_library": "使用中的帳號",
 		"no_matching_tracks": "找不到符合「{query}」的曲目。",
 		"empty_album": "此專輯中沒有任何曲目。",
 		"play_count": "已播放 {count} 次",
