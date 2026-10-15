@@ -376,6 +376,12 @@ fn native_chrome(db: &crate::db::Db) -> &'static str {
     }
 }
 
+/// GTK's `gtk-decoration-layout` (`menu:close`, `:minimize,maximize,close`), read once on the main
+/// thread in `setup`. Linux only: the titlebar draws minimize and maximize only when it names
+/// them, as GTK's own headerbars do (#481). Tiling compositors (Hyprland, sway, niri) ignore
+/// minimize and often drop maximize, and their unconfigured layout is `menu:close`.
+pub static BUTTON_LAYOUT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
 #[tauri::command]
 pub async fn get_settings(state: St<'_>) -> Result<serde_json::Value, String> {
     let mut map: serde_json::Map<String, serde_json::Value> = state
@@ -387,6 +393,9 @@ pub async fn get_settings(state: St<'_>) -> Result<serde_json::Value, String> {
         .collect();
     map.insert("native_chrome".into(), native_chrome(&state.db).into());
     map.insert("native_video".into(), crate::state::native_video().to_string().into());
+    if let Some(layout) = BUTTON_LAYOUT.get() {
+        map.insert("button_layout".into(), layout.clone().into());
+    }
     Ok(serde_json::Value::Object(map))
 }
 
