@@ -2659,15 +2659,31 @@ pub async fn listenbrainz_profile(
 /// So: restore from the real placement, go fullscreen, then put the window on the monitor rect
 /// with SWP_FRAMECHANGED to force one recalculation with the fullscreen flag set. On the main
 /// thread, where the window messages run inline and the order is guaranteed.
+///
+/// A window that was fullscreen already when theater opened (macOS's green button, a window
+/// manager's shortcut) is left alone both ways, so closing theater doesn't drop the user out of a
+/// fullscreen they chose (#485).
 #[tauri::command]
 pub fn theater_fullscreen(window: tauri::WebviewWindow, on: bool) -> Result<(), String> {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    static WAS_FULLSCREEN: AtomicBool = AtomicBool::new(false);
+    if on {
+        let already = window.is_fullscreen().unwrap_or(false);
+        WAS_FULLSCREEN.store(already, Ordering::Relaxed);
+        if already {
+            return Ok(());
+        }
+    } else if WAS_FULLSCREEN.swap(false, Ordering::Relaxed) {
+        return Ok(());
+    }
+
     #[cfg(not(target_os = "windows"))]
     {
         window.set_fullscreen(on).map_err(|e| e.to_string())
     }
     #[cfg(target_os = "windows")]
     {
-        use std::sync::atomic::{AtomicBool, Ordering};
         use windows::Win32::UI::WindowsAndMessaging::{
             IsZoomed, SetWindowPos, ShowWindow, SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOSIZE,
             SWP_NOZORDER, SW_MAXIMIZE, SW_RESTORE,
