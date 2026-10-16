@@ -26,15 +26,17 @@ export function blur(px: Uint8ClampedArray, n: number, r: number) {
 	}
 }
 
-/** Pushes colour away from grey in place, and returns the brightest pixel's perceived brightness
- *  (HSP, 0-1, the measure `color.ts` uses) for `washVars`. */
-export function saturate(px: Uint8ClampedArray, amount: number): number {
-	let peak = 0;
+/** Pushes colour away from grey in place, and returns the darkest and brightest pixels' perceived
+ *  brightness (HSP, 0-1, the measure `color.ts` uses) for `washVars`. */
+export function saturate(px: Uint8ClampedArray, amount: number): { lo: number; hi: number } {
+	let lo = 1;
+	let hi = 0;
 	for (let i = 0; i < px.length; i += 4) {
 		const grey = 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
 		for (let c = 0; c < 3; c++) px[i + c] = grey + (px[i + c] - grey) * amount;
 		const hsp = 0.299 * px[i] ** 2 + 0.587 * px[i + 1] ** 2 + 0.114 * px[i + 2] ** 2;
-		peak = Math.max(peak, Math.sqrt(hsp) / 255);
+		lo = Math.min(lo, Math.sqrt(hsp) / 255);
+		hi = Math.max(hi, Math.sqrt(hsp) / 255);
 	}
-	return peak;
+	return { lo, hi };
 }

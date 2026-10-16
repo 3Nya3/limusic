@@ -43,8 +43,13 @@
 	// component, or the lyrics refetch and the scroll position is lost.
 	// `compact` is the mini-player: a ~220px column with no room for the source footer or a
 	// scrollbar. It only shrinks the type and chrome; the sync/auto-scroll logic is identical.
-	let { expanded = false, compact = false }: { expanded?: boolean; compact?: boolean } =
-		$props();
+	// `missing` says the playing song has nothing to read (none found, or instrumental). It changes
+	// only when a fetch answers, never while the next one loads, so theater can lay out on it.
+	let {
+		expanded = false,
+		compact = false,
+		missing = $bindable(false)
+	}: { expanded?: boolean; compact?: boolean; missing?: boolean } = $props();
 
 	/** "3:21" / "1:02:03" → seconds. */
 	function durationSecs(d?: string): number | undefined {
@@ -83,6 +88,7 @@
 	function onPicked(l: api.Lyrics | null, videoId: string) {
 		if (requested !== videoId) return; // the song moved on while it was being fetched
 		lyrics = l;
+		missing = !l || l.instrumental;
 		hasScrolled = false;
 	}
 
@@ -115,11 +121,13 @@
 			.then((l) => {
 				if (requested !== id) return;
 				lyrics = l;
+				missing = !l || l.instrumental;
 				loading = false;
 				hasScrolled = false; // first positioning on a new track is an instant jump
 			})
 			.catch(() => {
 				if (requested !== id) return;
+				missing = true;
 				loading = false;
 			});
 	});
@@ -260,17 +268,19 @@
 				     alpha is composited glyph by glyph, so wherever two glyphs overlap the coverage
 				     adds up and the overlap comes out brighter than the rest of the line: very
 				     visible in scripts whose marks sit on top of the letters, Devanagari in issue
-				     #191. `opacity` paints the line opaque first and fades it once, as a group. -->
+				     #191. `opacity` paints the line opaque first and fades it once, as a group.
+				     Light themes dim less: the dark themes' 70% put dark grey on white at about 2.8:1,
+				     90% matches the 4:1 the dark themes get. -->
 				<button
 					data-line={i}
 					onclick={() => seekTo(line)}
-					class="block w-full origin-left cursor-pointer text-left font-heading font-bold leading-snug transition-[color,opacity,transform] duration-300 ease-out hover:text-foreground hover:opacity-100
+					class="block w-full origin-left cursor-pointer text-left font-heading font-bold leading-snug transition-[color,opacity,transform] duration-300 ease-out hover:text-foreground hover:opacity-100 dark:hover:opacity-100
 						{expanded ? 'py-3 text-3xl' : compact ? 'py-1 text-sm' : 'py-2 text-xl'}
 						{isActive
 						? 'scale-[1.04] text-foreground'
 						: isPast
-							? 'text-muted-foreground opacity-40'
-							: 'text-muted-foreground opacity-70'}"
+							? 'text-muted-foreground opacity-55 dark:opacity-40'
+							: 'text-muted-foreground opacity-90 dark:opacity-70'}"
 				>
 					{#if line.words && line.words.length > 0}
 						{@render sweep(line.words, isActive)}
