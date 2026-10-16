@@ -18,7 +18,7 @@ import { blur, saturate } from './wash';
 // session is exactly the case that used to keep one base64 PNG (and the CSS image resource WebKit
 // decodes from it) per cover for the life of the view.
 const MAX_WASHES = 8;
-type Wash = { url: string; peak: number };
+type Wash = { url: string; lo: number; hi: number };
 const washes = new Map<string, Wash>();
 
 // 160px square, blurred at 28px. The size matters in both directions: too small (an earlier
@@ -44,9 +44,9 @@ async function bake(url: string): Promise<Wash | null> {
 		ctx.drawImage(img, 0, 0, WASH, WASH);
 		const data = ctx.getImageData(0, 0, WASH, WASH);
 		blur(data.data, WASH, WASH_BLUR);
-		const peak = saturate(data.data, 1.5);
+		const { lo, hi } = saturate(data.data, 1.5);
 		ctx.putImageData(data, 0, 0);
-		return { url: canvas.toDataURL('image/png'), peak };
+		return { url: canvas.toDataURL('image/png'), lo, hi };
 	} catch {
 		return null; // offline, 404, throttled, tainted: the mesh is the backdrop on its own
 	}
@@ -120,17 +120,17 @@ export function artRoom(on: () => boolean = () => true) {
 		`radial-gradient(closest-side, hsl(${hue ?? 265} 80% 55% / 0.5), transparent)`
 	);
 
-	// How strong the wash may be before text over it stops reading, by its brightest spot: on a dark
-	// theme the room may get no lighter than about 20% grey, on a light one no darker than about
-	// 75%. A dim cover keeps the view's own cap, a white one drops to a tint. Each view takes
-	// `min(its cap, var)` per mode, so the light/dark split stays in its markup.
-	// ponytail: 0.2 and 0.25 hold dim lyric lines near 3:1 over a white cover in the default theme;
-	// raise them if the washes look too faint, lower them if a theme's dim lines stop reading.
+	// How strong the wash may be before text over it stops reading. On a dark theme its brightest
+	// spot may lift the room to about 20% grey at most, on a light one its darkest may pull it down
+	// to about 85%. A dim cover on a dark theme keeps the view's own cap, a white one drops to a
+	// tint, and the other way round on a light theme. Each view takes `min(its cap, var)` per mode,
+	// so the light/dark split stays in its markup.
+	// ponytail: 0.2 and 0.15 hold dim lyric lines near 3:1 over the worst cover in the default
+	// themes; raise them if the washes look too faint, lower them if a theme's dim lines stop reading.
 	const washVars = $derived.by(() => {
-		const peak = wash?.peak ?? 0;
 		const fit = (room: number, over: number) =>
 			Math.min(1, room / Math.max(over, 0.01)).toFixed(3);
-		return `--wash-dark:${fit(0.2, peak)};--wash-light:${fit(0.25, 1 - peak)}`;
+		return `--wash-dark:${fit(0.2, wash?.hi ?? 0)};--wash-light:${fit(0.15, 1 - (wash?.lo ?? 1))}`;
 	});
 
 	return {

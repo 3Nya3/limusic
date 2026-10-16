@@ -35,11 +35,14 @@ ok(at(16, 16) < 255 && at(16, 16) > 0, 'dot spread out');
 ok(at(13, 16) === at(19, 16) && at(16, 13) === at(16, 19), 'spread is symmetric');
 ok(at(0, 0) === 0, 'far corner untouched');
 
-// Grey stays grey, and the peak is its brightness; a white pixel anywhere is the peak.
+// Grey stays grey, and both ends are its brightness. One white and one black pixel set the ends:
+// a light theme has to answer to the darkest spot, a dark one to the brightest.
 const grey = img(() => 128);
-ok(Math.abs(saturate(grey, 1.5) - 128 / 255) < 1e-6 && grey[0] === 128, 'grey unchanged, peak 0.5');
-const spot = img((x, y) => (x === 3 && y === 9 ? 255 : 20));
-ok(saturate(spot, 1.5) > 0.999, 'white pixel is the peak');
+const g = saturate(grey, 1.5);
+ok(Math.abs(g.lo - 128 / 255) < 1e-6 && g.lo === g.hi && grey[0] === 128, 'grey unchanged');
+const spots = img((x, y) => (x === 3 && y === 9 ? 255 : x === 20 && y === 1 ? 0 : 128));
+const s = saturate(spots, 1.5);
+ok(s.hi > 0.999 && s.lo === 0, 'white pixel is the top, black the bottom');
 
 // Colour moves away from grey.
 const red = new Uint8ClampedArray([180, 90, 90, 255]);
