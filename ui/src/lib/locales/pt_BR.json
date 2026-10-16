@@ -190,7 +190,21 @@
 		"sections_hint": "Arraste uma seção para movê-la, ou selecione a alça dela e use as teclas de seta. As seções ocultas mantêm a posição.",
 		"move_section": "Mover {title}",
 		"moved_section": "{title} movida para a posição {position} de {total}",
-		"all_hidden": "Tudo na tela inicial está desativado."
+		"all_hidden": "Tudo na tela inicial está desativado.",
+		"kinds": {
+			"listen_again": "Ouvir novamente",
+			"quick_picks": "Escolhas rápidas",
+			"from_library": "Da sua biblioteca",
+			"community": "Da comunidade",
+			"fresh_finds": "Novas descobertas, antigos favoritos",
+			"albums_for_you": "Álbuns para você",
+			"trending": "Músicas em alta para você",
+			"featured_playlists": "Playlists em destaque para você",
+			"new_releases": "Novos lançamentos",
+			"mixed_for_you": "Mix para você",
+			"daily_discover": "Sua descoberta diária",
+			"music_videos": "Videoclipes para você"
+		}
 	},
 	"artist": {
 		"subscribe": "Inscrever-se",
@@ -404,7 +418,9 @@
 			"preview": "Prévia",
 			"preview_hint": "Os controles deslizantes e o seletor de cores aparecem aqui enquanto você arrasta, e o app acompanha quando você solta.",
 			"blur_playlist_header": "Desfocar cabeçalhos de playlists",
-			"blur_playlist_header_hint": "Mostra a capa da playlist desfocada atrás do cabeçalho. Suaviza capas que ficam pixeladas ao serem esticadas para a largura total."
+			"blur_playlist_header_hint": "Mostra a capa da playlist desfocada atrás do cabeçalho. Suaviza capas que ficam pixeladas ao serem esticadas para a largura total.",
+			"matugen": "Matugen",
+			"matugen_hint": "Use todas as cores, incluindo a de destaque, da paleta que o Matugen cria a partir do seu papel de parede. Configure o modelo do Limusic no Matugen primeiro."
 		},
 		"playback": {
 			"audio_quality": "Qualidade de áudio",
