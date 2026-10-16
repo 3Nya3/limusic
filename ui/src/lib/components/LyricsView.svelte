@@ -43,8 +43,13 @@
 	// component, or the lyrics refetch and the scroll position is lost.
 	// `compact` is the mini-player: a ~220px column with no room for the source footer or a
 	// scrollbar. It only shrinks the type and chrome; the sync/auto-scroll logic is identical.
-	let { expanded = false, compact = false }: { expanded?: boolean; compact?: boolean } =
-		$props();
+	// `missing` says the playing song has nothing to read (none found, or instrumental). It changes
+	// only when a fetch answers, never while the next one loads, so theater can lay out on it.
+	let {
+		expanded = false,
+		compact = false,
+		missing = $bindable(false)
+	}: { expanded?: boolean; compact?: boolean; missing?: boolean } = $props();
 
 	/** "3:21" / "1:02:03" → seconds. */
 	function durationSecs(d?: string): number | undefined {
@@ -83,6 +88,7 @@
 	function onPicked(l: api.Lyrics | null, videoId: string) {
 		if (requested !== videoId) return; // the song moved on while it was being fetched
 		lyrics = l;
+		missing = !l || l.instrumental;
 		hasScrolled = false;
 	}
 
@@ -115,11 +121,13 @@
 			.then((l) => {
 				if (requested !== id) return;
 				lyrics = l;
+				missing = !l || l.instrumental;
 				loading = false;
 				hasScrolled = false; // first positioning on a new track is an instant jump
 			})
 			.catch(() => {
 				if (requested !== id) return;
+				missing = true;
 				loading = false;
 			});
 	});

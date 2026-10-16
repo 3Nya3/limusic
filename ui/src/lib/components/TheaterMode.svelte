@@ -194,9 +194,29 @@
 	const lyricsShown = $derived(
 		wide.current && appearance.theaterLyrics && (!queueShown || roomy.current)
 	);
-	const both = $derived(lyricsShown && queueShown);
+	// A song with nothing to read (no lyrics found, or instrumental) gets the spotlight instead of a
+	// half-screen column with one line at its top. The lyrics stay mounted, hidden, to fetch the next
+	// song's, and the layout moves only once a fetch has answered, never for the loading in between.
+	// Forgotten while no lyrics are mounted to keep it current.
+	let noLyrics = $state(false);
+	$effect(() => {
+		if (!lyricsShown) noLyrics = false;
+	});
+	const lyricsColumn = $derived(lyricsShown && !noLyrics);
+	// The column rises in when it appears, as the queue does with `in:fly`, and again each time a
+	// song with lyrics follows one without, which `in:` can't do for a column that was only hidden.
+	// Transform and opacity only (tw-animate's `animate-in` also animates `filter`).
+	let lyricsCol: HTMLElement | undefined = $state();
+	$effect(() => {
+		if (lyricsColumn && lyricsCol)
+			lyricsCol.animate([{ opacity: 0, transform: 'translateY(24px)' }, {}], {
+				duration: 400,
+				easing: 'cubic-bezier(0.33, 1, 0.68, 1)' // cubicOut
+			});
+	});
+	const both = $derived(lyricsColumn && queueShown);
 	/** A column beside the picture: it moves over to the left and its title gets smaller. */
-	const columns = $derived(lyricsShown || queueShown);
+	const columns = $derived(lyricsColumn || queueShown);
 	function toggleLyrics() {
 		const on = !lyricsShown;
 		setAppearance({ theaterLyrics: on, ...(on && !roomy.current && { theaterQueue: false }) });
@@ -549,15 +569,18 @@
 		     Never give this a `mask-image` for the end fades, however tempting: it buffers the whole
 		     scroller offscreen on every scroll frame. Same for `backdrop-filter` (see the header).
 		     The scrollbar is hidden from out here, since the child owns the scroller.
-		     `in:` only, never `transition:`. An out transition keeps this in the DOM after the stage
-		     has already given its room back, and the picture recentres in two visible steps. === -->
+		     An entrance only, never an exit: one keeps this in the DOM after the stage has already
+		     given its room back, and the picture recentres in two visible steps. The entrance is
+		     `lyricsCol.animate` (script), since `noLyrics` hides this rather than unmounting it. === -->
 		{#if lyricsShown}
 			<div
-				in:fly={{ y: 24, duration: 400, easing: cubicOut }}
-				class="flex min-h-0 min-w-0 flex-[1.2] flex-col overflow-hidden 2xl:[&_[data-line]]:text-4xl [&_*]:[scrollbar-width:none] [&_*::-webkit-scrollbar]:hidden"
+				bind:this={lyricsCol}
+				class="min-h-0 min-w-0 flex-[1.2] flex-col overflow-hidden 2xl:[&_[data-line]]:text-4xl [&_*]:[scrollbar-width:none] [&_*::-webkit-scrollbar]:hidden {noLyrics
+					? 'hidden'
+					: 'flex'}"
 				style="padding-bottom:{roomFree ? headerH : `${dockH}px`}"
 			>
-				<LyricsView expanded />
+				<LyricsView expanded bind:missing={noLyrics} />
 			</div>
 		{/if}
 		<!-- === The queue, on the backdrop like the lyrics and for the same reason. It keeps its
