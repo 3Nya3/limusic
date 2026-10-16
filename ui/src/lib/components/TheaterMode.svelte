@@ -357,11 +357,13 @@
 		     1. the cover, pre-blurred into a small bitmap once per track and upscaled. No live
 		        filter. Behind the artwork-background setting, so it is still a one-click ablation.
 		        Stretched to the window (`100% 100%`) rather than cropped: at this blur nobody can see
-		        the square has been stretched, and `cover` would throw away its top and bottom. -->
+		        the square has been stretched, and `cover` would throw away its top and bottom.
+		        A new track's wash crossfades with the last one's: an entrance alone dropped the old
+		        one at once and dipped the room to the bare background on every song. -->
 		{#if appearance.artworkBackground && room.wash}
 			{#key room.wash}
 				<div
-					in:fade={{ duration: 700 }}
+					transition:fade={{ duration: 700 }}
 					style="background-image:url({room.wash});background-size:100% 100%;{room.washVars}"
 					class="pointer-events-none absolute inset-0 opacity-[min(0.5,var(--wash-light))] dark:opacity-[min(0.6,var(--wash-dark))]"
 				></div>

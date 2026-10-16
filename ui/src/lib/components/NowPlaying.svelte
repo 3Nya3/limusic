@@ -492,7 +492,7 @@
 					     the square has been stretched, and `cover` would throw away a third of its
 					     colour. -->
 					<div
-						in:fade={{ duration: 700 }}
+						transition:fade={{ duration: 700 }}
 						style="background-image:url({room.wash});background-size:100% 100%;{room.washVars}"
 						class="pointer-events-none absolute inset-0 opacity-[min(0.4,var(--wash-light))] dark:opacity-[min(0.5,var(--wash-dark))]"
 					></div>
