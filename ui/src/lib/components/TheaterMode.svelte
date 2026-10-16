@@ -111,7 +111,7 @@
 
 	// The dock floats over the bottom of the stage. Once it has faded out, the lyrics and the queue
 	// grow down into its room until they end as far from the bottom edge as they start from the top
-	// (the header's 5rem), instead of stopping over an empty band (#468). Not to the edge: that cut
+	// (the header's height), instead of stopping over an empty band (#468). Not to the edge: that cut
 	// lines in half against the progress line. The picture keeps its size. Growing the columns at
 	// the bottom moves nothing already on screen, it only shows more of them. Waits out the dock's
 	// fade so the two never overlap, and gives the room back the moment the dock comes back.
@@ -186,6 +186,10 @@
 	// wider screen shows the queue here, the one that had to be asked for.
 	const wide = new MediaQuery('(min-width: 64rem)');
 	const roomy = new MediaQuery('(min-width: 90rem)');
+	// A short screen (768 and 800px laptops) gets a slimmer dock and top strip: at full size the
+	// two took a third of the height away from the picture and the lyrics (#469).
+	const short = new MediaQuery('(max-height: 50rem)');
+	const headerH = $derived(short.current ? '4rem' : '5rem');
 	const queueShown = $derived(wide.current && appearance.theaterQueue);
 	const lyricsShown = $derived(
 		wide.current && appearance.theaterLyrics && (!queueShown || roomy.current)
@@ -362,9 +366,10 @@
 
 	<!-- === Top strip: where the queue came from, and the way out. === -->
 	<header
-		class="relative z-10 flex h-20 shrink-0 items-center justify-between gap-6 px-8 transition-opacity duration-500 xl:px-14 {calm
+		class="relative z-10 flex shrink-0 items-center justify-between gap-6 px-8 transition-opacity duration-500 xl:px-14 {calm
 			? 'opacity-0'
 			: ''}"
+		style="height:{headerH}"
 	>
 		<div class="min-w-0">
 			<!-- The queue column says this itself. -->
@@ -550,7 +555,7 @@
 			<div
 				in:fly={{ y: 24, duration: 400, easing: cubicOut }}
 				class="flex min-h-0 min-w-0 flex-[1.2] flex-col overflow-hidden 2xl:[&_[data-line]]:text-4xl [&_*]:[scrollbar-width:none] [&_*::-webkit-scrollbar]:hidden"
-				style="padding-bottom:{roomFree ? '5rem' : `${dockH}px`}"
+				style="padding-bottom:{roomFree ? headerH : `${dockH}px`}"
 			>
 				<LyricsView expanded />
 			</div>
@@ -568,7 +573,7 @@
 				class="relative z-0 flex min-h-0 shrink-0 flex-col overflow-hidden {both
 					? 'w-[22rem]'
 					: 'w-[28rem] xl:w-[34rem]'}"
-				style="padding-bottom:{roomFree ? '5rem' : `${dockH}px`}"
+				style="padding-bottom:{roomFree ? headerH : `${dockH}px`}"
 			>
 				<QueueList />
 			</div>
@@ -612,9 +617,9 @@
 		bind:clientHeight={dockH}
 		onpointerenter={() => (overDock = true)}
 		onpointerleave={() => (overDock = false)}
-		class="absolute inset-x-0 bottom-0 z-10 mx-auto w-full max-w-[110rem] px-8 pt-3 pb-7 transition-opacity duration-500 xl:px-14 {calm
-			? 'opacity-0'
-			: ''}"
+		class="absolute inset-x-0 bottom-0 z-10 mx-auto w-full max-w-[110rem] px-8 transition-opacity duration-500 xl:px-14 {short.current
+			? 'pt-2 pb-4'
+			: 'pt-3 pb-7'} {calm ? 'opacity-0' : ''}"
 	>
 		<!-- Fixed-width slots for the times: the font may have no tabular figures, and the bar would
 		     shift a few px per tick (#463). -->
@@ -639,7 +644,9 @@
 			<span class="min-w-[5ch]">{fmt(playback.duration)}</span>
 		</div>
 
-		<div class="mt-3 grid grid-cols-[1fr_auto_1fr] items-center gap-6">
+		<div
+			class="grid grid-cols-[1fr_auto_1fr] items-center gap-6 {short.current ? 'mt-1.5' : 'mt-3'}"
+		>
 			<!-- What's playing: like, the player bar's own ⋮ menu, and Song/Video. -->
 			<div class="flex min-w-0 items-center gap-1">
 				{#if playback.now && !local}
@@ -697,27 +704,38 @@
 				<button
 					type="button"
 					onclick={() => api.prevTrack()}
-					class="flex size-12 cursor-pointer items-center justify-center rounded-full text-foreground/90 transition-colors hover:bg-foreground/10 hover:text-foreground"
+					class="flex cursor-pointer items-center justify-center rounded-full text-foreground/90 transition-colors hover:bg-foreground/10 hover:text-foreground {short.current
+						? 'size-10'
+						: 'size-12'}"
 					aria-label={t('player.previous')}
 				>
-					<HugeiconsIcon icon={PreviousIcon} class="h-6 w-6" />
+					<HugeiconsIcon icon={PreviousIcon} class={short.current ? 'h-5 w-5' : 'h-6 w-6'} />
 				</button>
 				<button
 					type="button"
 					onclick={() => api.togglePause()}
-					class="mx-1 flex size-16 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground transition-transform duration-150 hover:scale-[1.06] active:scale-95"
+					class="mx-1 flex cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground transition-transform duration-150 hover:scale-[1.06] active:scale-95 {short.current
+						? 'size-12'
+						: 'size-16'}"
 					aria-label={playback.paused ? t('player.play') : t('player.pause')}
 				>
 					<!-- icon swap via altIcon/showAlt: `icon` is frozen at mount -->
-					<HugeiconsIcon icon={PauseIcon} altIcon={PlayIcon} showAlt={playback.paused} class="h-7 w-7" />
+					<HugeiconsIcon
+						icon={PauseIcon}
+						altIcon={PlayIcon}
+						showAlt={playback.paused}
+						class={short.current ? 'h-6 w-6' : 'h-7 w-7'}
+					/>
 				</button>
 				<button
 					type="button"
 					onclick={() => api.nextTrack()}
-					class="flex size-12 cursor-pointer items-center justify-center rounded-full text-foreground/90 transition-colors hover:bg-foreground/10 hover:text-foreground"
+					class="flex cursor-pointer items-center justify-center rounded-full text-foreground/90 transition-colors hover:bg-foreground/10 hover:text-foreground {short.current
+						? 'size-10'
+						: 'size-12'}"
 					aria-label={t('player.next')}
 				>
-					<HugeiconsIcon icon={NextIcon} class="h-6 w-6" />
+					<HugeiconsIcon icon={NextIcon} class={short.current ? 'h-5 w-5' : 'h-6 w-6'} />
 				</button>
 				<button
 					type="button"
