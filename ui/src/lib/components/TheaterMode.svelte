@@ -231,14 +231,34 @@
 	// and its title is set larger, so it budgets more for it.
 	// ponytail: 8rem / 6.5rem are the title blocks at their largest, measured, not computed. Raise
 	// them if the block under the picture grows.
+	// A title too long for one line gets a second instead of an ellipsis (the "feat." credits are
+	// what the ellipsis used to eat), and only then does the picture give up a line's height for it:
+	// 2.25rem / 3rem at leading 1.15. Measured at one line (does it overflow?) or at two (did it
+	// wrap?), so the answer can't flip back and forth: the room it takes only narrows the line.
+	let titleEl: HTMLElement | undefined = $state();
+	let twoLines = $state(false);
+	$effect(() => {
+		const el = titleEl;
+		if (!el) return;
+		const ro = new ResizeObserver(() => {
+			twoLines = twoLines
+				? el.scrollHeight > parseFloat(getComputedStyle(el).lineHeight) * 1.5
+				: el.scrollWidth > el.clientWidth + 1;
+		});
+		ro.observe(el);
+		return () => ro.disconnect();
+	});
+	const titleRoom = $derived(
+		`${columns ? 6.5 : 8}rem - ${twoLines ? (columns ? 2.6 : 3.5) : 0}rem`
+	);
 	const side = $derived(
 		columns
 			? showVideo()
-				? 'min(100cqw, (100cqh - 6.5rem) * 16 / 9)'
-				: 'min(100cqw, 100cqh - 6.5rem, 34rem)'
+				? `min(100cqw, (100cqh - ${titleRoom}) * 16 / 9)`
+				: `min(100cqw, 100cqh - ${titleRoom}, 34rem)`
 			: showVideo()
-				? 'min(100cqw, (100cqh - 8rem) * 16 / 9, 96rem)'
-				: 'min(100cqw, 100cqh - 8rem, 44rem)'
+				? `min(100cqw, (100cqh - ${titleRoom}) * 16 / 9, 96rem)`
+				: `min(100cqw, 100cqh - ${titleRoom}, 44rem)`
 	);
 
 	// Clicking the picture toggles playback and flashes the action just taken over it. Read `paused`
@@ -526,7 +546,10 @@
 						class={columns ? 'mt-6' : 'mt-8 text-center'}
 					>
 						<h1
-							class="truncate font-heading leading-[1.15] font-bold tracking-tight"
+							bind:this={titleEl}
+							class="font-heading leading-[1.15] font-bold tracking-tight {twoLines
+								? 'line-clamp-2 [overflow-wrap:anywhere]'
+								: 'truncate'}"
 							style="font-size:clamp(1.5rem, var(--side) * {columns ? 0.065 : 0.07}, {columns
 								? '2.25rem'
 								: '3rem'})"
