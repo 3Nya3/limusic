@@ -338,8 +338,8 @@
 			{#key room.wash}
 				<div
 					in:fade={{ duration: 700 }}
-					style="background-image:url({room.wash});background-size:100% 100%"
-					class="pointer-events-none absolute inset-0 opacity-50 dark:opacity-60"
+					style="background-image:url({room.wash});background-size:100% 100%;{room.washVars}"
+					class="pointer-events-none absolute inset-0 opacity-[min(0.5,var(--wash-light))] dark:opacity-[min(0.6,var(--wash-dark))]"
 				></div>
 			{/key}
 		{/if}

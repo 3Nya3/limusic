@@ -493,8 +493,8 @@
 					     colour. -->
 					<div
 						in:fade={{ duration: 700 }}
-						style="background-image:url({room.wash});background-size:100% 100%"
-						class="pointer-events-none absolute inset-0 opacity-40 dark:opacity-50"
+						style="background-image:url({room.wash});background-size:100% 100%;{room.washVars}"
+						class="pointer-events-none absolute inset-0 opacity-[min(0.4,var(--wash-light))] dark:opacity-[min(0.5,var(--wash-dark))]"
 					></div>
 				{/key}
 			{/if}
