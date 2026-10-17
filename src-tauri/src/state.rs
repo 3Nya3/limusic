@@ -3416,6 +3416,16 @@ impl AppState {
             q.current_loudness_db = data.loudness_db;
             // What `on_track_failed` reads to evict and retry, and what the error toast names.
             q.current_client = Some(data.stream_client.clone());
+            // Fresh play → fresh history state, as in `start_current`. Without it a guest's latch
+            // stayed set after the first host track, so later ones were never counted and the
+            // first one's `listens` row soaked up the whole session (#396), and the watch-history
+            // ping went out with the last local track's ping. After the load, not before: the old
+            // track plays on through the resolve and that time is still its own.
+            q.playback_ping = data.playback_ping.clone();
+            q.cpn = innertube::generate_cpn();
+            self.history_pinged.store(false, Ordering::Relaxed);
+            self.end_listen();
+            q.duration = 0.0;
         }
         if let Some(item) = self.current_item().await {
             self.emit_now_playing(&item, "listen-together");
