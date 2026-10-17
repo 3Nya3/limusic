@@ -208,9 +208,6 @@
 		"sections_hint": "拖曳區塊或使用方向鍵來調整排列順序。已隱藏的區塊會保留其原本位置。",
 		"move_section": "移動「{title}」",
 		"moved_section": "「{title}」已移動至第 {position} 個（共 {total} 個）",
-		"new_section": "新版塊",
-		"show_new": "顯示新版塊",
-		"show_new_desc": "YouTube 會隨時間新增或更名分類區塊。關閉時，新區塊預設為隱藏，直到您手動開啟。",
 		"all_hidden": "首頁上的所有區塊皆已關閉。"
 	},
 	"history": {
@@ -241,7 +238,7 @@
 		"matching_songs_so_far": "目前找到 {count} 首相符",
 		"sync_idle_tooltip": "將這部裝置儲存的 {count} 首歌曲同步新增至您的 YouTube Music 收藏庫",
 		"save_to_library": "儲存至收藏庫",
-		"in_library": "已收藏",
+		"in_library": "使用中的帳號",
 		"no_matching_tracks": "找不到符合「{query}」的曲目。",
 		"empty_album": "此專輯中沒有任何曲目。",
 		"play_count": "已播放 {count} 次",

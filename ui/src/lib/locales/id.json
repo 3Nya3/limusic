@@ -187,9 +187,6 @@
 		"sections_hint": "Seret bagian untuk memindahkannya, atau fokuskan pada tombol seret lalu gunakan tombol panah. Bagian yang disembunyikan tetap mempertahankan posisinya.",
 		"move_section": "Pindahkan {title}",
 		"moved_section": "{title} dipindahkan ke posisi {position} dari {total}",
-		"new_section": "Baru",
-		"show_new": "Tampilkan bagian baru",
-		"show_new_desc": "YouTube menambahkan dan mengubah nama rak secara berkala. Jika dinonaktifkan, bagian baru akan disembunyikan sampai Anda mengaktifkannya.",
 		"all_hidden": "Semua konten di beranda dinonaktifkan."
 	},
 	"artist": {

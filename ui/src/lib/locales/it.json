@@ -188,9 +188,6 @@
 		"sections_hint": "Trascina una sezione per spostarla oppure seleziona la sua maniglia e usa i tasti freccia. Le sezioni nascoste mantengono la propria posizione.",
 		"move_section": "Sposta {title}",
 		"moved_section": "{title} spostato in posizione {position} di {total}",
-		"new_section": "Nuovo",
-		"show_new": "Mostra nuove sezioni",
-		"show_new_desc": "YouTube aggiunge e rinomina sezioni nel tempo. Se disattivato, appariranno nascoste finché non le attiverai tu.",
 		"all_hidden": "Tutti gli elementi della schermata Home sono disattivati."
 	},
 	"artist": {

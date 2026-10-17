@@ -212,9 +212,6 @@
 		"sections_hint": "Przeciągnij sekcję, aby ją przenieść, lub ustaw fokus na jej uchwycie i użyj klawiszy strzałek. Ukryte sekcje zachowują swoje miejsce.",
 		"move_section": "Przenieś {title}",
 		"moved_section": "{title} — przeniesiono na pozycję {position} z {total}",
-		"new_section": "Nowy",
-		"show_new": "Pokaż nowe sekcje",
-		"show_new_desc": "YouTube z czasem dodaje nowe półki i zmienia ich nazwy. Gdy ta opcja jest wyłączona, nowe półki pojawiają się jako ukryte i czekają tutaj, aż je włączysz.",
 		"all_hidden": "Wszystko na stronie głównej jest wyłączone."
 	},
 	"history": {

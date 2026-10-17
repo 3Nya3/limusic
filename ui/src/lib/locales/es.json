@@ -190,10 +190,21 @@
 		"sections_hint": "Arrastra una sección para moverla, o selecciona su botón de arrastre y usa las flechas. Las secciones ocultas conservan su posición.",
 		"move_section": "Mover {title}",
 		"moved_section": "{title} movido a la posición {position} de {total}",
-		"new_section": "Nueva",
-		"show_new": "Mostrar nuevas secciones",
-		"show_new_desc": "YouTube agrega y renombra secciones con el tiempo. Si desactivas esta opción, las nuevas secciones se añadirán ocultas y esperarán aquí hasta que las actives.",
-		"all_hidden": "Todo en el inicio esta desactivado."
+		"all_hidden": "Todo en el inicio esta desactivado.",
+		"kinds": {
+			"listen_again": "Vuelve a escucharlo",
+			"quick_picks": "Selecciones rápidas",
+			"from_library": "De tu biblioteca",
+			"community": "De la comunidad",
+			"fresh_finds": "Lo nuevo y lo que más te gusta",
+			"albums_for_you": "Álbumes para ti",
+			"trending": "Canciones en tendencia para ti",
+			"featured_playlists": "Playlists destacadas para ti",
+			"new_releases": "Nuevos lanzamientos",
+			"mixed_for_you": "Mixes para ti",
+			"daily_discover": "Tu descubrimiento diario",
+			"music_videos": "Videos musicales para ti"
+		}
 	},
 	"artist": {
 		"subscribe": "Suscribirse",
@@ -407,7 +418,9 @@
 			"preview": "Previa",
 			"preview_hint": "Los controles deslizantes y el selector de color aparecen aquí a medida que arrastras, y la aplicación responde cuando sueltas.",
 			"blur_playlist_header": "Desenfocar cabecera de playlist",
-			"blur_playlist_header_hint": "Muestra la portada de la playlist desenfocada detrás de la cabecera. Suaviza las portadas que se ven pixeladas al estirarse a todo lo ancho."
+			"blur_playlist_header_hint": "Muestra la portada de la playlist desenfocada detrás de la cabecera. Suaviza las portadas que se ven pixeladas al estirarse a todo lo ancho.",
+			"matugen": "Matugen",
+			"matugen_hint": "Toma cualquier color, acentos incluidos, de la paleta de colores que Matugen crea de tu fondo de pantalla. Crea una plantilla de Limusic en Matugen primero."
 		},
 		"playback": {
 			"audio_quality": "Calidad de audio",

@@ -236,9 +236,6 @@
 		"sections_hint": "Kéo một phần để di chuyển, hoặc nhấp vào thanh kéo rồi dùng các phím mũi tên. Các phần bị ẩn vẫn giữ nguyên vị trí.",
 		"move_section": "Di chuyển {title}",
 		"moved_section": "{title} đã chuyển sang vị trí {position}/{total}",
-		"new_section": "Mới",
-		"show_new": "Hiển thị các mục mới",
-		"show_new_desc": "YouTube thường thêm mới và đổi tên các danh mục theo thời gian. Khi tắt tuỳ chọn này, chúng sẽ mặc định bị ẩn cho đến khi bạn bật lên.",
 		"all_hidden": "Tất cả nội dung trên trang chủ đã bị tắt."
 	},
 	"history": {
