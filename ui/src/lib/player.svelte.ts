@@ -105,9 +105,9 @@ const videoUrls = new Map<string, Promise<string | null>>();
  *  (80), and the title block under the picture (9.5rem, `VIDEO_SIDE`). If any of those changes
  *  height, this does. */
 export function wantedVideoHeight() {
-	const px = appearance.stagePlayer
-		? window.innerHeight - 344
-		: (window.innerHeight - 176) * 0.85;
+	const px = appearance.classicPlayer
+		? (window.innerHeight - 176) * 0.85
+		: window.innerHeight - 344;
 	return [360, 480, 720].find((h) => h >= px) ?? 720;
 }
 
