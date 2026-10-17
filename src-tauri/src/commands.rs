@@ -1268,12 +1268,34 @@ pub async fn set_playlist_sort(
     state.it.playlist_set_sort(client, &playlist_id, sort).await.map_err(|e| e.to_string())
 }
 
-/// videoId → how many times it was played, over the same trailing window On Repeat is built from
-/// (the history table is pruned to it, so there is no older data to offer). Feeds the playlist
-/// page's "Most played" sort; a track the map doesn't mention has not been played this month.
+/// videoId → how many times it was played, over the same trailing window On Repeat is built from.
+/// Feeds the playlist page's "Most played" sort; a track the map doesn't mention has not been
+/// played this month.
 #[tauri::command]
 pub fn play_counts(state: St<'_>) -> std::collections::HashMap<String, i64> {
     state.db.play_counts(now_secs() - ON_REPEAT_WINDOW_SECS).into_iter().collect()
+}
+
+/// The stats page (#396): everything heard since `since` (unix secs, 0 for all time). The page
+/// picks the window, because the calendar it is drawn against is the webview's.
+#[tauri::command]
+pub fn listening_stats(state: St<'_>, since: i64) -> crate::stats::Stats {
+    let now = now_secs();
+    let since = since.clamp(0, now);
+    let raw = state.db.listening(since, now);
+    let all_time = !matches!(raw.first_at, Some(first) if since > first);
+    let mut stats = crate::stats::shape(raw, all_time);
+    for t in &mut stats.top_songs {
+        t.song = shed_queue_context(std::mem::take(&mut t.song));
+    }
+    stats
+}
+
+/// "Clear listening history" on the stats page. On Repeat empties too: it is built from the same
+/// plays.
+#[tauri::command]
+pub fn clear_listening_history(state: St<'_>) {
+    state.db.clear_listens();
 }
 
 /// The On Repeat track list: most-played first, over the trailing window. Rows whose stored JSON
