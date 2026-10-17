@@ -401,7 +401,6 @@
 			"app_icon_filter": "PNG görsel",
 			"zoom": "Arayüz ölçeği",
 			"zoom_hint": "Penceredeki her şeyi ölçeklendirir. Yakınlaştırma kısayolları da bunu değiştirir ve uygulama yeniden başlatıldığında hatırlanır.",
-			"stage_player": "Yeni oynatıcı düzeni",
 			"mode": "Aydınlık veya karanlık",
 			"mode_hint": "Sistem bilgisayarınızın ayarını takip eder ve ona göre değiştirir.",
 			"mode_light": "Aydınlık",
@@ -412,7 +411,6 @@
 			"preview": "Önizle",
 			"accent_artwork_note": "Bir şarkı çalarken vurgu, şarkının kapak resminden gelir. Bunu görmek için “Kapağa göre renkleri ayarla” seçeneğini kapatın.",
 			"preview_hint": "Sürüklerken kaydırma çubukları ve renk seçici burada görünür; parmağınızı bıraktığınızda uygulama buna uyum sağlar.",
-			"stage_player_hint": "Kapak resminin altında şarkının adı, sanatçısı ve albümü; tam yükseklikteki bir sütunda çalma listesi ve şarkı sözleri; ayrıca kapak resminin renkleriyle aydınlatılmış görünüm. Kapalıyken orijinal düzen korunur.",
 			"matugen": "Matugen",
 			"matugen_hint": "Matugen'in duvar kağıdınızdan oluşturduğu paletten, vurgu renkleri de dahil olmak üzere tüm renkleri alın. Öncelikle Matugen'de Limusic şablonunu ayarlayın.",
 			"blur_playlist_header_hint": "Bir çalma listesinin kapak resmini, başlığının arkasında bulanık bir şekilde göster. Tam genişlikte pikselli görünen kapak resimlerini yumuşatır."
