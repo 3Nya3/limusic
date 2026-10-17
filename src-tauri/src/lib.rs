@@ -1037,6 +1037,7 @@ pub fn run() {
             commands::show_main,
             commands::take_launch_args,
             commands::get_home,
+            commands::network_reachable,
             commands::get_home_more,
             commands::get_comments,
             commands::get_comments_more,

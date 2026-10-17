@@ -18,7 +18,8 @@ import * as pl from './personal';
 import type { Personal } from './personal';
 import { appearance } from './theme.svelte';
 import { currentLocale, pushLocaleToRust, t } from './i18n.svelte';
-import { friendlyNetError } from './neterr';
+import { friendlyNetError, isUnreachable } from './neterr';
+import { whenBackOnline } from './reconnect';
 import { parseScrobbleConfig } from './scrobble';
 
 export const playback = $state({
@@ -210,6 +211,10 @@ export async function loadLibrary(force = false) {
 		library.loaded = true;
 	} catch (e) {
 		if (generation === libraryGeneration) library.error = String(e);
+		// Run at startup, often before the network is up: without this the sidebar keeps only the
+		// local playlists until something else asks again (#483).
+		if (isUnreachable(String(e)))
+			whenBackOnline(() => generation === libraryGeneration && loadLibrary());
 		// The account's half failed (offline, most likely), and the playlists on this machine need
 		// no network: show them anyway rather than an empty sidebar.
 		refreshLocalPlaylists();
@@ -237,6 +242,8 @@ export async function loadLibraryExtras(force = false) {
 		library.extrasLoaded = true;
 	} catch (e) {
 		if (generation === libraryGeneration) library.extrasError = String(e);
+		if (isUnreachable(String(e)))
+			whenBackOnline(() => generation === libraryGeneration && loadLibraryExtras());
 	} finally {
 		if (generation === libraryGeneration) library.extrasLoading = false;
 	}
