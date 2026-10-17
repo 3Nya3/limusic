@@ -33,6 +33,7 @@
 	import TrackSelectionBar from '$lib/components/TrackSelectionBar.svelte';
 	import TrackSelectButton from '$lib/components/TrackSelectButton.svelte';
 	import { trackSelection } from '$lib/selection.svelte';
+	import { subtitleCount, withSubtitleCount } from '$lib/trackcount';
 	import EditPlaylistDialog from '$lib/components/EditPlaylistDialog.svelte';
 	import TrackFilter, { filterTracks } from '$lib/components/TrackFilter.svelte';
 	import TrackRowSkeleton from '$lib/components/TrackRowSkeleton.svelte';
@@ -208,7 +209,7 @@
 				? t('library.songs_count_one')
 				: t('library.songs_count', { count: pl.items.length })
 			: pl && !pl.continuation && pl.items.length
-				? (pl.subtitle ?? '').replace(/^[\d,.]+ songs?/i, `${pl.items.length} songs`)
+				? withSubtitleCount(pl.subtitle ?? '', pl.items.length)
 				: pl?.subtitle
 	);
 	// --- sorting (`$lib/sort`) ---------------------------------------------------------------
@@ -264,14 +265,10 @@
 		// header count would be the wrong number to offer there.
 		() => (filtering ? undefined : headerCount), loadAll);
 	const filtering = $derived(!!applied.trim());
-	// The leading number of YouTube's own "190 tracks - 9+ hours", which is what the subtitle under
-	// the title shows until every page is in. An upper bound, not a count: it includes rows that
-	// never arrive (unavailable, region-blocked). A locale that doesn't lead with the number gives
-	// nothing back, and Select all falls back to the rows it has.
-	const headerCount = $derived.by(() => {
-		const digits = (pl?.subtitle ?? '').match(/^[\d.,]+/)?.[0].replace(/\D/g, '');
-		return digits ? Number(digits) : undefined;
-	});
+	// YouTube's own count, which is what the subtitle under the title shows until every page is in.
+	// An upper bound, not a count: it includes rows that never arrive (unavailable, region-blocked).
+	// With no number to read, Select all falls back to the rows it has.
+	const headerCount = $derived(subtitleCount(pl?.subtitle));
 
 	// A sort has to cover the whole playlist, not the pages scrolled so far, so pull the rest in.
 	// Stops on a failed page (`moreError`), on navigation, and on any pass that made no progress.
