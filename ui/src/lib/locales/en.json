@@ -138,6 +138,7 @@
 		"remove_account_desc": "{name} is only removed from this list. The Google account itself is not affected, and you can sign in with it again whenever you like.",
 		"saved_accounts_hint": "Pick a saved account to switch to it.",
 		"history": "History",
+		"stats": "Stats",
 		"no_channels": "YouTube did not return any selectable channels."
 	},
 	"player": {
@@ -264,6 +265,66 @@
 		"songs_count": "{count} songs",
 		"empty": "Nothing here yet. Anything you play while signed in shows up on this page.",
 		"signed_out": "Sign in to see your YouTube Music listening history."
+	},
+	"stats": {
+		"title": "Listening stats",
+		"ranges": {
+			"week": "7 days",
+			"month": "30 days",
+			"year": "12 months",
+			"all": "All time"
+		},
+		"listened": {
+			"week": "listened in the last 7 days",
+			"month": "listened in the last 30 days",
+			"year": "listened in the last 12 months",
+			"all": "listened since {date}"
+		},
+		"compared": {
+			"week": "vs. the 7 days before",
+			"month": "vs. the 30 days before",
+			"year": "vs. the 12 months before"
+		},
+		"plays": "Plays",
+		"new_songs": "{count} new",
+		"streak": "Day streak",
+		"best_streak": "Best: {count}",
+		"activity": "Listening activity",
+		"daily_average": "Daily average",
+		"monthly_average": "Monthly average",
+		"busiest_day": "Busiest day",
+		"busiest_month": "Busiest month",
+		"busiest_weekday": "Busiest day of the week",
+		"busiest_hour": "Busiest hour",
+		"top_songs": "Top songs",
+		"top_artists": "Top artists",
+		"top_albums": "Top albums",
+		"share": "{percent} of your listening",
+		"when": "When you listen",
+		"dayparts": {
+			"morning": "Morning",
+			"afternoon": "Afternoon",
+			"evening": "Evening",
+			"night": "Night"
+		},
+		"persona": {
+			"morning": "Early bird",
+			"afternoon": "Afternoon listener",
+			"evening": "Evening listener",
+			"night": "Night owl"
+		},
+		"persona_hint": "You listen most between {from} and {to}.",
+		"less": "Less",
+		"more": "More",
+		"nothing_in_range": "Nothing played in this period.",
+		"empty_title": "Your stats start here",
+		"empty": "Play a few songs and this page fills in with what you listen to, when, and for how long.",
+		"on_device": "Counted on this device from what you play in Limusic. Nothing is sent anywhere.",
+		"clear": "Clear listening history",
+		"clear_title": "Clear listening history?",
+		"clear_desc": "This forgets every play counted on this device, so your stats start over and On Repeat empties. Your YouTube Music history isn't touched.",
+		"clear_confirm": "Clear history",
+		"cleared": "Listening history cleared"
 	},
 	"artist": {
 		"subscribe": "Subscribe",

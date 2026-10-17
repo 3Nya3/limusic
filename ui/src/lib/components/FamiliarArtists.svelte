@@ -17,7 +17,8 @@
 	import * as api from '$lib/api';
 	import type { ArtistPage, BrowseItem } from '$lib/api';
 	import { thumb } from '$lib/thumb';
-	import { getCached, putCached } from '$lib/pagecache';
+	import { putCached } from '$lib/pagecache';
+	import { artistPage } from '$lib/browse';
 	import { topArtistIds } from '$lib/personal';
 	import { personal, toast } from '$lib/player.svelte';
 	import { t } from '$lib/i18n.svelte';
@@ -62,19 +63,6 @@
 		attempt = { ...attempt, [a.channelId]: n === 0 && thumb(art(a), 400) !== art(a) ? 1 : 2 };
 	};
 
-	async function fetchArtist(id: string): Promise<ArtistPage | null> {
-		const key = `artist:${id}`;
-		const hit = getCached<ArtistPage>(key);
-		if (hit) return hit;
-		try {
-			const page = await api.getArtist(id);
-			putCached(key, page);
-			return page;
-		} catch {
-			return null; // one dead channel doesn't cost the section
-		}
-	}
-
 	onMount(async () => {
 		if (ids.length < MIN) {
 			loading = false;
@@ -86,7 +74,7 @@
 		const pages = (
 			await Promise.all(
 				ids.map(async (id) => {
-					const page = await fetchArtist(id);
+					const page = await artistPage(id); // null: one dead channel doesn't cost the section
 					return page?.name
 						? { ...page, browseId: id, plays: personal.artists[id]?.count ?? 0 }
 						: null;
