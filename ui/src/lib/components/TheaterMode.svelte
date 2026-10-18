@@ -591,6 +591,11 @@
 		<!-- === Lyrics, straight on the backdrop. No card: a panel on a screen with no other chrome
 		     is the one thing that makes this look like a page instead of a stage. One size up on big
 		     screens, where this is read from the sofa.
+			 That one size is `em`, not `text-4xl`: a `rem`
+			 here is an absolute that wins the line's own `em` size on specificity (the descendant
+			 `[data-line]` selector outweighs a single class) and pins it, so the footer's text size
+			 control reached every view except this one. An `em` rides on the scroller's `font-size`,
+			 which is what the control writes, and is the same 2.25rem at the default step. 
 		     Never give this a `mask-image` for the end fades, however tempting: it buffers the whole
 		     scroller offscreen on every scroll frame. Same for `backdrop-filter` (see the header).
 		     The scrollbar is hidden from out here, since the child owns the scroller.
@@ -600,7 +605,7 @@
 		{#if lyricsShown}
 			<div
 				bind:this={lyricsCol}
-				class="min-h-0 min-w-0 flex-[1.2] flex-col overflow-hidden 2xl:[&_[data-line]]:text-4xl [&_*]:[scrollbar-width:none] [&_*::-webkit-scrollbar]:hidden {noLyrics
+				class="min-h-0 min-w-0 flex-[1.2] flex-col overflow-hidden 2xl:[&_[data-line]]:text-[2.25em] [&_*]:[scrollbar-width:none] [&_*::-webkit-scrollbar]:hidden {noLyrics
 					? 'hidden'
 					: 'flex'}"
 				style="padding-bottom:{roomFree ? headerH : `${dockH}px`}"
