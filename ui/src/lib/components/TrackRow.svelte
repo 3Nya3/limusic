@@ -394,7 +394,7 @@
 					class="truncate text-xs text-muted-foreground {CELL.added}"
 					title={song.added_at ? addedTitle(song.added_at, tagOf(currentLocale.id)) : undefined}
 				>
-					{song.added_at ? addedLabel(song.added_at, Date.now() / 1000, tagOf(currentLocale.id)) : ''}
+					{song.added_at ? addedLabel(song.added_at, tagOf(currentLocale.id)) : ''}
 				</span>
 			{:else if c === 'by'}
 				<span class={CELL.by}>

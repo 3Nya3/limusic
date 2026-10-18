@@ -36,15 +36,9 @@ eq(parseColumns(null), DEFAULT_COLUMNS, 'nothing stored');
 eq(parseColumns('{oops'), DEFAULT_COLUMNS, 'broken JSON');
 eq(parseColumns('"album"'), DEFAULT_COLUMNS, 'not an array');
 
-// Date added: distance for four weeks, then the date.
-const now = 1_760_000_000;
-eq(addedLabel(now - 30, now, 'en'), 'now', 'seconds ago');
-eq(addedLabel(now - 120, now, 'en'), '2 minutes ago', 'minutes');
-eq(addedLabel(now - 5400, now, 'en'), '1 hour ago', '90 minutes is an hour');
-eq(addedLabel(now - 86400, now, 'en'), 'yesterday', 'one day');
-eq(addedLabel(now - 3 * 86400, now, 'en'), '3 days ago', 'days');
-eq(addedLabel(now - 15 * 86400, now, 'en'), '2 weeks ago', 'weeks');
-eq(addedLabel(now - 40 * 86400, now, 'en-US'), 'Aug 30, 2025', 'old enough for a date');
-eq(addedLabel(now + 60, now, 'en'), 'now', 'a clock behind the stamp');
+// Date added: always the day, however recent.
+const day = 1_755_417_934; // 2025-08-17 08:05 UTC
+eq(addedLabel(day, 'en-US'), 'Aug 17, 2025', 'a date');
+eq(addedLabel(Math.floor(Date.now() / 1000) - 30, 'en-US').includes('ago'), false, 'never a distance');
 
 console.log('ok');

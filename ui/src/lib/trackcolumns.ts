@@ -67,43 +67,18 @@ export function parseColumns(raw: string | null): TrackColumn[] {
 	return DEFAULT_COLUMNS;
 }
 
-const formats = new Map<string, Intl.DateTimeFormat | Intl.RelativeTimeFormat>();
-function format<T extends Intl.DateTimeFormat | Intl.RelativeTimeFormat>(
-	key: string,
-	make: () => T
-): T {
-	let f = formats.get(key);
-	if (!f) formats.set(key, (f = make()));
-	return f as T;
-}
+const formats = new Map<string, Intl.DateTimeFormat>();
+const format = (key: string, opts: Intl.DateTimeFormatOptions, tag: string): Intl.DateTimeFormat => {
+	let f = formats.get(key + tag);
+	if (!f) formats.set(key + tag, (f = new Intl.DateTimeFormat(tag, opts)));
+	return f;
+};
 
-const STEPS: [Intl.RelativeTimeFormatUnit, number][] = [
-	['minute', 60],
-	['hour', 3600],
-	['day', 86400],
-	['week', 7 * 86400]
-];
-
-/**
- * "3 days ago" for the last four weeks, a plain date after that: a recent add reads better as a
- * distance, an old one as the day it happened. `at` and `now` are unix seconds.
- */
-export function addedLabel(at: number, now: number, tag: string): string {
-	const ago = Math.max(0, now - at);
-	if (ago < 28 * 86400) {
-		const rel = format(`r:${tag}`, () => new Intl.RelativeTimeFormat(tag, { numeric: 'auto' }));
-		// The largest unit that fits at least once: 90 minutes is "1 hour ago", not "90 minutes ago".
-		// Under a minute is "now".
-		let [unit, size]: [Intl.RelativeTimeFormatUnit, number] = ['second', Infinity];
-		for (const s of STEPS) if (ago >= s[1]) [unit, size] = s;
-		return rel.format(-Math.floor(ago / size) || 0, unit);
-	}
-	return format(`d:${tag}`, () => new Intl.DateTimeFormat(tag, { dateStyle: 'medium' })).format(
-		at * 1000
-	);
-}
+/** The day it was added ("Aug 17, 2025"), always: a distance like "3 weeks ago" reads differently
+ *  from one row to the next and from one day to the next. `at` is unix seconds. */
+export const addedLabel = (at: number, tag: string): string =>
+	format('d', { dateStyle: 'medium' }, tag).format(at * 1000);
 
 /** The full date and time, for the cell's tooltip. */
 export const addedTitle = (at: number, tag: string): string =>
-	format(`f:${tag}`, () => new Intl.DateTimeFormat(tag, { dateStyle: 'long', timeStyle: 'short' }))
-		.format(at * 1000);
+	format('f', { dateStyle: 'long', timeStyle: 'short' }, tag).format(at * 1000);
