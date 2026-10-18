@@ -1,5 +1,5 @@
 <script lang="ts">
-	// The artists you actually play, ranked by the play counts this machine has been keeping.
+	// The artists you actually play, ranked by the plays the stats page counts (#497).
 	//
 	// What makes this section worth a slot is the one number no YouTube shelf has, your own play
 	// count, so every artist carries it. It has been a flower of floating avatars, then a poster for
@@ -19,8 +19,7 @@
 	import { thumb } from '$lib/thumb';
 	import { putCached } from '$lib/pagecache';
 	import { artistPage } from '$lib/browse';
-	import { topArtistIds } from '$lib/personal';
-	import { personal, toast } from '$lib/player.svelte';
+	import { toast } from '$lib/player.svelte';
 	import { t } from '$lib/i18n.svelte';
 
 	// ponytail: one browse call per artist, because the subscriber count and the subscribe state
@@ -29,10 +28,14 @@
 	const COUNT = 6; // one row of posters at full width, whole rows of two or three narrower
 	const MIN = 3; // fewer familiar artists than this and the section isn't worth a slot
 	const SLACK = 2; // extra ids fetched, to backfill the ones whose page comes back unparseable
+	// ponytail: artists without a channel (local files, unlinked credits) are dropped after the
+	// fetch, so a top 30 made almost entirely of them can leave the section short. Filter in Rust if
+	// that ever happens.
+	const TOP = 30;
 
 	/**
-	 * The play count is carried on the row rather than looked up from `personal` at render time,
-	 * because the two ids are not the same one: we browse by the id the play counter recorded, and
+	 * The play count is carried on the row rather than looked up by `channelId` at render time,
+	 * because the two ids are not the same one: we browse by the id the song's credit links, and
 	 * the page comes back carrying the *subscribe button's* channel (an artist's official channel,
 	 * which is often a different `UC…`). Keying the count off `channelId` therefore read 0 for
 	 * everyone except the artists whose page failed to parse and fell back to the browse id.
@@ -45,13 +48,13 @@
 
 	let artists = $state<Familiar[]>([]);
 	let loading = $state(true);
+	/** Channel ids by plays, most first; empty until the history has been read. */
+	let ids = $state<string[]>([]);
 	/** Subscribe state per channel, optimistic — seeded from each artist page as it lands. */
 	let subs = $state<Record<string, boolean>>({});
 	let subBusy = $state<string | null>(null);
 	/** 0 = sized thumb, 1 = the original URL, 2 = give up and draw the icon. Same ladder as MediaCard. */
 	let attempt = $state<Record<string, number>>({});
-
-	const ids = topArtistIds(personal, COUNT + SLACK);
 
 	// A channel YouTube Music doesn't treat as an artist has a wide banner as `thumbnail` and its
 	// round avatar apart; the avatar is the one that crops to a poster.
@@ -64,6 +67,10 @@
 	};
 
 	onMount(async () => {
+		const top = (await api.topArtists(TOP).catch(() => []))
+			.flatMap(({ id, plays }) => (id?.startsWith('UC') ? [{ id, plays }] : []))
+			.slice(0, COUNT + SLACK);
+		ids = top.map((a) => a.id);
 		if (ids.length < MIN) {
 			loading = false;
 			return;
@@ -73,11 +80,9 @@
 		// slack ids take the slot.
 		const pages = (
 			await Promise.all(
-				ids.map(async (id) => {
+				top.map(async ({ id, plays }) => {
 					const page = await artistPage(id); // null: one dead channel doesn't cost the section
-					return page?.name
-						? { ...page, browseId: id, plays: personal.artists[id]?.count ?? 0 }
-						: null;
+					return page?.name ? { ...page, browseId: id, plays } : null;
 				})
 			)
 		)

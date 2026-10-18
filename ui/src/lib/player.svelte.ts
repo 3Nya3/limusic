@@ -1505,10 +1505,11 @@ export function initApp(mini = false): () => void {
 		api.onNowPlaying((n) => {
 			playback.now = n;
 			playback.rating = n.rating ?? 'indifferent'; // the track's real rating when known
-			// Feeds Shortcuts recency and the community shelf's artist seed. Every play lands here,
-			// gapless advances included, so it's the one hook that sees them all.
+			// Feeds Shortcuts recency. Every track start lands here, gapless advances included, so
+			// it's the one hook that sees them all. Never count plays here: skips and the track
+			// restored at launch land here too. Plays are counted in Rust, past the history
+			// threshold (#497).
 			pl.touchPick(personal, n.videoId);
-			if (n.artists) pl.noteArtist(personal, n.artistId ?? n.artists, pl.firstArtist(n.artists));
 			savePersonal();
 			// Warm the music video now rather than when the view opens: the resolve is a round trip
 			// to YouTube, and paid here it overlaps the track starting instead of the user's click.
