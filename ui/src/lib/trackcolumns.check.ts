@@ -21,12 +21,13 @@ const song = (extra: Partial<SongItem> = {}): SongItem => ({
 // Only what some row can fill.
 eq(availableColumns([song()]), ['mine', 'duration'], 'bare rows');
 eq(
-	availableColumns([song(), song({ album: 'X', added_at: 1, play_count: '5M' })]),
-	['album', 'added', 'plays', 'mine', 'duration'],
+	availableColumns([song(), song({ album: 'X', added_at: 1, added_by_avatars: ['a.jpg'], play_count: '5M' })]),
+	['album', 'added', 'by', 'plays', 'mine', 'duration'],
 	'one full row is enough'
 );
 eq(availableColumns([song({ album: 'X', play_count: '5M' })], true), ['plays', 'mine', 'duration'], 'album page drops Album');
 eq(availableColumns([]), ['mine', 'duration'], 'empty list');
+eq(availableColumns([song({ added_by_avatars: [] })]), ['mine', 'duration'], 'no avatars is no Added by');
 
 // Stored choice: unknown ids dropped, our order, broken values fall back.
 eq(parseColumns('["duration","album","bogus"]'), ['album', 'duration'], 'reordered + unknown');

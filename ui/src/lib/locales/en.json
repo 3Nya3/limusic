@@ -1105,6 +1105,7 @@
 		"title": "Title",
 		"album": "Album",
 		"added": "Date added",
+		"by": "Added by",
 		"plays": "Plays",
 		"mine": "Your plays",
 		"duration": "Duration"

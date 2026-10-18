@@ -6,10 +6,9 @@
 	on this machine doesn't leave an empty column on every YouTube one. The picker lists only those
 	too, rather than offering a column that would stay blank here.
 
-	Sticky with an opaque background, so the labels stay over the rows on a long list. Its cells
-	take their widths from `CELL`, the same classes the rows use, and sit right-anchored like the
-	rows' do: the marks in front of them (saved, explicit, rating) differ row to row, so anything
-	measured from the left would zig-zag.
+	Sticky with an opaque background, so the labels stay over the rows on a long list. It lays out
+	exactly as a row does (`TITLE`, `CELL`, `END` in `trackcolumns.ts`), which is what keeps every
+	label over its cells.
 -->
 <script module lang="ts">
 	import * as api from '$lib/api';
@@ -56,7 +55,7 @@
 <script lang="ts">
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import { ArrowDown01Icon, Clock01Icon } from '@hugeicons/core-free-icons';
-	import { CELL } from '$lib/trackcolumns';
+	import { CELL, END, TITLE } from '$lib/trackcolumns';
 	import { anchorMenu, fitMenu, NO_ANCHOR, toBody } from '$lib/menu';
 	import { t } from '$lib/i18n.svelte';
 	import { Checkbox } from './ui/checkbox';
@@ -93,19 +92,23 @@
 	{#if selecting}
 		<span class="w-4 shrink-0"></span>
 	{/if}
-	<span class="w-5 shrink-0 text-center">#</span>
-	<span class="min-w-0 flex-1 truncate">{t('columns.title')}</span>
-	<div class="flex shrink-0 items-center gap-2">
-		{#each columns as c (c)}
-			{#if c === 'duration'}
-				<span class="flex shrink-0 justify-end {CELL.duration}" title={t('columns.duration')}>
-					<HugeiconsIcon icon={Clock01Icon} class="h-3.5 w-3.5" aria-label={t('columns.duration')} />
-				</span>
-			{:else}
-				<span class="shrink-0 truncate {CELL[c]}">{t(`columns.${c}`)}</span>
-			{/if}
-		{/each}
-		<!-- Over the rows' ⋯ column, which is the same width. -->
+	<div class="flex min-w-0 items-center gap-3 {TITLE}">
+		<span class="w-5 shrink-0 text-center">#</span>
+		<!-- Starts over the artwork, the way the title column reads in a table. -->
+		<span class="min-w-0 truncate">{t('columns.title')}</span>
+	</div>
+	{#each columns as c (c)}
+		{#if c !== 'duration'}
+			<span class="truncate {CELL[c]}">{t(`columns.${c}`)}</span>
+		{/if}
+	{/each}
+	<div class="flex shrink-0 items-center gap-2 {END}">
+		{#if columns.includes('duration')}
+			<!-- Over the duration, which the rows end on just before the ⋯, as the picker sits over it. -->
+			<span class="flex min-w-[5ch] shrink-0 justify-end" title={t('columns.duration')}>
+				<HugeiconsIcon icon={Clock01Icon} class="h-3.5 w-3.5" aria-label={t('columns.duration')} />
+			</span>
+		{/if}
 		<button
 			class="cursor-pointer rounded-md p-1.5 hover:bg-accent/20 hover:text-foreground {open
 				? 'bg-accent/20 text-foreground'

@@ -979,7 +979,7 @@
 
 <div class="flex h-full flex-col">
 	{#if loading}
-		<div class="flex items-end gap-6 border-b p-6">
+		<div class="flex items-end gap-6 p-6">
 			<Skeleton class="h-40 w-40 shrink-0 rounded-xl" />
 			<div class="flex-1 space-y-3">
 				<Skeleton class="h-3 w-16 rounded" />
@@ -999,7 +999,7 @@
 		<!-- One scroller for the whole page: the header scrolls away above the rows, same as the
 		     album page. -->
 		<div class="content-in min-h-0 flex-1 overflow-y-auto" {@attach sc.attach}>
-			<div class="relative flex min-h-[38vh] shrink-0 items-end gap-6 overflow-hidden border-b p-6">
+			<div class="relative flex min-h-[38vh] shrink-0 items-end gap-6 overflow-hidden p-6">
 				<!-- The backdrop and its fade share one layer (`art-wash` on the wrapper): see HomeHero. -->
 				<div class="art-wash pointer-events-none absolute inset-0 overflow-hidden">
 					{#if backdrop}
