@@ -16,7 +16,14 @@
 	import { parseColumns, type TrackColumn } from '$lib/trackcolumns';
 
 	const KEY = 'track_columns';
-	export const chosen = $state({ list: parseColumns(localStorage.getItem(KEY)) });
+	function stored(): string | null {
+		try {
+			return localStorage.getItem(KEY);
+		} catch {
+			return null; // a blocked store reads as nothing chosen yet: the default
+		}
+	}
+	export const chosen = $state({ list: parseColumns(stored()) });
 
 	function toggle(c: TrackColumn) {
 		chosen.list = chosen.list.includes(c) ? chosen.list.filter((x) => x !== c) : [...chosen.list, c];
