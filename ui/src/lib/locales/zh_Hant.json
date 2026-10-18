@@ -20,7 +20,8 @@
 		"playlist_partial": "已將 {added} 首新增至「{playlist}」；其中 {duplicates} 首已存在；{remaining} 首未確認。{error}",
 		"remove": "從此播放清單中移除",
 		"remove_confirm": "確定要移除這 {count} 首項目？",
-		"playlists_partial": "已新增至 {total} 個播放清單中的 {done} 個。{error}"
+		"playlists_partial": "已新增至 {total} 個播放清單中的 {done} 個。{error}",
+		"play_on_repeat": "只對這些循環播放"
 	},
 	"common": {
 		"loading": "載入中…",
@@ -87,7 +88,8 @@
 		"play_all": "全部播放",
 		"top_result": "最佳結果",
 		"all_results_for": "所有符合「{query}」的結果",
-		"videos": "影片"
+		"videos": "影片",
+		"restore": "恢復"
 	},
 	"nav": {
 		"home": "首頁",
@@ -110,7 +112,8 @@
 		"remove_account_desc": "僅會將 {name} 從此清單中移除。您的 Google 帳戶不受影響，日後隨時可再次登入。",
 		"saved_accounts_hint": "選擇已儲存的帳戶即可快速切換。",
 		"history": "歷史記錄",
-		"no_channels": "YouTube 未傳回任何可選取的頻道。"
+		"no_channels": "YouTube 未傳回任何可選取的頻道。",
+		"stats": "統計"
 	},
 	"player": {
 		"play": "播放",
@@ -171,7 +174,11 @@
 		"queue_ends": "此曲目為待播清單的最後一首。",
 		"autoplay": "自動播放",
 		"songs_left": "待播清單還剩 {count} 首",
-		"edit_scrobble": "編輯紀錄 (Scrobble)"
+		"edit_scrobble": "編輯紀錄 (Scrobble)",
+		"comments": "留言",
+		"song": "歌曲",
+		"video": "影片",
+		"up_next": "接下來"
 	},
 	"home": {
 		"good_morning": "讓今天從旋律開始",
@@ -208,7 +215,21 @@
 		"sections_hint": "拖曳區塊或使用方向鍵來調整排列順序。已隱藏的區塊會保留其原本位置。",
 		"move_section": "移動「{title}」",
 		"moved_section": "「{title}」已移動至第 {position} 個（共 {total} 個）",
-		"all_hidden": "首頁上的所有區塊皆已關閉。"
+		"all_hidden": "首頁上的所有區塊皆已關閉。",
+		"kinds": {
+			"listen_again": "再聽一次",
+			"quick_picks": "歌曲快選",
+			"from_library": "您的收藏庫",
+			"community": "社群播放清單",
+			"fresh_finds": "新歌舊愛，一次滿足",
+			"albums_for_you": "為您推薦的專輯",
+			"trending": "為您推薦的歌曲",
+			"featured_playlists": "為您精選的播放列表",
+			"new_releases": "最新發布",
+			"mixed_for_you": "為您精選",
+			"daily_discover": "每日發現",
+			"music_videos": "為您推薦的 MV"
+		}
 	},
 	"history": {
 		"title": "歷史記錄",
@@ -1096,5 +1117,37 @@
 			"not_found": "在 YouTube Music 上找不到此項目。",
 			"cooldown": "YouTube Music 要求 Limusic 降低請求頻率，因此匯入已暫停至 {time}。目前已找到的內容皆已妥善保存。"
 		}
+	},
+	"stats": {
+		"title": "收聽統計",
+		"ranges": {
+			"week": "週",
+			"month": "月",
+			"year": "年",
+			"all": "全部"
+		},
+		"listened": {
+			"week": "過去一週",
+			"month": "過去一個月",
+			"year": "過去一年",
+			"all": "自 {date} 開始收聽"
+		},
+		"compared": {
+			"week": "與前一週相比",
+			"month": "與前一個月相比",
+			"year": "與前一年相比"
+		},
+		"plays": "播放數",
+		"new_songs": "{count} 首新歌",
+		"streak": "連續天數",
+		"best_streak": "最佳: {count}",
+		"activity": "收聽活動",
+		"daily_average": "每日平均",
+		"monthly_average": "每月平均",
+		"busiest_day": "最活躍的一天",
+		"busiest_month": "最活躍的月份",
+		"busiest_weekday": "一週當中最活躍的一天",
+		"busiest_hour": "最活躍的時間",
+		"top_songs": "最常聽的歌曲"
 	}
 }
