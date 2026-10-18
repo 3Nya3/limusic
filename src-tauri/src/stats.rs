@@ -94,7 +94,7 @@ pub fn shape(raw: Listening, all_time: bool) -> Stats {
     // Most heard first, so each artist and album takes its picture from the song heard most.
     songs.sort_by(|a, b| b.secs.cmp(&a.secs).then(b.plays.cmp(&a.plays)));
 
-    let artists = tally_artists(&songs);
+    let mut artists = tally_artists(&songs);
     let mut albums: HashMap<&str, TopAlbum> = HashMap::new();
     for s in &songs {
         // ponytail: only albums YouTube links. A local file has no album id on its row (see
@@ -122,7 +122,6 @@ pub fn shape(raw: Listening, all_time: bool) -> Stats {
     }
     let (streak, best_streak) = streaks(&raw.day_numbers, raw.today);
     let artist_count = artists.len() as i64;
-    let mut artists: Vec<TopArtist> = artists.into_values().collect();
     artists.sort_by(|a, b| b.secs.cmp(&a.secs).then(b.plays.cmp(&a.plays)));
     artists.truncate(TOP_ARTISTS);
     let mut albums: Vec<TopAlbum> = albums.into_values().collect();
@@ -159,7 +158,7 @@ pub fn top_artists(songs: Vec<(String, i64, i64, i64)>, n: usize) -> Vec<TopArti
     let mut songs: Vec<TopSong> =
         parse(songs).into_iter().map(|(s, _)| s).filter(|s| is_song(&s.song)).collect();
     songs.sort_by(|a, b| b.secs.cmp(&a.secs).then(b.plays.cmp(&a.plays)));
-    let mut artists: Vec<TopArtist> = tally_artists(&songs).into_values().collect();
+    let mut artists = tally_artists(&songs);
     // By plays, where the stats page goes by time: a poster shows only its play count.
     artists.sort_by(|a, b| b.plays.cmp(&a.plays).then(b.secs.cmp(&a.secs)));
     artists.truncate(n);
@@ -175,28 +174,43 @@ fn parse(rows: Vec<(String, i64, i64, i64)>) -> Vec<(TopSong, i64)> {
         .collect()
 }
 
-/// Every artist credited on `songs`, keyed by lowercased name so the same artist from a YouTube
-/// song and from a file is one row. `songs` come most heard first: each artist takes its picture
+/// Every artist credited on `songs`. One row per lowercased name, so the same artist from a YouTube
+/// song and from a file is one row, and per id, so a channel credited under two names (a renamed
+/// or localized credit) is one too. `songs` come most heard first: each artist takes its picture
 /// from the first.
-fn tally_artists(songs: &[TopSong]) -> HashMap<String, TopArtist> {
-    let mut artists: HashMap<String, TopArtist> = HashMap::new();
+fn tally_artists(songs: &[TopSong]) -> Vec<TopArtist> {
+    let mut out: Vec<TopArtist> = Vec::new();
+    // Names lowercased, ids as they are: a lowercased name can't pass for a `UC…` id.
+    let mut row: HashMap<String, usize> = HashMap::new();
     for s in songs {
         for (id, name) in credits(&s.song) {
-            let a = artists.entry(name.to_lowercase()).or_insert_with(|| TopArtist {
-                name,
-                id: None,
-                thumbnail: s.song.thumbnail.clone(),
-                plays: 0,
-                secs: 0,
-            });
+            let key = name.to_lowercase();
+            let i = match id.as_ref().and_then(|id| row.get(id)).or_else(|| row.get(&key)) {
+                Some(&i) => i,
+                None => {
+                    out.push(TopArtist {
+                        name,
+                        id: None,
+                        thumbnail: s.song.thumbnail.clone(),
+                        plays: 0,
+                        secs: 0,
+                    });
+                    out.len() - 1
+                }
+            };
+            let a = &mut out[i];
             a.plays += s.plays;
             a.secs += s.secs;
             if a.id.is_none() {
                 a.id = id;
             }
+            row.insert(key, i);
+            if let Some(id) = &a.id {
+                row.insert(id.clone(), i);
+            }
         }
     }
-    artists
+    out
 }
 
 /// Whether a play counts as a song. See [`LONGEST_VIDEO_SONG_SECS`]. A video of unknown length is
@@ -313,6 +327,13 @@ mod tests {
             top_artists(songs.clone(), 5).into_iter().map(|a| (a.name, a.plays)).collect();
         assert_eq!(top, [("Y".to_owned(), 7), ("X".to_owned(), 2)], "X has the time, Y the plays");
         assert_eq!(top_artists(songs, 1).len(), 1, "capped at n");
+
+        let renamed = vec![
+            (song("c", "Ye", &[("Ye", Some("UCk"))]), 3, 30, 0),
+            (song("d", "Kanye West", &[("Kanye West", Some("UCk"))]), 2, 20, 0),
+        ];
+        let top = top_artists(renamed, 5);
+        assert_eq!((top.len(), top[0].plays), (1, 5), "one channel under two names is one artist");
     }
 
     /// A streamer's VODs and a podcast episode are listening time, not songs or artists.
