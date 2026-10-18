@@ -13,9 +13,9 @@ export type TrackColumn = 'album' | 'added' | 'by' | 'plays' | 'mine' | 'duratio
 /** Picker order, which is also the cells' order left to right. Duration stays last, by the ⋯. */
 export const COLUMNS: TrackColumn[] = ['album', 'added', 'by', 'plays', 'mine', 'duration'];
 
-/** A fresh install: the rows exactly as they were before columns existed. Added by only ever shows
- *  on a collaborative playlist, where the avatars were always on. */
-export const DEFAULT_COLUMNS: TrackColumn[] = ['by', 'plays', 'duration'];
+/** A fresh install. Added by and Plays keep what the rows always showed (a collaborative
+ *  playlist's avatars, an album's play counts); Your plays is opt-in. */
+export const DEFAULT_COLUMNS: TrackColumn[] = ['album', 'added', 'by', 'plays', 'duration'];
 
 /*
  * The row, left to right, laid out the same way by the header and by every row, so the labels sit
