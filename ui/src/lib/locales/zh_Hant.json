@@ -1148,6 +1148,8 @@
 		"busiest_month": "最活躍的月份",
 		"busiest_weekday": "一週當中最活躍的一天",
 		"busiest_hour": "最活躍的時間",
-		"top_songs": "最常聽的歌曲"
+		"top_songs": "最常聽的歌曲",
+		"top_artists": "最常聽的演出者",
+		"top_albums": "最常聽的專輯"
 	}
 }
