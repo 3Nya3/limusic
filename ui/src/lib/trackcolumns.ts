@@ -2,10 +2,10 @@
 // so it can be checked without a DOM (`trackcolumns.check.ts`). The chosen set and the header that
 // picks it live in `TrackColumns.svelte`.
 //
-// Only what the rows really carry is offered. YouTube sends no date a track was added to one of its
-// playlists and no release date per track, so "Date added" exists for playlists on this machine
-// (which record it) and nothing offers a release date. A column every row would leave blank is
-// worse than no column.
+// Only what the rows really carry is offered: a column every row would leave blank is worse than
+// no column. Date added comes off YouTube's playlist rows (`voteSortValue`, see `added_at` in
+// metadata.rs) and off the rows of a playlist kept on this machine. Nothing offers a release date:
+// no row carries one.
 import type { SongItem } from './api';
 
 export type TrackColumn = 'album' | 'added' | 'by' | 'plays' | 'mine' | 'duration';

@@ -2,9 +2,9 @@
 	The column header over a playlist or album track list, and the picker that chooses its columns.
 
 	The choice is one global set, like Spotify's: picked once, it holds on every list. Each list then
-	shows the part of it that it can fill (`availableColumns`), so turning on Date added on a playlist
-	on this machine doesn't leave an empty column on every YouTube one. The picker lists only those
-	too, rather than offering a column that would stay blank here.
+	shows the part of it that it can fill (`availableColumns`), so turning on Album doesn't leave an
+	empty column on every album page. The picker lists only those too, rather than offering a column
+	that would stay blank here.
 
 	Sticky with an opaque background, so the labels stay over the rows on a long list. It lays out
 	exactly as a row does (`TITLE`, `CELL`, `END` in `trackcolumns.ts`), which is what keeps every

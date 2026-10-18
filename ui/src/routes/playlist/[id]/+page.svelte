@@ -266,8 +266,11 @@
 	const headerCount = $derived(subtitleCount(pl?.subtitle));
 
 	// The track list's optional columns (`TrackColumns`): what this list can fill, and of that, what
-	// the user has chosen.
-	const availCols = $derived(availableColumns(pl?.items ?? []));
+	// the user has chosen. Not Date added on a collaborative playlist: the value it reads is what
+	// "Top voted" sorts by, and it was only ever checked to be the add time where nobody votes.
+	const availCols = $derived(
+		availableColumns(pl?.items ?? []).filter((c) => c !== 'added' || !pl?.collaborative)
+	);
 	const cols = $derived(availCols.filter((c) => chosen.list.includes(c)));
 
 	// A sort has to cover the whole playlist, not the pages scrolled so far, so pull the rest in.
@@ -500,9 +503,9 @@
 		if (lastPlaylistAdd.epoch === seenAddEpoch) return;
 		seenAddEpoch = lastPlaylistAdd.epoch;
 		if (!pl || lastPlaylistAdd.playlistId !== id) return;
-		// Stamped the way the backend stamps it, so Date added fills in now. A song picked off
-		// another local playlist brings that one's date along; a YouTube playlist has none.
-		const added_at = isLocalList ? Math.floor(Date.now() / 1000) : undefined;
+		// Stamped now, as the playlist itself stamps it, so Date added fills in at once. A song
+		// picked off another playlist would otherwise bring that one's date along.
+		const added_at = Math.floor(Date.now() / 1000);
 		const songs = lastPlaylistAdd.songs.map((s) => ({ ...s, added_at }));
 		pl = { ...pl, items: [...pl.items, ...songs] };
 		cacheCurrent();
