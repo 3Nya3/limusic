@@ -36,6 +36,9 @@ export interface SongItem {
 	 * Taste Match row more than one member shares). */
 	added_by?: string;
 	added_by_avatars?: string[];
+	/** When the track went into the playlist (unix seconds). Playlists on this machine only:
+	 *  YouTube sends no such date for its own. */
+	added_at?: number;
 	/** The signed-in user's rating (absent when the response didn't say — same as 'indifferent'). */
 	rating?: Rating;
 	/** "Add to library" off the row's own menu, with a token for each direction. Absent on rows

@@ -1111,14 +1111,15 @@ impl Db {
         out
     }
 
-    /// One playlist's tracks in the order they were added, as `(row id, song_json)`.
-    pub fn local_playlist_tracks(&self, id: i64) -> Vec<(i64, String)> {
+    /// One playlist's tracks in the order they were added, as `(row id, song_json, added_at)`.
+    pub fn local_playlist_tracks(&self, id: i64) -> Vec<(i64, String, i64)> {
         let conn = self.0.lock().unwrap();
         let mut out = Vec::new();
         if let Ok(mut stmt) = conn.prepare(
-            "SELECT id, song_json FROM local_playlist_tracks WHERE playlist_id = ?1 ORDER BY id",
+            "SELECT id, song_json, added_at FROM local_playlist_tracks WHERE playlist_id = ?1 \
+             ORDER BY id",
         ) {
-            if let Ok(rows) = stmt.query_map([id], |r| Ok((r.get(0)?, r.get(1)?))) {
+            if let Ok(rows) = stmt.query_map([id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))) {
                 out.extend(rows.flatten());
             }
         }

@@ -1268,12 +1268,12 @@ pub async fn set_playlist_sort(
     state.it.playlist_set_sort(client, &playlist_id, sort).await.map_err(|e| e.to_string())
 }
 
-/// videoId → how many times it was played, over the same trailing window On Repeat is built from.
-/// Feeds the playlist page's "Most played" sort; a track the map doesn't mention has not been
-/// played this month.
+/// videoId → how many times it was ever played. Feeds the "Your plays" track column and the
+/// playlist page's "Most played" sort, which share it so the sort and the numbers beside it agree;
+/// a track the map doesn't mention has never been played.
 #[tauri::command]
 pub fn play_counts(state: St<'_>) -> std::collections::HashMap<String, i64> {
-    state.db.play_counts(now_secs() - ON_REPEAT_WINDOW_SECS).into_iter().collect()
+    state.db.play_counts(0).into_iter().collect()
 }
 
 /// The stats page (#396): everything heard since `since` (unix secs, 0 for all time). The page
@@ -1327,6 +1327,7 @@ fn shed_queue_context(s: SongItem) -> SongItem {
         set_video_id: None,
         added_by: None,
         added_by_avatars: Vec::new(),
+        added_at: None,
         ..s
     }
 }
@@ -2032,9 +2033,9 @@ fn local_playlist_page(state: &Arc<AppState>, id: &str) -> Result<PlaylistPage, 
         .db
         .local_playlist_tracks(key)
         .into_iter()
-        .filter_map(|(row, json)| {
+        .filter_map(|(row, json, added_at)| {
             let song: SongItem = serde_json::from_str(&json).ok()?;
-            Some(SongItem { set_video_id: Some(row.to_string()), ..song })
+            Some(SongItem { set_video_id: Some(row.to_string()), added_at: Some(added_at), ..song })
         })
         .collect();
     Ok(PlaylistPage {
