@@ -4067,6 +4067,7 @@ fn track_to_song(t: &Track) -> SongItem {
         set_video_id: None,
         added_by: None,
         added_by_avatars: Vec::new(),
+        added_at: None,
         rating: None,
         queued_by: t.queued_by.clone(),
         queued: false,

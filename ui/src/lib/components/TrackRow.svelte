@@ -14,12 +14,16 @@
 	import type { SongItem } from '$lib/api';
 	import { thumb } from '$lib/thumb';
 	import { lt } from '$lib/lt.svelte';
+	import { goto } from '$app/navigation';
 	import { anySaved, isLiked, openAddManyToPlaylist, ratingOf, savedPlaylists, toast, toggleRating } from '$lib/player.svelte';
+	import { addedLabel, addedTitle, CELL, type TrackColumn } from '$lib/trackcolumns';
+	import { tagOf } from '$lib/stats';
+	import { myPlays } from './TrackColumns.svelte';
 	import SavedInPlaylists from './SavedInPlaylists.svelte';
 	import TrackMenu from './TrackMenu.svelte';
 	import ArtistLine from './ArtistLine.svelte';
 	import ExplicitIcon from './ExplicitIcon.svelte';
-	import { t } from '$lib/i18n.svelte';
+	import { currentLocale, t } from '$lib/i18n.svelte';
 	import { keyOf } from '$lib/shortcuts';
 	import type { TrackSelection } from '$lib/selection.svelte';
 	import { Checkbox } from './ui/checkbox';
@@ -31,6 +35,7 @@
 		hideThumb = false,
 		compact = false,
 		showPlayCount = false,
+		columns,
 		hideRating = false,
 		onplay,
 		onAdd,
@@ -61,6 +66,12 @@
 		 * page (queue, previously played) and a narrow panel has no width to spare for it.
 		 */
 		showPlayCount?: boolean;
+		/**
+		 * The list's chosen columns (`TrackColumns.svelte`), on a playlist or album page under its
+		 * column header. Set, it decides the plays and the duration too, and replaces
+		 * `showPlayCount`'s floating count with a cell that lines up under its label.
+		 */
+		columns?: TrackColumn[];
 		/**
 		 * The narrow queue-panel variant: drops the inline thumbs and the explicit mark. Two buttons
 		 * plus the duration leave nothing for the title and artists at that width, and the queue is
@@ -333,7 +344,7 @@
 	<!-- Album rows only. Wide rows are mostly empty between the title and the duration, so it takes a
 	     centred column of its own there; narrow ones sit it next to the duration at its natural width
 	     rather than dropping it, since it never needs more than "1,234 plays" worth of room. -->
-	{#if song.play_count && showPlayCount && !compact}
+	{#if song.play_count && showPlayCount && !compact && !columns}
 		<div class="flex shrink-0 items-center justify-center text-xs text-muted-foreground lg:flex-1">
 			<span class="truncate">{t('library.play_count', { count: song.play_count })}</span>
 		</div>
@@ -393,7 +404,48 @@
 				{@render rateButton(ThumbsDownIcon, 'dislike', t('common.dislike'))}
 			</div>
 		{/if}
-		{#if duration && !compact}
+		{#if columns}
+			<!-- After the marks, not before them: the marks come and go row to row (a local file has
+			     no rating), and these have to stay in column under their labels. Every cell is drawn
+			     on every row, empty or not, for the same reason. Widths and breakpoints: `CELL`. -->
+			{#each columns as c (c)}
+				{#if c === 'album'}
+					<span class="shrink-0 truncate text-xs text-muted-foreground {CELL.album}">
+						{#if song.album_id}
+							<button
+								class="block max-w-full cursor-pointer truncate text-left hover:text-foreground hover:underline"
+								onclick={(e) => {
+									e.stopPropagation();
+									goto(`/album/${encodeURIComponent(song.album_id!)}`);
+								}}
+							>
+								{song.album}
+							</button>
+						{:else}
+							{song.album ?? ''}
+						{/if}
+					</span>
+				{:else if c === 'added'}
+					<span
+						class="shrink-0 truncate text-xs text-muted-foreground {CELL.added}"
+						title={song.added_at ? addedTitle(song.added_at, tagOf(currentLocale.id)) : undefined}
+					>
+						{song.added_at ? addedLabel(song.added_at, Date.now() / 1000, tagOf(currentLocale.id)) : ''}
+					</span>
+				{:else if c === 'plays'}
+					<span class="shrink-0 truncate text-xs tabular-nums text-muted-foreground {CELL.plays}">
+						{song.play_count ?? ''}
+					</span>
+				{:else if c === 'mine'}
+					<!-- Blank, not 0: on a list you're still getting to know, the few you have played
+					     should stand out. -->
+					<span class="shrink-0 truncate text-xs tabular-nums text-muted-foreground {CELL.mine}">
+						{myPlays.counts[song.video_id] || ''}
+					</span>
+				{/if}
+			{/each}
+		{/if}
+		{#if !compact && (columns ? columns.includes('duration') : duration)}
 			<!-- A fixed slot, or every mark to its left moves with the digits (#463). `tabular-nums`
 			     alone isn't enough: DM Sans has no tabular figures, and 10:00 is wider in any font.
 			     5ch holds up to 59:59; an hour-long track still widens its own row. -->

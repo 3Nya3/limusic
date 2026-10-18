@@ -50,6 +50,11 @@ pub struct SongItem {
     pub added_by: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub added_by_avatars: Vec<String>,
+    /// When the track went into the playlist, unix seconds. Playlists kept on this machine only:
+    /// YouTube sends no such date for its own, so this is never parsed. Shed with the rest of
+    /// the playlist context once the track leaves the page (`shed_queue_context`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub added_at: Option<i64>,
     /// The signed-in user's rating of this track, from the row's `likeStatus`. `None` when the
     /// response didn't carry one, which the UI treats the same as [`Rating::Indifferent`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -575,6 +580,7 @@ pub(crate) fn parse_list_item(node: &Value) -> Option<SongItem> {
         set_video_id,
         added_by,
         added_by_avatars,
+        added_at: None,
         rating: like_status(node),
         queued_by: None,
         queued: false,
@@ -871,6 +877,7 @@ fn parse_panel_video(node: &Value) -> Option<SongItem> {
         set_video_id: None,
         added_by: None,
         added_by_avatars: Vec::new(),
+        added_at: None,
         rating: like_status(node),
         queued_by: None,
         queued: false,
