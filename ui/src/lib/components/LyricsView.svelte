@@ -5,6 +5,32 @@
 	const KEYS = { romanized: 'lyrics_romanized', translated: 'lyrics_translated' } as const;
 	type Pref = keyof typeof KEYS;
 	const DEFAULTS: Record<Pref, boolean> = { romanized: false, translated: true };
+	const SIZE_KEY = 'lyrics_size';
+	const SIZES = [0.85, 1, 1.15, 1.3, 1.5];
+
+	function loadSize(): number {
+		try {
+			const v = Number(localStorage.getItem(SIZE_KEY));
+			return SIZES.includes(v) ? v : 1;
+		} catch {
+			return 1;
+		}
+	}
+
+	const size = $state({ value: loadSize() });
+
+	function setValue(key: string, value: string | number) {
+		try {
+			localStorage.setItem(key, String(value));
+		} catch {
+			// Private storage: the size still applies for this session.
+		}
+	}
+
+	function toggleLyricsSize() {
+		size.value = SIZES[(SIZES.indexOf(size.value) + 1) % SIZES.length];
+		setValue(SIZE_KEY, size.value);
+	}
 
 	function load(pref: Pref): boolean {
 		try {
@@ -18,6 +44,7 @@
 	const prefs = $state({ romanized: load('romanized'), translated: load('translated') });
 	window.addEventListener('storage', (e) => {
 		for (const pref of Object.keys(KEYS) as Pref[]) if (e.key === KEYS[pref]) prefs[pref] = load(pref);
+		if (e.key === SIZE_KEY) size.value = loadSize();
 	});
 
 	function toggle(pref: Pref) {
@@ -32,7 +59,7 @@
 
 <script lang="ts">
 	import { HugeiconsIcon } from '@hugeicons/svelte';
-	import { CharacterPhoneticIcon, Search01Icon, TranslateIcon } from '@hugeicons/core-free-icons';
+	import { CharacterPhoneticIcon, Search01Icon, TextFontIcon, TranslateIcon } from '@hugeicons/core-free-icons';
 	import * as api from '$lib/api';
 	import { playback } from '$lib/player.svelte';
 	import { t } from '$lib/i18n.svelte';
@@ -237,6 +264,7 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -- handlers only detect scroll intent -->
 <div
 	bind:this={scroller}
+	style="font-size:{size.value}rem"
 	onwheel={onUserScroll}
 	ontouchmove={onUserScroll}
 	onpointerdown={onUserScroll}
@@ -275,7 +303,7 @@
 					data-line={i}
 					onclick={() => seekTo(line)}
 					class="block w-full origin-left cursor-pointer text-left font-heading font-bold leading-snug transition-[color,opacity,transform] duration-300 ease-out hover:text-foreground hover:opacity-100 dark:hover:opacity-100
-						{expanded ? 'py-3 text-3xl' : compact ? 'py-1 text-sm' : 'py-2 text-xl'}
+						{expanded ? 'py-3 text-[1.875em]' : compact ? 'py-1 text-[0.875em]' : 'py-2 text-[1.25em]'}
 						{isActive
 						? 'scale-[1.04] text-foreground'
 						: isPast
@@ -301,7 +329,7 @@
 					{/if}
 
 					{#if showTranslation && line.translation}
-						<p class="mt-1 text-sm font-normal italic tracking-wide opacity-80 transition-opacity">
+						<p class="mt-1 text-[0.875em] font-normal italic tracking-wide opacity-80 transition-opacity">
 							{line.translation}
 						</p>
 					{/if}
@@ -311,10 +339,10 @@
 	{:else if lyrics}
 		<div
 			class="space-y-2 leading-relaxed text-foreground opacity-90 {expanded
-				? 'mx-auto max-w-3xl text-xl'
+				? 'mx-auto max-w-3xl text-[1.25em]'
 				: compact
-					? 'text-xs'
-					: 'text-[15px]'}"
+					? 'text-[0.75em]'
+					: 'text-[0.9375em]'}"
 		>
 			{#each lyrics.lines as line, i (i)}
 				{#if line.text}
@@ -324,7 +352,7 @@
 							<p class="text-[0.85em] text-muted-foreground">{line.romanized}</p>
 						{/if}
 						{#if showTranslation && line.translation}
-							<p class="text-xs italic text-muted-foreground">{line.translation}</p>
+							<p class="text-[0.75em] italic text-muted-foreground">{line.translation}</p>
 						{/if}
 					</div>
 				{:else}
@@ -374,6 +402,14 @@
 				t('lyrics.romanize_hint')
 			)}
 		{/if}
+    <button
+      onclick={toggleLyricsSize}
+      class="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-2 py-0.5 transition-colors hover:bg-foreground/10 hover:text-foreground"
+      title={t('lyrics.text_size_hint')}
+      aria-label={t('lyrics.text_size')}
+    >
+      <HugeiconsIcon icon={TextFontIcon} class="h-3.5 w-3.5" />
+    </button>
 	</div>
 {/if}
 
