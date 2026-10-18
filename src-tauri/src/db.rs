@@ -910,18 +910,7 @@ impl Db {
         };
         Listening {
             since,
-            songs: all(
-                &conn,
-                "WITH firsts AS (SELECT video_id, MIN(played_at) AS first FROM listens GROUP BY video_id)
-                 SELECT s.song_json, COUNT(*), SUM(l.secs), f.first
-                 FROM listens l
-                 JOIN listen_songs s ON s.video_id = l.video_id
-                 JOIN firsts f ON f.video_id = l.video_id
-                 WHERE l.played_at >= ?1 AND l.played_at < ?2
-                 GROUP BY l.video_id",
-                [since, now],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
-            ),
+            songs: songs(&conn, since, now),
             days: all(
                 &conn,
                 "SELECT date(played_at, 'unixepoch', 'localtime') AS d, SUM(secs)
@@ -963,6 +952,12 @@ impl Db {
                 )
                 .unwrap_or(0),
         }
+    }
+
+    /// Per song played in `[since, now)`: what [`Listening::songs`] holds, without the rest of the
+    /// stats page. Home's Familiar Artists (#497).
+    pub fn listened_songs(&self, since: i64, now: i64) -> Vec<(String, i64, i64, i64)> {
+        songs(&self.0.lock().unwrap(), since, now)
     }
 
     // --- playlist membership index (which of your playlists hold a track) ----------------------
@@ -1321,6 +1316,22 @@ impl Db {
         out.sort_by(|a, b| order(a).cmp(&order(b)));
         out
     }
+}
+
+/// See [`Listening::songs`].
+fn songs(conn: &Connection, since: i64, now: i64) -> Vec<(String, i64, i64, i64)> {
+    all(
+        conn,
+        "WITH firsts AS (SELECT video_id, MIN(played_at) AS first FROM listens GROUP BY video_id)
+         SELECT s.song_json, COUNT(*), SUM(l.secs), f.first
+         FROM listens l
+         JOIN listen_songs s ON s.video_id = l.video_id
+         JOIN firsts f ON f.video_id = l.video_id
+         WHERE l.played_at >= ?1 AND l.played_at < ?2
+         GROUP BY l.video_id",
+        [since, now],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+    )
 }
 
 /// Every row of a query, mapped; empty when it fails. The stats read best-effort, like the rest.

@@ -1291,6 +1291,13 @@ pub fn listening_stats(state: St<'_>, since: i64) -> crate::stats::Stats {
     stats
 }
 
+/// Home's Familiar Artists and the community shelf's seed (#497): the `limit` most played artists
+/// of all time, on the stats page's counts.
+#[tauri::command]
+pub fn top_artists(state: St<'_>, limit: usize) -> Vec<crate::stats::TopArtist> {
+    crate::stats::top_artists(state.db.listened_songs(0, now_secs()), limit)
+}
+
 /// "Clear listening history" on the stats page. On Repeat empties too: it is built from the same
 /// plays.
 #[tauri::command]

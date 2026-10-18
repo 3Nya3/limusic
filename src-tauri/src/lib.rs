@@ -1061,6 +1061,7 @@ pub fn run() {
             commands::sync_playlist_index,
             commands::play_counts,
             commands::listening_stats,
+            commands::top_artists,
             commands::clear_listening_history,
             commands::get_album,
             commands::get_blocked_artists,

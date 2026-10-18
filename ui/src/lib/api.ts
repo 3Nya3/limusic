@@ -811,6 +811,8 @@ export interface ListeningStats {
 /** `since`: unix secs where the window starts, 0 for all time. It always ends now. */
 export const listeningStats = (since: number) =>
 	invoke<ListeningStats>('listening_stats', { since });
+/** The `limit` most played artists of all time, on the stats page's counts. Home's Familiar Artists. */
+export const topArtists = (limit: number) => invoke<TopArtist[]>('top_artists', { limit });
 /** Forget every counted play. On Repeat empties with it. */
 export const clearListeningHistory = () => invoke<void>('clear_listening_history');
 /**
