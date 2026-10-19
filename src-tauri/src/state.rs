@@ -61,6 +61,8 @@ pub struct AppState {
     pub orchestrator: Arc<Orchestrator>,
     /// Listen Together session (context/19). Drives host broadcasts + guest gating.
     pub lt: Arc<LtSession>,
+    // Serialize effect commands with the room's tempo reset, including requests already pending.
+    playback_effects: Mutex<()>,
     /// mpv's on-disk audio cache dir (context/14) — wiped by the settings "Clear caches" action.
     cache_dir: std::path::PathBuf,
     /// OS media integration (MPRIS/SMTC/NowPlaying). `None` if it failed to init. context/16.
@@ -491,6 +493,7 @@ impl AppState {
             discord,
             lastfm,
             queue: Mutex::new(QueueState::default()),
+            playback_effects: Mutex::new(()),
             auth: tokio::sync::Mutex::default(),
             history_pinged: AtomicBool::new(false),
             listen: std::sync::Mutex::default(),
@@ -2572,6 +2575,45 @@ impl AppState {
         }
     }
 
+    pub async fn set_playback_params(
+        &self,
+        speed: f64,
+        semitones: i32,
+        reverb: player::Reverb,
+    ) -> Result<(), String> {
+        let _effects = self.playback_effects.lock().await;
+        if self.lt.in_room().await && speed != 1.0 {
+            return Err("Tempo cannot be changed during shared listening".into());
+        }
+        self.apply_playback_params(speed, semitones, reverb).await
+    }
+
+    // Caller holds playback_effects through the update and notification so two windows cannot
+    // emit confirmations out of order. The room reset uses this same path before shared playback.
+    async fn apply_playback_params(
+        &self,
+        speed: f64,
+        semitones: i32,
+        reverb: player::Reverb,
+    ) -> Result<(), String> {
+        self.player.set_playback_params(speed, semitones, reverb).map_err(|e| e.to_string())?;
+        self.media_refresh_timing().await;
+        let _ = self.app.emit(
+            "playback-params",
+            serde_json::json!({ "speed": speed, "semitones": semitones, "reverb": reverb }),
+        );
+        Ok(())
+    }
+
+    async fn reset_room_tempo(&self) -> Result<(), String> {
+        let _effects = self.playback_effects.lock().await;
+        let (speed, semitones, reverb) = self.player.playback_params();
+        if self.lt.in_room().await && speed != 1.0 {
+            self.apply_playback_params(1.0, semitones, reverb).await?;
+        }
+        Ok(())
+    }
+
     /// Tempo changes do not emit a new mpv duration; refresh the OS timeline immediately.
     pub async fn media_refresh_timing(&self) {
         if let Some(m) = &self.media {
@@ -3299,6 +3341,13 @@ impl AppState {
     /// Apply one sync command from the connection (the bridge task drives this). Guest playback +
     /// host seeding. See `crate::listentogether`.
     pub async fn apply_sync(self: &std::sync::Arc<Self>, cmd: SyncCommand) {
+        // Membership has already changed. Finish any earlier effect request, restore the shared
+        // clock, then seed/apply playback. Later non-1x commands recheck membership under the lock.
+        if let Err(error) = self.reset_room_tempo().await {
+            let _ = self.player.pause();
+            self.emit_error("", &format!("Could not restore shared playback tempo: {error}"));
+            return;
+        }
         match cmd {
             SyncCommand::HostSeed => {
                 self.apply_crossfade().await;

@@ -933,14 +933,20 @@ export function wheelVolume(e: WheelEvent) {
  * update; a missing pitch/reverb filter leaves the previous settings intact.
  */
 let effectsUpdate = Promise.resolve();
+let effectsEpoch = 0;
 export function setTempoPitch(speed: number, semitones: number, reverb = playback.reverb) {
 	reverb = { ...reverb }; // Snapshot the controls before another request can change them.
-	// Serialize requests: a room joining mid-update must still queue its reset to 1x.
+	// Serialize local changes; the backend also orders these against room tempo resets.
 	playback.effectsPending = true;
 	const update = effectsUpdate.then(async () => {
+		const epoch = effectsEpoch;
 		try {
 			await api.setPlaybackParams(speed, semitones, reverb);
-			Object.assign(playback, { speed, semitones, reverb });
+			// An event may already confirm a newer update (including the backend's room reset).
+			if (effectsEpoch === epoch) {
+				effectsEpoch++;
+				Object.assign(playback, { speed, semitones, reverb });
+			}
 		} catch (e) {
 			toast.error(String(e));
 			playback.reverb = { ...playback.reverb }; // Discard a slider draft if Rust refused it.
@@ -1513,8 +1519,12 @@ let started = false;
 export function initApp(mini = false): () => void {
 	if (started) return () => {};
 	started = true;
+	const snapshotEffectsEpoch = effectsEpoch;
 	const subs = [
-		api.onPlaybackParams((p) => Object.assign(playback, p)),
+		api.onPlaybackParams((p) => {
+			effectsEpoch++;
+			Object.assign(playback, p);
+		}),
 		api.onNowPlaying((n) => {
 			playback.now = n;
 			playback.rating = n.rating ?? 'indifferent'; // the track's real rating when known
@@ -1611,13 +1621,8 @@ export function initApp(mini = false): () => void {
 		api.onLoginError((msg) => toast.error(msg)),
 		api.onLoginDone(() => toast.success(t('toasts.signed_in'))),
 		// Listen Together (context/19): mirror the Rust session state; surface notices as toasts.
-		api.onLtState((s) => {
-			// A room is a shared clock, so tempo is off while one is on (the stepper hides itself).
-			// Dropping back to 1x here too, or a speed set before joining strands you off the beat
-			// with no visible control to undo it.
-			if (s.role !== 'none' && playback.speed !== 1) setTempoPitch(1, playback.semitones);
-			applyLtState(s);
-		}),
+		// Rust restores the shared clock before applying room playback, even with no UI open.
+		api.onLtState(applyLtState),
 		api.onLtNotice((msg) => toast(msg))
 	];
 	const teardown = () => subs.forEach((u) => u.then((f) => f()));
@@ -1629,7 +1634,14 @@ export function initApp(mini = false): () => void {
 	// is created mid-song. Ask for the current state once rather than guessing at it.
 	api.getPlayback()
 		.then((s) => {
-			if (!playback.effectsPending) Object.assign(playback, { speed: s.speed, semitones: s.semitones, reverb: s.reverb });
+			// If a command is pending, let it settle first. A rejected command changes no effects,
+			// so its startup snapshot is still useful; a successful command or event invalidates it.
+			effectsUpdate.then(async () => {
+				while (playback.effectsPending) await effectsUpdate;
+				if (!playback.effectsPending && effectsEpoch === snapshotEffectsEpoch) {
+					Object.assign(playback, { speed: s.speed, semitones: s.semitones, reverb: s.reverb });
+				}
+			});
 			playback.volume = s.volume; // before the guard below: the slider is stale either way
 			if (playback.now) return; // a real now-playing event beat us to it
 			playback.now = s.now;

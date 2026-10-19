@@ -26,6 +26,8 @@ The player and OS media controls display listening seconds: a four-minute track
 lasts five minutes at 0.8×. Seeking converts that time back to source seconds;
 lyrics retain the source timeline.
 
+The 0.5× minimum is deliberate; this feature does not retain upstream's 0.25× option.
+
 ## Processing and limits
 
 The order is gain → Rubber Band → Reverb → limiter. With audible Reverb,
@@ -37,9 +39,14 @@ bypasses stretching. Both paths use the R3 short window and shifted formants.
 The room uses embedded, reproducible stereo impulse responses; no audio dependency
 is added. Settings, per-track gain and rejected updates are handled on both decks.
 
-The FFmpeg Rubber Band wrapper can discard buffered audio at EOF, truncating a
-song's final sound. Changing effects or seeking resets the room tail; full tails
-require audio or silence after the last note.
+With stock mpv, pitch/speed processing can produce an audible energy dip between
+gapless tracks because Rubber Band is finalized and restarted for each file.
+Reverb alone at normal speed and zero pitch bypasses Rubber Band. This feature
+does not modify mpv or FFmpeg to address that dependency limitation.
+
+Changing effects or seeking resets the room tail; full tails require audio or
+silence after the last note. Unpadded EOF tests check final-note preservation,
+not complete reverb-tail playback after the source ends.
 
 ## Validation
 
@@ -47,3 +54,6 @@ Player tests cover actual PCM output, every room control, both decks, gain,
 rollback, escaped cache paths, live controls, seeking, playback rate and the
 original metadata/channel-layout log regressions. UI checks cover saved presets,
 including legacy Tempo migration and the shared-listening restriction.
+The known stock-mpv boundary-energy regression is ignored in the default suite;
+run `cargo test -p player gapless_join_energy_matches_continuous_audio -- --ignored --nocapture`
+to reproduce it explicitly when evaluating playback dependencies.

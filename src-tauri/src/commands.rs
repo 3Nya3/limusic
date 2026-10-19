@@ -229,16 +229,7 @@ pub async fn set_playback_params(
     semitones: i32,
     reverb: player::Reverb,
 ) -> Result<(), String> {
-    if state.lt.in_room().await && speed != 1.0 {
-        return Err("Tempo cannot be changed during shared listening".into());
-    }
-    state.player.set_playback_params(speed, semitones, reverb).map_err(|e| e.to_string())?;
-    state.media_refresh_timing().await;
-    let _ = state.app.emit(
-        "playback-params",
-        serde_json::json!({ "speed": speed, "semitones": semitones, "reverb": reverb }),
-    );
-    Ok(())
+    state.set_playback_params(speed, semitones, reverb).await
 }
 
 #[tauri::command]

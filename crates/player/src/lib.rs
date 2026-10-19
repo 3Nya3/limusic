@@ -210,6 +210,7 @@ struct Decks {
     /// asking mpv for a property can stall the pump.
     loop_file: AtomicBool,
     cache_dir: String,
+    afir_normalization: OnceLock<&'static str>,
     tx: UnboundedSender<PlayerEvent>,
     /// Music videos waiting for (or attached to) the audio file they belong to. See `video.rs`.
     videos: Mutex<video::Videos>,
@@ -401,6 +402,7 @@ impl Player {
             pending: Mutex::new(None),
             loop_file: AtomicBool::new(false),
             cache_dir: cache_dir.to_owned(),
+            afir_normalization: OnceLock::new(),
             tx,
             videos: Mutex::new(video::Videos::default()),
             video_visible: AtomicBool::new(false),
@@ -826,17 +828,21 @@ fn apply_filters(decks: &Decks, deck: usize, af: &AudioFilters) -> Result<(), Er
             );
             chain.push_str(&format!("@reverb:lavfi=graph=%{}%{graph}:o=%9%threads=1", graph.len()));
         } else {
-            let version = mpv.get_property::<String>("ffmpeg-version").unwrap_or_default();
-            // irnorm replaced gtype in FFmpeg 7; gtype is now accepted but does nothing.
-            let normalization = if version
-                .split('.')
-                .next()
-                .and_then(|v| v.parse::<u32>().ok())
-                .is_some_and(|major| major < 7)
-            {
-                "gtype=none"
+            let normalization = if let Some(option) = decks.afir_normalization.get() {
+                *option
             } else {
-                "irnorm=-1"
+                // Release tags and git builds do not have consistently parseable version strings.
+                // Probe the actual option once without touching either playing deck.
+                let option = choose_afir_normalization(|option| {
+                    let graph = format!(
+                        "[in]asplit[signal][ir];[ir]atrim=end_sample=1[impulse];\
+                         [signal][impulse]afir={option}[out]"
+                    );
+                    validate_lavfi(&format!("lavfi=graph=%{}%{graph}", graph.len()))
+                })
+                .map_err(|e| Error::Reverb(e.to_string()))?;
+                let _ = decks.afir_normalization.set(option);
+                option
             };
             chain.push_str(&reverb_filter(
                 &reverb_path(decks, af.reverb.preset),
@@ -876,21 +882,36 @@ fn set_filter_chain(mpv: &Mpv, chain: &str) -> Result<(), libmpv2::Error> {
     // `af set` initializes the graph and reports failure; writing the `af` property does not.
     // With no decoded audio it only stores the chain, so validate lavfi on silent stereo first.
     if chain.contains("lavfi") && mpv.get_property::<MpvNode>("audio-out-params").is_err() {
-        let probe = Mpv::new()?;
-        probe.set_property("ao", "null")?;
-        probe.set_property("vid", "no")?;
-        probe.set_property("pause", true)?;
-        probe.command("loadfile", &["av://lavfi:anullsrc=r=48000:cl=stereo", "replace"])?;
-        let deadline = std::time::Instant::now() + Duration::from_secs(2);
-        while probe.get_property::<MpvNode>("audio-out-params").is_err() {
-            if std::time::Instant::now() >= deadline {
-                return Err(libmpv2::Error::Raw(libmpv2::mpv_error::Command));
-            }
-            std::thread::sleep(Duration::from_millis(1));
-        }
-        probe.command("af", &["set", &quoted(chain)])?;
+        validate_lavfi(chain)?;
     }
     mpv.command("af", &["set", &quoted(chain)])
+}
+
+fn choose_afir_normalization(
+    mut probe: impl FnMut(&str) -> Result<(), libmpv2::Error>,
+) -> Result<&'static str, libmpv2::Error> {
+    // New FFmpeg still accepts gtype but ignores it, so always try irnorm first.
+    if probe("irnorm=-1").is_ok() {
+        return Ok("irnorm=-1");
+    }
+    probe("gtype=none")?;
+    Ok("gtype=none")
+}
+
+fn validate_lavfi(chain: &str) -> Result<(), libmpv2::Error> {
+    let probe = Mpv::new()?;
+    probe.set_property("ao", "null")?;
+    probe.set_property("vid", "no")?;
+    probe.set_property("pause", true)?;
+    probe.command("loadfile", &["av://lavfi:anullsrc=r=48000:cl=stereo", "replace"])?;
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    while probe.get_property::<MpvNode>("audio-out-params").is_err() {
+        if std::time::Instant::now() >= deadline {
+            return Err(libmpv2::Error::Raw(libmpv2::mpv_error::Command));
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    probe.command("af", &["set", &quoted(chain)])
 }
 
 fn reverb_filter(
@@ -1483,6 +1504,38 @@ mod tests {
         }
     }
     use super::{af_chain, is_ao_init_failed, loadfile_args, perceptual_to_mpv, quoted};
+
+    #[test]
+    fn afir_normalization_probes_options_in_compatibility_order() {
+        use super::choose_afir_normalization;
+        use libmpv2::{mpv_error, Error};
+        let mut probes = Vec::new();
+        assert_eq!(
+            choose_afir_normalization(|option| {
+                probes.push(option.to_owned());
+                Ok(())
+            })
+            .unwrap(),
+            "irnorm=-1"
+        );
+        assert_eq!(probes, ["irnorm=-1"]);
+
+        probes.clear();
+        assert_eq!(
+            choose_afir_normalization(|option| {
+                probes.push(option.to_owned());
+                if option == "gtype=none" {
+                    Ok(())
+                } else {
+                    Err(Error::Raw(mpv_error::Command))
+                }
+            })
+            .unwrap(),
+            "gtype=none"
+        );
+        assert_eq!(probes, ["irnorm=-1", "gtype=none"]);
+        assert!(choose_afir_normalization(|_| Err(Error::Raw(mpv_error::Command))).is_err());
+    }
 
     #[test]
     fn gain_and_pitch_share_one_chain() {
@@ -2157,11 +2210,16 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let p = Player::new(dir.to_str().unwrap()).expect("libmpv");
         p.mpv().set_property("ao", "null").unwrap();
+        // time-pos can precede mpv's initial start seek. Pausing makes this wait meaningful:
+        // an ignored start option cannot accidentally pass by playing from zero to two seconds.
+        p.mpv().set_property("pause", true).unwrap();
         p.load("av://lavfi:sine=duration=5", &Default::default(), None, Some(2.0)).unwrap();
         let deadline = Instant::now() + Duration::from_secs(5);
         let pos = loop {
             if let Ok(pos) = p.mpv().get_property::<f64>("time-pos") {
-                break pos;
+                if (1.9..3.0).contains(&pos) {
+                    break pos;
+                }
             }
             assert!(Instant::now() < deadline, "file never loaded");
             std::thread::sleep(Duration::from_millis(10));
