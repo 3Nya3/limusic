@@ -392,6 +392,10 @@ pub async fn get_settings(state: St<'_>) -> Result<serde_json::Value, String> {
         .map(|(k, v)| (k, serde_json::Value::String(v)))
         .collect();
     map.insert("native_chrome".into(), native_chrome(&state.db).into());
+    // Windows 11 rounds an undecorated window with a shadow (our main window) by itself, so the
+    // SPA's own rounding would leave transparent slivers inside DWM's curve (#504). Windows 10
+    // rounds nothing, and square is its native corner anyway.
+    map.insert("os_corners".into(), cfg!(target_os = "windows").to_string().into());
     map.insert("native_video".into(), crate::state::native_video().to_string().into());
     if let Some(layout) = BUTTON_LAYOUT.get() {
         map.insert("button_layout".into(), layout.clone().into());
