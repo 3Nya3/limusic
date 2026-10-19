@@ -1233,7 +1233,7 @@ fn preload(decks: &Decks, mpv: &Arc<Mpv>, url: &str) -> Result<(), Error> {
 }
 
 /// The effective fade length when `pos` is close enough to the end of the track to start one,
-/// else `None`.
+/// else `None`. All three arguments are in listening (wall-clock) seconds.
 ///
 /// Two clamps, and both have been wrong at some point. A fade longer than half the track would
 /// begin before the previous one had finished, so a 10 s setting fades a 30 s interlude for 10 s
@@ -1259,7 +1259,11 @@ fn maybe_crossfade(decks: &Arc<Decks>, deck: usize, pos: f64, duration: f64) {
     {
         return;
     }
-    let Some(fade) = fade_due(decks.crossfade_secs(), pos, duration) else { return };
+    // mpv positions follow the source clock, whereas the volume worker sleeps in real time.
+    let speed = decks.af.lock().unwrap().speed;
+    let Some(fade) = fade_due(decks.crossfade_secs(), pos / speed, duration / speed) else {
+        return;
+    };
     start_crossfade(decks, deck, fade);
 }
 
@@ -1277,9 +1281,8 @@ fn start_crossfade(decks: &Arc<Decks>, from: usize, fade: f64) {
     let (out, incoming) = (out.clone(), incoming.clone());
     // Tempo is per instance and is set on whatever deck was active at the time (`set_speed`, the
     // tempo dialog), so a track preloaded before the user touched it would come in at 1x.
-    if let Ok(speed) = out.get_property::<String>("speed") {
-        let _ = incoming.set_property("speed", speed.as_str());
-    }
+    let speed = af.speed;
+    let _ = incoming.set_property("speed", speed);
     decks.preloaded.store(false, Ordering::Release);
     // Read before `fading` goes up, which is what lets a cancel bump it: taken afterwards, a
     // cancel landing in between would be captured as the current value and never noticed.
@@ -1293,7 +1296,10 @@ fn start_crossfade(decks: &Arc<Decks>, from: usize, fade: f64) {
     // `start=`. Measured on mpv 0.41: without the seek the incoming track lost its first 0.2 s.
     #[cfg(target_os = "linux")]
     {
-        if let Err(e) = incoming.set_property("ao", "") {
+        // Normally empty (device autodetection). Preserve an explicitly selected output too,
+        // including the timed null output used by headless transition tests.
+        let ao = out.get_property::<String>("ao").unwrap_or_default();
+        if let Err(e) = incoming.set_property("ao", ao.as_str()) {
             tracing::warn!(error = %e, "crossfade deck refused its audio device, it will be silent");
         }
         let _ = incoming.command("seek", &["0", "absolute"]);
@@ -1312,7 +1318,7 @@ fn start_crossfade(decks: &Arc<Decks>, from: usize, fade: f64) {
     if let Ok(secs) = incoming.get_property::<f64>("duration") {
         if secs.is_finite() && secs > 0.0 {
             let _ = decks.tx.send(PlayerEvent::Duration(secs));
-            fade = fade.min(secs / 2.0);
+            fade = fade.min(secs / speed / 2.0);
         }
     }
     tracing::info!(from, fade, "crossfading");
@@ -1459,6 +1465,9 @@ fn perceptual_to_mpv(percent: i64) -> f64 {
     }
     100.0 * 10f64.powf(-(1.0 - percent.min(100) as f64 / 100.0).powf(1.5))
 }
+
+#[cfg(test)]
+mod transition_tests;
 
 #[cfg(test)]
 mod tests {
