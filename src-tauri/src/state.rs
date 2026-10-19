@@ -2456,7 +2456,8 @@ impl AppState {
             "now": item.as_ref().map(|i| Self::now_playing_json(i, "current")),
             "paused": !self.is_playing.load(Ordering::Relaxed),
             "position": self.current_position(),
-            "duration": duration,
+            // 0 until mpv loads the file, which a restored track waits for until play (#502).
+            "duration": if duration > 0.0 { duration } else { item.as_ref().map_or(0.0, row_secs) },
             "volume": saved_volume(&self.db),
         })
     }
@@ -3142,6 +3143,9 @@ impl AppState {
         let pos = self.db.get_setting("queue_position").and_then(|s| s.parse::<f64>().ok());
         if let Some(p) = pos.filter(|p| *p > 0.0) {
             *self.pending_seek.lock().unwrap() = Some((items[current].video_id.clone(), p));
+            // Also what the seekbar shows, and what an exit before the first play saves back.
+            // Left at 0, quitting without pressing play overwrote the saved position (#502).
+            self.latest_position.store(p.to_bits(), Ordering::SeqCst);
         }
         {
             let mut q = self.queue.lock().await;
@@ -3168,6 +3172,12 @@ impl AppState {
             // has never been seen here (issue #93).
             self.refresh_rating(&item.video_id, self.generation.load(Ordering::SeqCst));
             let _ = self.app.emit("playback-state", "paused");
+            // mpv has nothing loaded until play, so it reports neither: the bar gets the saved
+            // position and the row's own length from here.
+            let _ = self
+                .app
+                .emit("position", serde_json::json!({ "position": self.current_position() }));
+            let _ = self.app.emit("duration", serde_json::json!({ "duration": row_secs(&item) }));
         }
         self.emit_queue().await;
     }
@@ -3552,6 +3562,15 @@ impl AppState {
     pub async fn user_seek(&self, position: f64) -> Result<(), String> {
         if self.lt.is_guest().await {
             return Ok(()); // guests can't scrub — the host controls the timeline
+        }
+        if self.player.is_idle() {
+            // Nothing loaded to seek, as with a track restored at launch: move where it will
+            // start instead, which an exit before play also saves (#502).
+            if let Some(item) = self.current_item().await {
+                *self.pending_seek.lock().unwrap() = Some((item.video_id, position));
+                self.latest_position.store(position.to_bits(), Ordering::SeqCst);
+            }
+            return Ok(());
         }
         self.player.seek(position).map_err(|e| e.to_string())?;
         if self.lt.is_host().await {
@@ -4471,6 +4490,11 @@ pub(crate) fn parse_duration_ms(s: Option<&str>) -> i64 {
         _ => 0,
     };
     secs * 1000
+}
+
+/// A queue row's own length in seconds (0 when it states none).
+fn row_secs(item: &SongItem) -> f64 {
+    parse_duration_ms(item.duration.as_deref()) as f64 / 1000.0
 }
 
 fn format_duration(ms: i64) -> String {
