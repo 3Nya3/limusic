@@ -590,7 +590,8 @@
 
 		<!-- === Lyrics, straight on the backdrop. No card: a panel on a screen with no other chrome
 		     is the one thing that makes this look like a page instead of a stage. One size up on big
-		     screens, where this is read from the sofa.
+		     screens, where this is read from the sofa. That size is `em`, not `text-4xl`, so the
+		     lyrics text size control still scales it.
 		     Never give this a `mask-image` for the end fades, however tempting: it buffers the whole
 		     scroller offscreen on every scroll frame. Same for `backdrop-filter` (see the header).
 		     The scrollbar is hidden from out here, since the child owns the scroller.
