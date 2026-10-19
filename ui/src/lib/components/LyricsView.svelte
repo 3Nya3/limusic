@@ -5,6 +5,30 @@
 	const KEYS = { romanized: 'lyrics_romanized', translated: 'lyrics_translated' } as const;
 	type Pref = keyof typeof KEYS;
 	const DEFAULTS: Record<Pref, boolean> = { romanized: false, translated: true };
+	const SIZE_KEY = 'lyrics_size';
+	const SIZES = [0.85, 1, 1.15, 1.3, 1.5];
+
+	function loadSize(): number {
+		try {
+			const v = Number(localStorage.getItem(SIZE_KEY));
+			return SIZES.includes(v) ? v : 1;
+		} catch {
+			return 1;
+		}
+	}
+
+	const size = $state({ value: loadSize() });
+
+	function nudgeSize(delta: number) {
+		const next = SIZES[SIZES.indexOf(size.value) + delta];
+		if (next === undefined) return;
+		size.value = next;
+		try {
+			localStorage.setItem(SIZE_KEY, String(next));
+		} catch {
+			// Private storage: the size still applies for this session.
+		}
+	}
 
 	function load(pref: Pref): boolean {
 		try {
@@ -18,6 +42,7 @@
 	const prefs = $state({ romanized: load('romanized'), translated: load('translated') });
 	window.addEventListener('storage', (e) => {
 		for (const pref of Object.keys(KEYS) as Pref[]) if (e.key === KEYS[pref]) prefs[pref] = load(pref);
+		if (e.key === SIZE_KEY) size.value = loadSize();
 	});
 
 	function toggle(pref: Pref) {
@@ -32,10 +57,18 @@
 
 <script lang="ts">
 	import { HugeiconsIcon } from '@hugeicons/svelte';
-	import { CharacterPhoneticIcon, Search01Icon, TranslateIcon } from '@hugeicons/core-free-icons';
+	import {
+		CharacterPhoneticIcon,
+		MinusSignIcon,
+		PlusSignIcon,
+		Search01Icon,
+		TextFontIcon,
+		TranslateIcon
+	} from '@hugeicons/core-free-icons';
 	import * as api from '$lib/api';
 	import { playback } from '$lib/player.svelte';
-	import { t } from '$lib/i18n.svelte';
+	import { currentLocale, t } from '$lib/i18n.svelte';
+	import * as Popover from '$lib/components/ui/popover';
 	import LyricsSourcePicker from './LyricsSourcePicker.svelte';
 
 	// `expanded` only sizes the type and centres the column. The owner of the extra room (the side
@@ -67,6 +100,13 @@
 	const showRomanized = $derived(canRomanize && prefs.romanized);
 	const canTranslate = $derived(!!lyrics?.lines.some((l) => l.translation));
 	const showTranslation = $derived(canTranslate && prefs.translated);
+	// Nothing to resize on an instrumental or a song with no lyrics at all.
+	const canResize = $derived(!!lyrics && !lyrics.instrumental);
+	/** "115%". Locale formatting, so no i18n key and no `%` to place. */
+	const sizeLabel = $derived(
+		new Intl.NumberFormat(currentLocale.id, { style: 'percent' }).format(size.value)
+	);
+	const sizeChanged = $derived(size.value !== 1);
 	/** This song's timing nudge, from the source picker. Positive holds the lyrics back. */
 	const offsetMs = $derived(lyrics?.offset_ms ?? 0);
 	let pickerOpen = $state(false);
@@ -160,7 +200,7 @@
 		const i = activeIndex;
 		// Re-centre after the layout width/font changes or the romanized lines come and go, and
 		// jump rather than glide across it. (Also fires on the first run.)
-		const layout = `${expanded} ${showRomanized}`;
+		const layout = `${expanded} ${showRomanized} ${size.value}`;
 		if (layout !== wasLayout) {
 			wasLayout = layout;
 			hasScrolled = false;
@@ -237,6 +277,7 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -- handlers only detect scroll intent -->
 <div
 	bind:this={scroller}
+	style="font-size:{size.value}rem"
 	onwheel={onUserScroll}
 	ontouchmove={onUserScroll}
 	onpointerdown={onUserScroll}
@@ -275,7 +316,7 @@
 					data-line={i}
 					onclick={() => seekTo(line)}
 					class="block w-full origin-left cursor-pointer text-left font-heading font-bold leading-snug transition-[color,opacity,transform] duration-300 ease-out hover:text-foreground hover:opacity-100 dark:hover:opacity-100
-						{expanded ? 'py-3 text-3xl' : compact ? 'py-1 text-sm' : 'py-2 text-xl'}
+						{expanded ? 'py-3 text-[1.875em]' : compact ? 'py-1 text-[0.875em]' : 'py-2 text-[1.25em]'}
 						{isActive
 						? 'scale-[1.04] text-foreground'
 						: isPast
@@ -301,7 +342,12 @@
 					{/if}
 
 					{#if showTranslation && line.translation}
-						<p class="mt-1 text-sm font-normal italic tracking-wide opacity-80 transition-opacity">
+						<!-- `rem` times the size, never `em`: inside the line an `em` follows the line's own
+						     size, so theater's translations came out twice their old 14px at 100%. -->
+						<p
+							class="mt-1 text-sm font-normal italic tracking-wide opacity-80 transition-opacity"
+							style="font-size:{0.875 * size.value}rem"
+						>
 							{line.translation}
 						</p>
 					{/if}
@@ -311,10 +357,10 @@
 	{:else if lyrics}
 		<div
 			class="space-y-2 leading-relaxed text-foreground opacity-90 {expanded
-				? 'mx-auto max-w-3xl text-xl'
+				? 'mx-auto max-w-3xl text-[1.25em]'
 				: compact
-					? 'text-xs'
-					: 'text-[15px]'}"
+					? 'text-[0.75em]'
+					: 'text-[0.9375em]'}"
 		>
 			{#each lyrics.lines as line, i (i)}
 				{#if line.text}
@@ -324,7 +370,9 @@
 							<p class="text-[0.85em] text-muted-foreground">{line.romanized}</p>
 						{/if}
 						{#if showTranslation && line.translation}
-							<p class="text-xs italic text-muted-foreground">{line.translation}</p>
+							<p class="text-xs italic text-muted-foreground" style="font-size:{0.75 * size.value}rem">
+								{line.translation}
+							</p>
 						{/if}
 					</div>
 				{:else}
@@ -373,6 +421,60 @@
 				t('lyrics.romanize'),
 				t('lyrics.romanize_hint')
 			)}
+		{/if}
+		<!-- One icon, because the footer is full (the side panel is 320px). The popover holds the
+		     `− 115% +` stepper; the ends go dead rather than wrapping. -->
+		{#if canResize}
+			<Popover.Root>
+				<Popover.Trigger
+					class="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-2 py-0.5 transition-colors hover:bg-foreground/10 hover:text-foreground data-[state=open]:bg-foreground/10 data-[state=open]:text-foreground {sizeChanged
+						? 'text-primary'
+						: ''}"
+					title={t('lyrics.text_size_hint')}
+					aria-label={t('lyrics.text_size')}
+				>
+					<HugeiconsIcon icon={TextFontIcon} class="h-3.5 w-3.5" />
+				</Popover.Trigger>
+				<Popover.Content side="top" align="end" sideOffset={8} class="w-auto gap-0 p-0">
+					<div class="flex items-center gap-3 px-4 py-3">
+						<HugeiconsIcon icon={TextFontIcon} class="h-4 w-4 shrink-0 text-muted-foreground" />
+						<div class="min-w-0 flex-1">
+							<p class="text-sm font-medium">{t('lyrics.text_size')}</p>
+							<p class="text-xs leading-snug text-muted-foreground">
+								{t('lyrics.text_size_hint')}
+							</p>
+						</div>
+						<div class="flex shrink-0 items-center rounded-full border bg-muted/40">
+							<button
+								class="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+								disabled={size.value === SIZES[0]}
+								aria-label={t('lyrics.text_size_smaller')}
+								title={t('lyrics.text_size_smaller')}
+								onclick={() => nudgeSize(-1)}
+							>
+								<HugeiconsIcon icon={MinusSignIcon} class="h-3.5 w-3.5" />
+							</button>
+							<span
+								class="w-14 text-center text-xs font-medium tabular-nums {sizeChanged
+									? 'text-primary'
+									: ''}"
+								aria-live="polite"
+							>
+								{sizeLabel}
+							</span>
+							<button
+								class="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+								disabled={size.value === SIZES[SIZES.length - 1]}
+								aria-label={t('lyrics.text_size_larger')}
+								title={t('lyrics.text_size_larger')}
+								onclick={() => nudgeSize(1)}
+							>
+								<HugeiconsIcon icon={PlusSignIcon} class="h-3.5 w-3.5" />
+							</button>
+						</div>
+					</div>
+				</Popover.Content>
+			</Popover.Root>
 		{/if}
 	</div>
 {/if}
