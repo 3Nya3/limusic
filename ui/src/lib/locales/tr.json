@@ -88,7 +88,8 @@
 		"remove_account_title": "Limusic'ten sil?",
 		"remove_account_desc": "{name} yalnızca bu listeden kaldırıldı. Google hesabınız bu eylemden etkilenmedi ve istediğiniz zaman onunla giriş yapabilirsiniz.",
 		"saved_accounts_hint": "Geçmek için kaydedilmiş bir hesabı seçin.",
-		"no_channels": "YouTube seçilebilir bir kanal döndürmedi."
+		"no_channels": "YouTube seçilebilir bir kanal döndürmedi.",
+		"stats": "İstatistikler"
 	},
 	"player": {
 		"play": "Oynat",
@@ -152,7 +153,8 @@
 		"edit_scrobble": "Skropu düzenle",
 		"song": "Müzik",
 		"video": "Video",
-		"comments": "Yorumlar"
+		"comments": "Yorumlar",
+		"up_next": "Sıradaki"
 	},
 	"home": {
 		"good_morning": "Günaydın",
@@ -199,7 +201,8 @@
 			"albums_for_you": "Sana özel albümler",
 			"new_releases": "Yeni çıkanlar",
 			"mixed_for_you": "Senin için hazırlandı",
-			"music_videos": "Senin için müzik videoları"
+			"music_videos": "Senin için müzik videoları",
+			"daily_discover": "Günlük keşif"
 		}
 	},
 	"artist": {
@@ -1208,5 +1211,29 @@
 		"hearted": "Üretici tarafından beğenildi",
 		"creator": "Üretici",
 		"reload_needed": "Yorumlar güncel değil. Devam etmek için sayfayı yeniden yükleyin."
+	},
+	"stats": {
+		"title": "Dinleme istatistikleri",
+		"ranges": {
+			"week": "7 gün",
+			"month": "30 gün",
+			"year": "12 ay",
+			"all": "Tüm zamanlar"
+		},
+		"listened": {
+			"week": "son 7 gün içinde dinlendi",
+			"month": "son 30 gün içinde dinlendi",
+			"year": "son 12 ay içinde dinlendi",
+			"all": "{date} tarihinden beri dinlendi"
+		},
+		"compared": {
+			"week": "önceki 7 güne kıyasla",
+			"month": "önceki 30 güne kıyasla",
+			"year": "önceki 12 aya kıyasla"
+		},
+		"plays": "Oynatmalar",
+		"new_songs": "{count} yeni",
+		"streak": "Günlük seri",
+		"best_streak": "En iyi: {count}"
 	}
 }
