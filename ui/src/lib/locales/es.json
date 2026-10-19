@@ -1276,5 +1276,16 @@
 		"clear_desc": "Esto olvida cada reproducción contada en este dispositivo, tus estadísticas se reinician y \"En Repetición\" se vacía. Tu historial de YouTube Music no se toca.",
 		"clear_confirm": "Borrar historial",
 		"cleared": "Historial de reproducción borrado"
+	},
+	"columns": {
+		"label": "Columnas",
+		"choose": "Elegir columnas",
+		"title": "Título",
+		"album": "Álbum",
+		"added": "Fecha de adición",
+		"by": "Añadido por",
+		"plays": "Reproducciones",
+		"mine": "Tus reproducciones",
+		"duration": "Duración"
 	}
 }
