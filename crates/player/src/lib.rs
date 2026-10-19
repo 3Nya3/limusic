@@ -20,11 +20,15 @@ pub use video::{GlDisplay, Thumbnail, VideoRenderer};
 pub enum Error {
     #[error("mpv: {0}")]
     Mpv(#[from] libmpv2::Error),
-    /// mpv refused a chain carrying the pitch filter, which means this libmpv was built without
+    /// mpv refused a chain carrying the tempo/pitch filter, which means this libmpv was built without
     /// librubberband. Its own answer is `Raw(-9)`, so it needs saying in words: this one reaches
     /// the user as a toast.
-    #[error("Pitch shifting isn't available in this build")]
+    #[error("Tempo and pitch adjustment aren't available in this build")]
     NoPitchFilter,
+    #[error("Reverb isn't available: {0}")]
+    Reverb(String),
+    #[error("Invalid playback effect values")]
+    InvalidParams,
 }
 
 /// Events pumped from mpv's event thread. context/14 §player surface.
@@ -108,11 +112,56 @@ fn is_ao_init_failed(e: &libmpv2::Error) -> bool {
 pub struct Player {
     decks: Arc<Decks>,
     events: Option<UnboundedReceiver<PlayerEvent>>,
-    /// `(loudness gain dB, pitch semitones)`. mpv's `af` is one global chain, so the two things
-    /// that write to it have to be re-applied together: a bare `set_property("af", ...)` from
-    /// either one would drop the other's filter.
-    af: Mutex<(Option<f64>, i32)>,
 }
+
+#[derive(Clone, Copy)]
+struct AudioFilters {
+    // Gain belongs to each track; effects belong to the listening session.
+    gain: [Option<f64>; 2],
+    speed: f64,
+    semitones: i32,
+    reverb: Reverb,
+}
+
+/// Session reverb controls. Dry and wet are independent signal levels, not a crossfade.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Reverb {
+    pub enabled: bool,
+    pub preset: u8, // 1..=6: small/medium/large room, medium/large hall, plate.
+    pub dry: u8,
+    pub wet: u8,
+    pub decay: f64,      // Nominal RT60, seconds.
+    pub pre_delay: u16,  // Additional delay of the wet signal, milliseconds.
+    pub damping: u16,    // Wet high-cut frequency, Hz.
+    pub reflections: u8, // Level of the IR's first 80 ms, relative to its later tail.
+}
+
+impl Default for Reverb {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            preset: 3,
+            dry: 100,
+            wet: 25,
+            decay: 1.1,
+            pre_delay: 0,
+            damping: 8000,
+            reflections: 100,
+        }
+    }
+}
+
+const REVERB_DECAYS: [f64; 6] = [0.4, 0.7, 1.1, 1.8, 3.2, 1.8];
+
+const REVERB_PRESETS: [(&str, &[u8]); 6] = [
+    ("small-room", include_bytes!("../assets/small-room.wav")),
+    ("medium-room", include_bytes!("../assets/medium-room.wav")),
+    ("large-room", include_bytes!("../assets/large-room.wav")),
+    ("medium-hall", include_bytes!("../assets/medium-hall.wav")),
+    ("large-hall", include_bytes!("../assets/large-hall.wav")),
+    ("plate", include_bytes!("../assets/plate.wav")),
+];
 
 /// One mpv instance plays one file at a time, so an *overlap* needs a second decoder and a second
 /// audio output. Crossfading keeps two: the active deck is what the app hears, the idle one holds
@@ -122,6 +171,7 @@ pub struct Player {
 /// off pays for it. With the setting off, `b` stays empty and every path below is the single-mpv
 /// one it always was (the lookahead goes into mpv's own playlist, gaplessly).
 struct Decks {
+    af: Mutex<AudioFilters>,
     a: Arc<Mpv>,
     b: OnceLock<Arc<Mpv>>,
     /// Which deck the app is listening to. Events from the other one are dropped.
@@ -332,6 +382,12 @@ impl Player {
         let a = Arc::new(new_mpv(cache_dir)?);
         let (tx, rx) = unbounded_channel();
         let decks = Arc::new(Decks {
+            af: Mutex::new(AudioFilters {
+                gain: [None; 2],
+                speed: 1.0,
+                semitones: 0,
+                reverb: Reverb::default(),
+            }),
             a: a.clone(),
             b: OnceLock::new(),
             active: AtomicUsize::new(0),
@@ -352,7 +408,7 @@ impl Player {
             wid: AtomicI64::new(0),
         });
         spawn_deck_events(&a, 0, decks.clone())?;
-        Ok(Player { decks, events: Some(rx), af: Mutex::new((None, 0)) })
+        Ok(Player { decks, events: Some(rx) })
     }
 
     /// The deck the app is hearing. Every command below acts on this one.
@@ -662,46 +718,252 @@ impl Player {
     // round-trip (a few ms) and the filter chain reinits mid-stream. If that ever clicks audibly,
     // keep one labelled filter (`af=@gain:lavfi=[volume=0dB]`) and retune it with `af-command`.
     pub fn set_gain(&self, gain_db: Option<f64>) -> Result<(), Error> {
-        self.af.lock().unwrap().0 = gain_db;
-        self.apply_af()
-    }
-
-    /// Tempo, 0.25–2.0. Pitch is unaffected: `audio-pitch-correction` (mpv's default) time-stretches
-    /// rather than resamples, so this is Metrolist's `PlaybackParameters.speed` exactly.
-    pub fn set_speed(&self, speed: f64) -> Result<(), Error> {
-        self.mpv().set_property("speed", speed.clamp(0.25, 2.0))?;
-        Ok(())
-    }
-
-    /// Pitch shift in semitones, −12..=12 (one octave either way), via the rubberband filter.
-    /// Independent of [`Self::set_speed`]: rubberband takes over the time-stretch mpv would
-    /// otherwise do with scaletempo2, and shifts pitch on top of it.
-    // ponytail: native `rubberband` only. A libmpv built without librubberband errors out and the
-    // command surfaces that to the user; wire the `lavfi=[rubberband=pitch=...]` fallback if a
-    // Windows/macOS build ever turns up without it.
-    pub fn set_pitch(&self, semitones: i32) -> Result<(), Error> {
-        let wanted = semitones.clamp(-12, 12);
-        let previous = std::mem::replace(&mut self.af.lock().unwrap().1, wanted);
-        if let Err(e) = self.apply_af() {
-            // No librubberband in this build: mpv rejects the *whole* chain, loudness gain
-            // included, so put the old value back rather than leave every later set_gain failing.
-            // (mpv never applied the bad chain, so this restores what is already playing.)
-            self.af.lock().unwrap().1 = previous;
-            let _ = self.apply_af();
-            return Err(if wanted == 0 { e } else { Error::NoPitchFilter });
+        let mut af = self.decks.af.lock().unwrap();
+        let deck = self.decks.active.load(Ordering::SeqCst);
+        let previous = af.gain[deck];
+        af.gain[deck] = gain_db;
+        if let Err(e) = apply_filters(&self.decks, deck, &af) {
+            af.gain[deck] = previous;
+            return Err(e);
         }
         Ok(())
     }
 
-    fn apply_af(&self) -> Result<(), Error> {
-        let (gain_db, semitones) = *self.af.lock().unwrap();
-        self.mpv().set_property("af", af_chain(gain_db, semitones).as_str())?;
+    /// Tempo, 0.5–2.0. Rubber Band time-stretches without shifting pitch whenever speed != 1.
+    pub fn set_speed(&self, speed: f64) -> Result<(), Error> {
+        let af = *self.decks.af.lock().unwrap();
+        self.set_playback_params(speed, af.semitones, af.reverb)
+    }
+
+    /// Pitch shift in semitones, −12..=12 (one octave either way), via the rubberband filter.
+    /// Independent of [`Self::set_speed`]: the same Rubber Band filter handles both controls.
+    pub fn set_pitch(&self, semitones: i32) -> Result<(), Error> {
+        let af = *self.decks.af.lock().unwrap();
+        self.set_playback_params(af.speed, semitones, af.reverb)
+    }
+
+    /// One serialized, rollback-safe update on both decks.
+    pub fn set_playback_params(
+        &self,
+        speed: f64,
+        semitones: i32,
+        reverb: Reverb,
+    ) -> Result<(), Error> {
+        if !speed.is_finite()
+            || !(0.5..=2.0).contains(&speed)
+            || !(-12..=12).contains(&semitones)
+            || !(1..=6).contains(&reverb.preset)
+            || reverb.dry > 100
+            || reverb.wet > 100
+            || reverb.reflections > 100
+            || !reverb.decay.is_finite()
+            || !(0.1..=10.0).contains(&reverb.decay)
+            || reverb.pre_delay > 200
+            || !(500..=20000).contains(&reverb.damping)
+        {
+            return Err(Error::InvalidParams);
+        }
+        let mut af = self.decks.af.lock().unwrap();
+        if reverb.enabled && reverb.wet != 0 {
+            let path = reverb_path(&self.decks, reverb.preset);
+            let bytes = REVERB_PRESETS[reverb.preset as usize - 1].1;
+            std::fs::create_dir_all(path.parent().unwrap())
+                .map_err(|e| Error::Reverb(e.to_string()))?;
+            if std::fs::read(&path).ok().as_deref() != Some(bytes) {
+                std::fs::write(&path, bytes).map_err(|e| Error::Reverb(e.to_string()))?;
+            }
+        }
+        let previous = *af;
+        let wanted = AudioFilters { speed, semitones, reverb, ..previous };
+        for deck in 0..2 {
+            // Audible Reverb embeds a fixed tempo in lavfi; other speed updates retain stretch state.
+            let result = if previous.semitones == semitones
+                && previous.reverb == reverb
+                && (semitones != 0 || (previous.speed == 1.0) == (speed == 1.0))
+                && (!reverb.enabled || reverb.wet == 0 || previous.speed == speed)
+            {
+                self.decks
+                    .mpv(deck)
+                    .map_or(Ok(()), |m| m.set_property("speed", speed).map_err(Error::from))
+            } else {
+                apply_filters(&self.decks, deck, &wanted)
+            };
+            if let Err(e) = result {
+                for rollback in 0..2 {
+                    let _ = apply_filters(&self.decks, rollback, &previous);
+                }
+                return Err(e);
+            }
+        }
+        *af = wanted;
         Ok(())
+    }
+
+    pub fn playback_params(&self) -> (f64, i32, Reverb) {
+        let af = self.decks.af.lock().unwrap();
+        (af.speed, af.semitones, af.reverb)
     }
 }
 
-/// The whole `af` chain: loudness gain, then pitch. Empty when neither is in play, so the default
-/// path stays exactly the filterless one it was before pitch existed.
+fn reverb_path(decks: &Decks, preset: u8) -> std::path::PathBuf {
+    // clear_caches removes audio files at the cache root; the embedded effect is not a stream.
+    let name = REVERB_PRESETS[preset as usize - 1].0;
+    std::path::Path::new(&decks.cache_dir).join("effects").join(format!("reverb-{name}-v1.wav"))
+}
+
+fn apply_filters(decks: &Decks, deck: usize, af: &AudioFilters) -> Result<(), Error> {
+    let Some(mpv) = decks.mpv(deck) else { return Ok(()) };
+    let mut chain = af_chain(af.gain[deck], 0, 1.0);
+    if af.reverb.enabled {
+        if !chain.is_empty() {
+            chain.push(',');
+        }
+        if af.reverb.wet == 0 {
+            // A silent wet path needs no room DSP; retain dry gain and peak protection.
+            let graph = format!(
+                "volume={},alimiter=limit=1:level=disabled:latency=1",
+                f64::from(af.reverb.dry) / 100.0
+            );
+            chain.push_str(&format!("@reverb:lavfi=graph=%{}%{graph}:o=%9%threads=1", graph.len()));
+        } else {
+            let version = mpv.get_property::<String>("ffmpeg-version").unwrap_or_default();
+            // irnorm replaced gtype in FFmpeg 7; gtype is now accepted but does nothing.
+            let normalization = if version
+                .split('.')
+                .next()
+                .and_then(|v| v.parse::<u32>().ok())
+                .is_some_and(|major| major < 7)
+            {
+                "gtype=none"
+            } else {
+                "irnorm=-1"
+            };
+            chain.push_str(&reverb_filter(
+                &reverb_path(decks, af.reverb.preset),
+                af.reverb,
+                normalization,
+                af.speed,
+                af.semitones,
+            ));
+        }
+    }
+    // The audible room graph already stretches its input; never add a second Rubber Band.
+    let stretch = if af.reverb.enabled && af.reverb.wet != 0 {
+        String::new()
+    } else {
+        af_chain(None, af.semitones, af.speed)
+    };
+    if !stretch.is_empty() {
+        if !chain.is_empty() {
+            chain.push(',');
+        }
+        chain.push_str(&stretch);
+    }
+    set_filter_chain(mpv, &chain).map_err(|e| {
+        if af.reverb.enabled {
+            Error::Reverb(e.to_string())
+        } else if af.semitones != 0 || af.speed != 1.0 {
+            Error::NoPitchFilter
+        } else {
+            Error::Mpv(e)
+        }
+    })?;
+    mpv.set_property("speed", af.speed)?;
+    Ok(())
+}
+
+fn set_filter_chain(mpv: &Mpv, chain: &str) -> Result<(), libmpv2::Error> {
+    // `af set` initializes the graph and reports failure; writing the `af` property does not.
+    // With no decoded audio it only stores the chain, so validate lavfi on silent stereo first.
+    if chain.contains("lavfi") && mpv.get_property::<MpvNode>("audio-out-params").is_err() {
+        let probe = Mpv::new()?;
+        probe.set_property("ao", "null")?;
+        probe.set_property("vid", "no")?;
+        probe.set_property("pause", true)?;
+        probe.command("loadfile", &["av://lavfi:anullsrc=r=48000:cl=stereo", "replace"])?;
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while probe.get_property::<MpvNode>("audio-out-params").is_err() {
+            if std::time::Instant::now() >= deadline {
+                return Err(libmpv2::Error::Raw(libmpv2::mpv_error::Command));
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        probe.command("af", &["set", &quoted(chain)])?;
+    }
+    mpv.command("af", &["set", &quoted(chain)])
+}
+
+fn reverb_filter(
+    path: &std::path::Path,
+    reverb: Reverb,
+    normalization: &str,
+    speed: f64,
+    semitones: i32,
+) -> String {
+    // Two parsers: amovie's option value, then lavfi's graph. Escape both, including Windows
+    // drive letters and cache directories containing apostrophes, spaces, or graph delimiters.
+    let filename: String = path
+        .to_string_lossy()
+        .replace('\\', "/")
+        .chars()
+        .flat_map(|c| if "\\': ".contains(c) { vec!['\\', c] } else { vec![c] })
+        .flat_map(|c| if "\\'[],;".contains(c) { vec!['\\', c] } else { vec![c] })
+        .collect();
+    // afir's dry/wet options are input/output gain, NOT a dry/wet blend. Mix explicitly.
+    // Keep the song at unity gain and add reflections at an independent wet level.
+    // Changing presets, seeking, or skipping rebuilds the room and resets its tail.
+    // Stretch the song inside lavfi, before the room, so no native speed metadata enters lavfi.
+    // FFmpeg exposes no engine option; its integer window passes EngineFiner | WindowShort to
+    // Rubber Band's C API. These R3 options match the native short/shifted settings.
+    // FFmpeg can drop buffered audio at EOF, truncating the final sound.
+    let pitch = if speed != 1.0 || semitones != 0 {
+        format!(
+            "{}=tempo={speed}:pitch={}:window={}:formant=shifted:\
+             transients=mixed:pitchq=consistency:channels=together,",
+            pitch_filter(),
+            2f64.powf(semitones as f64 / 12.0),
+            0x20100000
+        )
+    } else {
+        String::new()
+    };
+    let stretch = REVERB_DECAYS[reverb.preset as usize - 1] / reverb.decay;
+    let rate = (48000.0 * stretch).round() as u32;
+    let dry = f64::from(reverb.dry) / 100.0;
+    let wet = f64::from(reverb.wet) / 100.0;
+    let reflections = f64::from(reverb.reflections) / 100.0;
+    let early = 0.08;
+    let pre_delay = reverb.pre_delay;
+    let energy = stretch.sqrt(); // Stretching the IR must not multiply its energy.
+    let timing = if speed != 1.0 {
+        format!(",asetpts=(PTS-STARTPTS)*{speed}+STARTPTS")
+    } else {
+        String::new()
+    };
+    let graph = format!(
+        "amovie=filename={filename},asetrate={rate},aresample=48000,\
+         aeval=exprs='val(ch)*if(lt(t,{early}),{reflections},1)':c=same,volume={energy}[ir];\
+         [in]{pitch}aformat=sample_rates=48000:channel_layouts=stereo,asplit[dry][src];\
+         [src][ir]afir=dry=1:wet=1:irfmt=input:irgain=1:{normalization}:minp=1024:maxp=8192,\
+         lowpass=f={},adelay={}:all=1[wet];\
+         [dry][wet]amix=inputs=2:weights='{dry} {wet}':normalize=0,\
+         alimiter=limit=1:level=disabled:latency=1{timing}[out]",
+        reverb.damping, pre_delay
+    );
+    // Length quoting protects mpv's parser from delimiters inside the lavfi graph.
+    // 1024-sample initial blocks (~21 ms at 48 kHz) trade buffering for less CPU work.
+    // Larger tail blocks save long-decay work.
+    // One worker avoids coordinating channel jobs in this small stereo graph.
+    let mut filter = format!("@reverb:lavfi=graph=%{}%{graph}:o=%9%threads=1", graph.len());
+    if speed != 1.0 {
+        // Consume mpv's speed command and restore source-clock metadata without another stretch.
+        // scale*speed=1 with no overlap/search copies the graph's samples unchanged.
+        filter.push_str(&format!(",scaletempo=scale={}:overlap=0:search=0", 1.0 / speed));
+    }
+    filter
+}
+
+/// Loudness gain, then tempo/pitch. Normal speed and zero Pitch bypass Rubber Band.
 ///
 /// A positive gain carries a limiter: lifting a quiet track pushes its peaks past full scale, and
 /// without one they would clip at the output. Its threshold is full scale (`limit=1`), so it only
@@ -711,7 +973,7 @@ impl Player {
 /// `latency=1` is essential for gapless playback: alimiter looks 5 ms ahead, and latency
 /// compensation trims that initial delay and drains the same number of buffered samples at EOF
 /// instead of dropping the outgoing tail when mpv rebuilds the graph for the next playlist entry.
-fn af_chain(gain_db: Option<f64>, semitones: i32) -> String {
+fn af_chain(gain_db: Option<f64>, semitones: i32, speed: f64) -> String {
     let mut chain = Vec::new();
     match gain_db {
         Some(g) if g > 0.0 => {
@@ -720,10 +982,11 @@ fn af_chain(gain_db: Option<f64>, semitones: i32) -> String {
         Some(g) => chain.push(format!("lavfi=[volume={g}dB]")),
         None => {}
     }
-    if semitones != 0 {
+    if semitones != 0 || speed != 1.0 {
         // Semitones → frequency multiplier (equal temperament).
+        // Short windows reduce processing latency; shifted formants follow the pitch change.
         chain.push(format!(
-            "{}=pitch-scale={}",
+            "{}=window=short:formant=shifted:pitch-scale={}",
             pitch_filter(),
             2f64.powf(semitones as f64 / 12.0)
         ));
@@ -731,15 +994,16 @@ fn af_chain(gain_db: Option<f64>, semitones: i32) -> String {
     chain.join(",")
 }
 
-/// Test seam. Set it to reproduce a libmpv built without librubberband: mpv then rejects the whole
-/// `af` chain, loudness gain included, which is the failure [`Player::set_pitch`] rolls back from.
-/// A machine that has the filter can't reach that path any other way. Not compiled into the app.
 #[cfg(test)]
-static NO_RUBBERBAND: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+std::thread_local! {
+    /// Test seam: force a missing filter so [`Player::set_pitch`] exercises chain rollback.
+    /// Thread-local so parallel playback tests keep their real filters. Absent from the app.
+    static NO_RUBBERBAND: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
 
 fn pitch_filter() -> &'static str {
     #[cfg(test)]
-    if NO_RUBBERBAND.load(std::sync::atomic::Ordering::Relaxed) {
+    if NO_RUBBERBAND.get() {
         return "rubberband_this_build_does_not_have";
     }
     "rubberband"
@@ -944,6 +1208,8 @@ const INHERITED: [&str; 5] = ["user-agent", "http-header-fields", "http-proxy", 
 
 /// Load `url` on the idle deck, paused and silent, ready for [`start_crossfade`] to bring it up.
 fn preload(decks: &Decks, mpv: &Arc<Mpv>, url: &str) -> Result<(), Error> {
+    let mut af = decks.af.lock().unwrap();
+    af.gain[decks.idle_deck()] = af.gain[decks.active.load(Ordering::SeqCst)];
     let src = decks.active_mpv();
     for key in INHERITED {
         if let Ok(v) = src.get_property::<String>(key) {
@@ -1005,6 +1271,8 @@ fn maybe_crossfade(decks: &Arc<Decks>, deck: usize, pos: f64, duration: f64) {
 /// change over with the audio rather than seconds late. The outgoing deck's real end-of-file is
 /// dropped by [`event_loop`], which by then is no longer the live deck.
 fn start_crossfade(decks: &Arc<Decks>, from: usize, fade: f64) {
+    // Serialize the deck swap with effect updates so both halves see the same session settings.
+    let af = decks.af.lock().unwrap();
     let (Some(out), Some(incoming)) = (decks.mpv(from), decks.mpv(1 - from)) else { return };
     let (out, incoming) = (out.clone(), incoming.clone());
     // Tempo is per instance and is set on whatever deck was active at the time (`set_speed`, the
@@ -1018,6 +1286,7 @@ fn start_crossfade(decks: &Arc<Decks>, from: usize, fade: f64) {
     let gen = decks.fade_gen.load(Ordering::SeqCst);
     decks.fading.store(true, Ordering::Release);
     decks.active.store(1 - from, Ordering::SeqCst);
+    drop(af);
     video::deck_swapped(decks);
     // Back on the real device (see `preload`). mpv reopens the output from where the null one had
     // prefilled to, 0.2 s into the track, so seek back to the start: a preload never has a
@@ -1193,32 +1462,43 @@ fn perceptual_to_mpv(percent: i64) -> f64 {
 
 #[cfg(test)]
 mod tests {
+    fn reverb(preset: u8) -> super::Reverb {
+        if preset == 0 {
+            return super::Reverb::default();
+        }
+        super::Reverb {
+            enabled: true,
+            preset,
+            decay: super::REVERB_DECAYS.get(preset as usize - 1).copied().unwrap_or(1.1),
+            ..super::Reverb::default()
+        }
+    }
     use super::{af_chain, is_ao_init_failed, loadfile_args, perceptual_to_mpv, quoted};
 
     #[test]
     fn gain_and_pitch_share_one_chain() {
         // The bug this exists for: either setter clobbering the other's filter.
-        assert_eq!(af_chain(None, 0), "");
-        assert_eq!(af_chain(Some(-3.5), 0), "lavfi=[volume=-3.5dB]");
+        assert_eq!(af_chain(None, 0, 1.0), "");
+        assert_eq!(af_chain(Some(-3.5), 0, 1.0), "lavfi=[volume=-3.5dB]");
         assert_eq!(
-            af_chain(Some(4.0), 0),
+            af_chain(Some(4.0), 0, 1.0),
             "lavfi=[volume=4dB,alimiter=limit=1:level=disabled:latency=1]"
         );
-        assert_eq!(af_chain(None, 12), "rubberband=pitch-scale=2");
-        assert_eq!(af_chain(Some(-6.0), -12), "lavfi=[volume=-6dB],rubberband=pitch-scale=0.5");
+        assert!(af_chain(None, 12, 1.0).ends_with("pitch-scale=2"));
+        let chain = af_chain(Some(-6.0), -12, 1.0);
+        assert!(chain.starts_with("lavfi=[volume=-6dB],"));
+        assert!(chain.ends_with("pitch-scale=0.5"));
         // One semitone up is the twelfth root of two.
-        assert!(af_chain(None, 1).ends_with("1.0594630943592953"));
+        assert!(af_chain(None, 1, 1.0).ends_with("1.0594630943592953"));
     }
 
     /// Everything above is string-building; this drives a real libmpv and reads `af` back out of
     /// it, because the questions that matter ("is the gain still in the chain", "what does mpv keep
     /// when it rejects a chain") are answered by mpv, not by us. Nothing is played, so no audio
-    /// device is opened. One test rather than four: `NO_RUBBERBAND` is process-global and cargo
-    /// runs tests in parallel.
+    /// device is opened. Exercise changes and rollback on the same player instance.
     #[test]
     fn mpv_keeps_the_gain_through_pitch_changes_and_failures() {
         use super::{Error, Player, NO_RUBBERBAND};
-        use std::sync::atomic::Ordering;
 
         let dir = std::env::temp_dir().join("limusic-af-test");
         std::fs::create_dir_all(&dir).unwrap();
@@ -1320,12 +1600,12 @@ mod tests {
         // 3. A libmpv without librubberband. mpv rejects the chain wholesale, so this is also the
         // case where loudness normalization could silently disappear.
         let before = af();
-        NO_RUBBERBAND.store(true, Ordering::Relaxed);
+        NO_RUBBERBAND.set(true);
         let err = p.set_pitch(3).unwrap_err();
-        NO_RUBBERBAND.store(false, Ordering::Relaxed);
+        NO_RUBBERBAND.set(false);
         // The user is told, in words. mpv's own answer is `Raw(-9)`, which says nothing.
         assert!(matches!(err, Error::NoPitchFilter), "rejection must surface: {err}");
-        assert_eq!(err.to_string(), "Pitch shifting isn't available in this build");
+        assert_eq!(err.to_string(), "Tempo and pitch adjustment aren't available in this build");
         // mpv never applied the bad chain, and the rollback re-applied the good one either way.
         assert_eq!(af(), before, "a rejected pitch changed the live chain");
         assert!(af().contains("volume=-2.5dB"), "normalization lost: {}", af());
@@ -1336,9 +1616,328 @@ mod tests {
         assert!(after.contains("volume=-4dB"), "retune after a rejection failed: {after}");
         assert!(!after.contains("rubberband"), "stored pitch survived the rollback: {after}");
 
+        // A refused tempo update must leave the live settings and filter chain intact.
+        let before = af();
+        NO_RUBBERBAND.set(true);
+        let err = p.set_speed(0.8).unwrap_err();
+        NO_RUBBERBAND.set(false);
+        assert!(matches!(err, Error::NoPitchFilter));
+        assert_eq!(p.playback_params(), (1.0, 0, reverb(0)));
+        assert_eq!(p.mpv().get_property::<f64>("speed").unwrap(), 1.0);
+        assert_eq!(af(), before, "rejected tempo changed the live chain");
+
         // 4. A boosted track: mpv (and its ffmpeg) must accept the limiter, or the gain is lost.
         p.set_gain(Some(6.0)).unwrap();
         assert!(af().contains("alimiter"), "boost went in without its limiter: {}", af());
+
+        // Reverb joins the same chain; retuning a track must preserve both session effects.
+        p.set_playback_params(0.8, -3, reverb(3)).unwrap();
+        p.set_gain(Some(-3.0)).unwrap();
+        assert!(
+            af().contains("afir") && af().contains("rubberband") && af().contains("volume=-3dB")
+        );
+        let before = af();
+        NO_RUBBERBAND.set(true);
+        let rejected = p.set_playback_params(1.2, 4, reverb(5));
+        NO_RUBBERBAND.set(false);
+        assert!(rejected.is_err());
+        assert_eq!(p.playback_params(), (0.8, -3, reverb(3)));
+        assert_eq!(af(), before, "a refused effect changed the existing chain");
+        assert_eq!(p.mpv().get_property::<f64>("speed").unwrap(), 0.8);
+        for bad in [f64::NAN, f64::INFINITY, 0.0, 0.49, 3.0] {
+            assert!(p.set_playback_params(bad, 0, reverb(0)).is_err());
+        }
+        p.set_playback_params(0.5, 0, reverb(0)).unwrap();
+        assert_eq!(p.playback_params().0, 0.5);
+        p.set_playback_params(0.8, -3, reverb(3)).unwrap();
+        assert!(p.set_playback_params(1.0, 13, reverb(0)).is_err());
+        assert!(p.set_playback_params(1.0, 0, reverb(7)).is_err());
+        for bad in [
+            super::Reverb { preset: 0, ..reverb(3) },
+            super::Reverb { dry: 101, ..reverb(3) },
+            super::Reverb { wet: 101, ..reverb(3) },
+            super::Reverb { decay: f64::NAN, ..reverb(3) },
+            super::Reverb { decay: 0.0, ..reverb(3) },
+            super::Reverb { decay: 10.1, ..reverb(3) },
+            super::Reverb { pre_delay: 201, ..reverb(3) },
+            super::Reverb { damping: 499, ..reverb(3) },
+            super::Reverb { damping: 20001, ..reverb(3) },
+            super::Reverb { reflections: 101, ..reverb(3) },
+        ] {
+            assert!(p.set_playback_params(1.0, 0, bad).is_err());
+            assert_eq!(p.playback_params(), (0.8, -3, reverb(3)));
+        }
+        p.set_playback_params(1.0, 0, reverb(0)).unwrap();
+        assert!(!af().contains("afir") && !af().contains("rubberband"));
+    }
+
+    #[test]
+    fn reverb_playback_clock_survives_seeks_and_live_controls() {
+        use super::Player;
+        use std::time::{Duration, Instant};
+
+        let dir = std::env::temp_dir().join("limusic-reverb-clock-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let track = dir.join("tone.wav");
+        // A seekable stereo/48 kHz fixture; the lavfi source demuxer cannot seek.
+        let size = 60_u32 * 48000 * 4;
+        let mut wav = Vec::with_capacity(size as usize + 44);
+        wav.extend_from_slice(b"RIFF");
+        wav.extend_from_slice(&(size + 36).to_le_bytes());
+        wav.extend_from_slice(b"WAVEfmt \x10\0\0\0\x01\0\x02\0");
+        wav.extend_from_slice(&48000_u32.to_le_bytes());
+        wav.extend_from_slice(&192000_u32.to_le_bytes());
+        wav.extend_from_slice(b"\x04\0\x10\0data");
+        wav.extend_from_slice(&size.to_le_bytes());
+        for i in 0..60 * 48000 {
+            let sample =
+                (2000.0 * (i as f64 * 440.0 * std::f64::consts::TAU / 48000.0).sin()) as i16;
+            wav.extend_from_slice(&sample.to_le_bytes());
+            wav.extend_from_slice(&sample.to_le_bytes());
+        }
+        std::fs::write(&track, wav).unwrap();
+        let p = Player::new(dir.to_str().unwrap()).unwrap();
+        p.mpv().set_property("ao", "null").unwrap();
+        p.mpv().set_property("ao-null-untimed", false).unwrap();
+        p.set_playback_params(0.8, -1, reverb(3)).unwrap();
+        p.load(track.to_str().unwrap(), &Default::default(), None, None).unwrap();
+        p.play().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while p.mpv().get_property::<f64>("time-pos").unwrap_or(0.0) < 0.1 {
+            assert!(Instant::now() < deadline, "playback never started");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        for (speed, pitch, room, seek) in [
+            (0.8, -1, reverb(3), Some(10.0)),
+            (1.2, 0, reverb(3), None),
+            (0.8, -1, reverb(3), Some(5.0)),
+            (0.8, -1, reverb(0), None),
+            (0.8, -1, super::Reverb { wet: 0, ..reverb(3) }, None),
+            (1.0, -1, reverb(3), None),
+            (1.0, 0, reverb(3), None),
+            (0.8, -1, reverb(3), None),
+        ] {
+            p.set_playback_params(speed, pitch, room).unwrap();
+            if let Some(position) = seek {
+                p.seek(position).unwrap();
+            }
+            // Settle the output buffer before measuring over two seconds, not a single chunk.
+            std::thread::sleep(Duration::from_secs(1));
+            let start = p.mpv().get_property::<f64>("time-pos").unwrap();
+            if let Some(position) = seek {
+                assert!((start - position - speed).abs() < 0.3, "seek landed at {start}");
+            }
+            let wall = Instant::now();
+            std::thread::sleep(Duration::from_secs(2));
+            let end = p.mpv().get_property::<f64>("time-pos").unwrap();
+            let rate = (end - start) / wall.elapsed().as_secs_f64();
+            eprintln!("tempo {speed}, pitch {pitch}, room {room:?}: clock rate {rate:.4}");
+            assert!((rate - speed).abs() < 0.05, "wrong playback rate {rate}, expected {speed}");
+            assert_eq!(p.mpv().get_property::<f64>("speed").unwrap(), speed);
+        }
+        p.mpv().command("stop", &[]).unwrap();
+    }
+
+    #[test]
+    fn reverb_renders_a_tail_and_updates_both_decks() {
+        use super::Player;
+        use std::collections::HashMap;
+        use std::time::{Duration, Instant};
+        // Logged mpv errors do not become PlayerEvent failures; capture this regression explicitly.
+        use tracing_subscriber::fmt::MakeWriter;
+        static LOG: std::sync::Mutex<Vec<u8>> = std::sync::Mutex::new(Vec::new());
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::WARN)
+            .with_ansi(false)
+            .with_writer(|| LOG.make_writer())
+            .finish();
+        tracing::subscriber::set_global_default(subscriber).unwrap();
+        // Exercise BOTH escaping levels and mpv's byte-length quoting, including non-ASCII.
+        let dir = std::env::temp_dir().join("limusic-reverb é ' [room],; test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = Player::new(dir.to_str().unwrap()).unwrap();
+        p.mpv().set_property("ao", "pcm").unwrap();
+        p.mpv().set_property("ao-pcm-waveheader", false).unwrap();
+        p.mpv().set_property("audio-format", "s16").unwrap();
+        p.mpv().set_property("audio-samplerate", 48000_i64).unwrap();
+        p.mpv().set_property("audio-channels", "stereo").unwrap();
+        p.mpv().set_property("gapless-audio", "no").unwrap();
+        p.mpv().set_property("keep-open", true).unwrap();
+        let mut render_index = 0;
+        let tempo = std::cell::Cell::new(1.0);
+        let mut render = |controls: super::Reverb| {
+            let output = dir.join(format!("render-{render_index}.pcm"));
+            render_index += 1;
+            p.mpv().set_property("ao-pcm-file", output.to_str().unwrap()).unwrap();
+            p.set_playback_params(tempo.get(), 0, controls).unwrap();
+            // Seeded broadband audio followed by silence checks actual level AND decay.
+            p.pause().unwrap();
+            p.load(
+                "av://lavfi:anoisesrc=color=pink:amplitude=0.05:seed=42:d=0.4,apad=pad_dur=4",
+                &HashMap::new(),
+                None,
+                None,
+            )
+            .unwrap();
+            p.play().unwrap(); // keep-open pauses at EOF; every render starts playing.
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while !p.mpv().get_property::<bool>("eof-reached").unwrap_or(false) {
+                assert!(
+                    Instant::now() < deadline,
+                    "{controls:?} never reached EOF (position={:?}, idle={:?})",
+                    p.mpv().get_property::<f64>("time-pos"),
+                    p.mpv().get_property::<bool>("idle-active")
+                );
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            p.mpv().command("stop", &[]).unwrap();
+            while p.mpv().get_property::<String>("path").is_ok() {
+                assert!(Instant::now() < deadline, "render did not close");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            let bytes = std::fs::read(&output).unwrap();
+            let samples: Vec<i16> =
+                bytes.chunks_exact(2).map(|s| i16::from_le_bytes([s[0], s[1]])).collect();
+            assert!(
+                samples.len() >= (48000.0 * 4.0 / tempo.get()) as usize,
+                "render produced too little audio"
+            );
+            assert!(samples.iter().all(|s| s.unsigned_abs() < 32767), "render clipped");
+            samples
+        };
+        let rms = |samples: &[i16], start: f64, end: f64| {
+            let window = &samples[(start * 48000.0) as usize * 2..(end * 48000.0) as usize * 2];
+            (window.iter().map(|s| f64::from(*s).powi(2)).sum::<f64>() / window.len() as f64).sqrt()
+        };
+        let dry = render(reverb(0));
+        let mut late = Vec::new();
+        for preset in 1..=6 {
+            let samples = render(reverb(preset));
+            let ratio = rms(&samples, 0.1, 0.4) / rms(&dry, 0.1, 0.4);
+            assert!(ratio >= 0.95, "preset {preset} changed song level: {ratio}");
+            let tail = rms(&samples, 0.45, 0.6);
+            assert!(tail > 1.0, "preset {preset} has no tail: {tail}");
+            late.push(rms(&samples, 1.0, 1.3));
+            eprintln!(
+                "preset {preset}: song RMS ratio={ratio:.3}, tail={tail:.1}, late={:.1}",
+                late.last().unwrap()
+            );
+        }
+        assert!(late[4] > late[0] * 10.0, "large hall must linger longer than small room");
+
+        // Controls must change their own signal path, without requiring a listening judgment.
+        let half_dry = render(super::Reverb { dry: 50, wet: 0, ..reverb(3) });
+        assert!((rms(&half_dry, 0.1, 0.4) / rms(&dry, 0.1, 0.4) - 0.5).abs() < 0.01);
+        let muted = render(super::Reverb { dry: 0, wet: 0, ..reverb(3) });
+        assert!(muted.iter().all(|s| *s == 0), "zero dry/wet must mute both paths");
+        let wet_controls = super::Reverb { dry: 0, wet: 100, ..reverb(3) };
+        let wet = render(wet_controls);
+        assert!(rms(&wet, 0.01, 0.05) > 1.0, "wet-only output lost its reflections");
+        let delayed = render(super::Reverb { pre_delay: 100, ..wet_controls });
+        assert_eq!(rms(&delayed, 0.0, 0.1), 0.0, "pre-delay must delay only the wet path");
+        assert!(rms(&delayed, 0.11, 0.15) > 1.0);
+        let no_reflections = render(super::Reverb { reflections: 0, ..wet_controls });
+        assert_eq!(
+            rms(&no_reflections, 0.0, 0.07),
+            0.0,
+            "early reflection control did not silence the early IR"
+        );
+        assert!(rms(&no_reflections, 0.45, 0.6) > 1.0, "early control removed the late tail");
+        let short = render(super::Reverb { decay: 0.3, ..wet_controls });
+        let long = render(super::Reverb { decay: 3.0, ..wet_controls });
+        assert!(
+            rms(&long, 1.0, 1.3) > rms(&short, 1.0, 1.3) + 1.0,
+            "decay did not extend the tail"
+        );
+        let dark = render(super::Reverb { damping: 500, ..wet_controls });
+        let bright = render(super::Reverb { damping: 20000, ..wet_controls });
+        let high_energy = |samples: &[i16]| {
+            samples[9600..38400]
+                .windows(3)
+                .map(|s| (f64::from(s[2]) - f64::from(s[0])).powi(2))
+                .sum::<f64>()
+        };
+        assert!(
+            high_energy(&dark) < high_energy(&bright) * 0.5,
+            "damping did not reduce high frequencies"
+        );
+
+        // Reverb follows stretching: its envelope and pre-delay use listening seconds.
+        let tail_drop = |samples: &[i16], end: f64| {
+            20.0 * (rms(samples, end + 0.6, end + 0.75) / rms(samples, end + 0.1, end + 0.25))
+                .log10()
+        };
+        let reference_drop = tail_drop(&wet, 0.4);
+        for speed in [0.5, 0.8, 1.2, 2.0] {
+            tempo.set(speed);
+            let samples = render(wet_controls);
+            let duration = samples.len() as f64 / 48000.0 / 2.0;
+            assert!(
+                (duration * speed - 4.4).abs() < 0.08,
+                "tempo {speed}: wrong duration {duration}"
+            );
+            let drop = tail_drop(&samples, 0.4 / speed);
+            eprintln!("tempo {speed}: tail drop {drop:.2} dB, reference {reference_drop:.2} dB");
+            assert!((drop - reference_drop).abs() < 5.0, "tempo {speed} changed room decay");
+            let delayed = render(super::Reverb { pre_delay: 100, ..wet_controls });
+            let added = (delayed.len() as f64 - samples.len() as f64) / 48000.0 / 2.0;
+            assert!((added - 0.1).abs() < 0.01, "tempo {speed} changed pre-delay: {added}");
+        }
+        tempo.set(1.0);
+
+        let other = p.idle_mpv().unwrap();
+        other.set_property("ao", "null").unwrap();
+        super::preload(&p.decks, &other, "av://lavfi:sine=f=440:d=3").unwrap();
+        // During an overlap, the outgoing and incoming tracks keep their own normalization.
+        p.set_gain(Some(-6.0)).unwrap();
+        p.decks.active.store(1, std::sync::atomic::Ordering::SeqCst);
+        p.set_gain(Some(-2.5)).unwrap();
+        p.set_playback_params(0.8, -1, reverb(2)).unwrap();
+        for deck in 0..2 {
+            let m = p.decks.mpv(deck).unwrap();
+            let chain = m.get_property::<String>("af").unwrap();
+            assert!(chain.contains("afir"));
+            assert!(chain.contains("rubberband"));
+            assert!(chain.contains(if deck == 0 { "volume=-6dB" } else { "volume=-2.5dB" }));
+            assert_eq!(m.get_property::<f64>("speed").unwrap(), 0.8);
+        }
+        p.set_pitch(0).unwrap();
+        p.set_speed(1.2).unwrap();
+        for deck in 0..2 {
+            let m = p.decks.mpv(deck).unwrap();
+            let chain = m.get_property::<String>("af").unwrap();
+            assert!(chain.contains("afir") && chain.contains("rubberband"));
+            assert!(chain.contains(if deck == 0 { "volume=-6dB" } else { "volume=-2.5dB" }));
+            assert_eq!(m.get_property::<f64>("speed").unwrap(), 1.2);
+        }
+        p.set_speed(1.0).unwrap();
+        for deck in 0..2 {
+            let chain = p.decks.mpv(deck).unwrap().get_property::<String>("af").unwrap();
+            assert!(chain.contains("afir"));
+            assert!(!chain.contains("rubberband") && !chain.contains("scaletempo"));
+        }
+        p.set_playback_params(1.0, 0, reverb(0)).unwrap();
+        for deck in 0..2 {
+            assert!(!p
+                .decks
+                .mpv(deck)
+                .unwrap()
+                .get_property::<String>("af")
+                .unwrap()
+                .contains("afir"));
+        }
+
+        // An unwritable asset must not change the controls or poison the next filter update.
+        let asset = super::reverb_path(&p.decks, 3);
+        std::fs::remove_file(&asset).unwrap();
+        std::fs::create_dir(&asset).unwrap();
+        assert!(p.set_playback_params(0.8, 0, reverb(3)).is_err());
+        assert_eq!(p.playback_params(), (1.0, 0, reverb(0)));
+        std::fs::remove_dir(&asset).unwrap();
+        p.set_playback_params(1.0, 0, reverb(3)).unwrap();
+        let log = String::from_utf8(LOG.lock().unwrap().clone()).unwrap();
+        assert!(!log.contains("speed changing filters before libavfilter"), "{log}");
+        assert!(!log.contains("Channel layout is not set"), "{log}");
     }
 
     /// Issue #306: loading over a paused track must not return while that track is still loaded,

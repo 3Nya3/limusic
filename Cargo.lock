@@ -4700,6 +4700,7 @@ dependencies = [
  "libc",
  "libmpv2",
  "libmpv2-sys",
+ "serde",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
