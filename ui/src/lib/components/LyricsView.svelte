@@ -19,17 +19,15 @@
 
 	const size = $state({ value: loadSize() });
 
-	function setValue(key: string, value: string | number) {
+	function nudgeSize(delta: number) {
+		const next = SIZES[SIZES.indexOf(size.value) + delta];
+		if (next === undefined) return;
+		size.value = next;
 		try {
-			localStorage.setItem(key, String(value));
+			localStorage.setItem(SIZE_KEY, String(next));
 		} catch {
 			// Private storage: the size still applies for this session.
 		}
-	}
-
-	function toggleLyricsSize() {
-		size.value = SIZES[(SIZES.indexOf(size.value) + 1) % SIZES.length];
-		setValue(SIZE_KEY, size.value);
 	}
 
 	function load(pref: Pref): boolean {
@@ -59,10 +57,18 @@
 
 <script lang="ts">
 	import { HugeiconsIcon } from '@hugeicons/svelte';
-	import { CharacterPhoneticIcon, Search01Icon, TextFontIcon, TranslateIcon } from '@hugeicons/core-free-icons';
+	import {
+		CharacterPhoneticIcon,
+		MinusSignIcon,
+		PlusSignIcon,
+		Search01Icon,
+		TextFontIcon,
+		TranslateIcon
+	} from '@hugeicons/core-free-icons';
 	import * as api from '$lib/api';
 	import { playback } from '$lib/player.svelte';
-	import { t } from '$lib/i18n.svelte';
+	import { currentLocale, t } from '$lib/i18n.svelte';
+	import * as Popover from '$lib/components/ui/popover';
 	import LyricsSourcePicker from './LyricsSourcePicker.svelte';
 
 	// `expanded` only sizes the type and centres the column. The owner of the extra room (the side
@@ -94,6 +100,13 @@
 	const showRomanized = $derived(canRomanize && prefs.romanized);
 	const canTranslate = $derived(!!lyrics?.lines.some((l) => l.translation));
 	const showTranslation = $derived(canTranslate && prefs.translated);
+	// Nothing to resize on an instrumental or a song with no lyrics at all.
+	const canResize = $derived(!!lyrics && !lyrics.instrumental);
+	/** "115%". Locale formatting, so no i18n key and no `%` to place. */
+	const sizeLabel = $derived(
+		new Intl.NumberFormat(currentLocale.id, { style: 'percent' }).format(size.value)
+	);
+	const sizeChanged = $derived(size.value !== 1);
 	/** This song's timing nudge, from the source picker. Positive holds the lyrics back. */
 	const offsetMs = $derived(lyrics?.offset_ms ?? 0);
 	let pickerOpen = $state(false);
@@ -187,7 +200,7 @@
 		const i = activeIndex;
 		// Re-centre after the layout width/font changes or the romanized lines come and go, and
 		// jump rather than glide across it. (Also fires on the first run.)
-		const layout = `${expanded} ${showRomanized}`;
+		const layout = `${expanded} ${showRomanized} ${size.value}`;
 		if (layout !== wasLayout) {
 			wasLayout = layout;
 			hasScrolled = false;
@@ -402,14 +415,60 @@
 				t('lyrics.romanize_hint')
 			)}
 		{/if}
-    <button
-      onclick={toggleLyricsSize}
-      class="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-2 py-0.5 transition-colors hover:bg-foreground/10 hover:text-foreground"
-      title={t('lyrics.text_size_hint')}
-      aria-label={t('lyrics.text_size')}
-    >
-      <HugeiconsIcon icon={TextFontIcon} class="h-3.5 w-3.5" />
-    </button>
+		<!-- One icon, because the footer is full (the side panel is 320px). The popover holds the
+		     `− 115% +` stepper; the ends go dead rather than wrapping. -->
+		{#if canResize}
+			<Popover.Root>
+				<Popover.Trigger
+					class="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-2 py-0.5 transition-colors hover:bg-foreground/10 hover:text-foreground data-[state=open]:bg-foreground/10 data-[state=open]:text-foreground {sizeChanged
+						? 'text-primary'
+						: ''}"
+					title={t('lyrics.text_size_hint')}
+					aria-label={t('lyrics.text_size')}
+				>
+					<HugeiconsIcon icon={TextFontIcon} class="h-3.5 w-3.5" />
+				</Popover.Trigger>
+				<Popover.Content side="top" align="end" sideOffset={8} class="w-auto gap-0 p-0">
+					<div class="flex items-center gap-3 px-4 py-3">
+						<HugeiconsIcon icon={TextFontIcon} class="h-4 w-4 shrink-0 text-muted-foreground" />
+						<div class="min-w-0 flex-1">
+							<p class="text-sm font-medium">{t('lyrics.text_size')}</p>
+							<p class="text-xs leading-snug text-muted-foreground">
+								{t('lyrics.text_size_hint')}
+							</p>
+						</div>
+						<div class="flex shrink-0 items-center rounded-full border bg-muted/40">
+							<button
+								class="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+								disabled={size.value === SIZES[0]}
+								aria-label={t('lyrics.text_size_smaller')}
+								title={t('lyrics.text_size_smaller')}
+								onclick={() => nudgeSize(-1)}
+							>
+								<HugeiconsIcon icon={MinusSignIcon} class="h-3.5 w-3.5" />
+							</button>
+							<span
+								class="w-14 text-center text-xs font-medium tabular-nums {sizeChanged
+									? 'text-primary'
+									: ''}"
+								aria-live="polite"
+							>
+								{sizeLabel}
+							</span>
+							<button
+								class="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+								disabled={size.value === SIZES[SIZES.length - 1]}
+								aria-label={t('lyrics.text_size_larger')}
+								title={t('lyrics.text_size_larger')}
+								onclick={() => nudgeSize(1)}
+							>
+								<HugeiconsIcon icon={PlusSignIcon} class="h-3.5 w-3.5" />
+							</button>
+						</div>
+					</div>
+				</Popover.Content>
+			</Popover.Root>
+		{/if}
 	</div>
 {/if}
 

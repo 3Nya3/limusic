@@ -1023,8 +1023,10 @@
 		"search_go": "Search",
 		"search_reset": "Back to this song",
 		"search_results": "Results for {query}",
-		"text_size": "Lyrics Font Size",
+		"text_size": "Text size",
 		"text_size_hint": "Make the lyrics larger or smaller",
+		"text_size_larger": "Larger text",
+		"text_size_smaller": "Smaller text",
 		"translation": "Translation",
 		"translation_hint": "Show the translation some sources add under each line",
 		"about": {
