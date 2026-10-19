@@ -342,7 +342,12 @@
 					{/if}
 
 					{#if showTranslation && line.translation}
-						<p class="mt-1 text-[0.875em] font-normal italic tracking-wide opacity-80 transition-opacity">
+						<!-- `rem` times the size, never `em`: inside the line an `em` follows the line's own
+						     size, so theater's translations came out twice their old 14px at 100%. -->
+						<p
+							class="mt-1 text-sm font-normal italic tracking-wide opacity-80 transition-opacity"
+							style="font-size:{0.875 * size.value}rem"
+						>
 							{line.translation}
 						</p>
 					{/if}
@@ -365,7 +370,9 @@
 							<p class="text-[0.85em] text-muted-foreground">{line.romanized}</p>
 						{/if}
 						{#if showTranslation && line.translation}
-							<p class="text-[0.75em] italic text-muted-foreground">{line.translation}</p>
+							<p class="text-xs italic text-muted-foreground" style="font-size:{0.75 * size.value}rem">
+								{line.translation}
+							</p>
 						{/if}
 					</div>
 				{:else}
