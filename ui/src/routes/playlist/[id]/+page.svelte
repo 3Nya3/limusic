@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { untrack } from 'svelte';
+	import { untrack, tick } from 'svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
@@ -12,6 +12,7 @@
 		Radio02Icon,
 		ArrowUpNarrowWideIcon,
 		ArrowDownWideNarrowIcon,
+		ArrowDown01Icon,
 		DashboardSquare02Icon,
 		PlayListAddIcon,
 		Share08Icon,
@@ -443,6 +444,7 @@
 		query = '';
 		applied = '';
 		searchOpened = false;
+		scrollingToEnd = false;
 		clearTimeout(filterTimer);
 		// A page that failed on the last playlist would otherwise keep this one's retry state
 		// showing, and block the filter's own walk (`loadAll` bails while it's set).
@@ -670,6 +672,31 @@
 	const win = $derived(
 		rowWindow(sc.scrollTop - sc.offsetPx, sc.viewportPx, shown.length, sc.rowPx)
 	);
+
+	let scrollerEl = $state<HTMLElement | null>(null);
+	let scrollingToEnd = $state(false);
+
+	// Pull the rest of the playlist in before scrolling, so the end of the whole list is reached
+	// rather than just the rows mounted so far. The menu stays open with the row disabled so the
+	// loading state is visible, and closes once the walk is done.
+	async function scrollToEnd() {
+		if (!pl?.items.length || scrollingToEnd || !scrollerEl) return;
+		const pid = id;
+		scrollingToEnd = true;
+		try {
+			if (pl?.continuation) {
+				await loadAll();
+			}
+			await tick();
+			if (pid !== id || !scrollerEl?.isConnected) return;
+			scrollerEl.scrollTop = scrollerEl.scrollHeight;
+		} finally {
+			if (pid === id) {
+				scrollingToEnd = false;
+				menuOpen = false;
+			}
+		}
+	}
 
 	// One page per approach to the bottom: the observer only fires when the sentinel *enters* view,
 	// so an appended page that pushes it back out is required before the next fetch. rootMargin
@@ -999,9 +1026,11 @@
 	{:else if error}
 		<div class="p-6"><ErrorState message={error} onRetry={() => load(id)} /></div>
 	{:else if pl}
-		<!-- One scroller for the whole page: the header scrolls away above the rows, same as the
-		     album page. -->
-		<div class="content-in min-h-0 flex-1 overflow-y-auto" {@attach sc.attach}>
+		<div
+			bind:this={scrollerEl}
+			class="content-in min-h-0 flex-1 overflow-y-auto"
+			{@attach sc.attach}
+		>
 			<div class="relative flex min-h-[38vh] shrink-0 items-end gap-6 overflow-hidden p-6">
 				<!-- The backdrop and its fade share one layer (`art-wash` on the wrapper): see HomeHero. -->
 				<div class="art-wash pointer-events-none absolute inset-0 overflow-hidden">
@@ -1301,6 +1330,14 @@
 			disabled={!pl?.items.length}
 		>
 			<HugeiconsIcon icon={ArrowDownWideNarrowIcon} class="h-4 w-4" /> {t('player.add_to_queue')}
+		</button>
+		<button
+			class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10 disabled:opacity-50"
+			onclick={scrollToEnd}
+			disabled={scrollingToEnd || !pl?.items.length}
+		>
+			<HugeiconsIcon icon={ArrowDown01Icon} class="h-4 w-4" />
+			{scrollingToEnd ? t('common.loading') : t('player.scroll_to_end')}
 		</button>
 		<!-- On Repeat is built from local play counts, and a playlist on this machine is no YouTube
 		     playlist either: neither has a radio to seed. -->
