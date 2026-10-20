@@ -948,7 +948,11 @@
 			"netease": "網易雲音樂曲庫，擁有極為豐富的華語音樂目錄與優質中文翻譯。",
 			"qq": "QQ 音樂曲庫，在華語流行樂 (Mandopop) 與粵語流行樂 (Cantopop) 上極為強大。",
 			"kugou": "酷狗音樂曲庫，適合尋找各類小眾與稀有冷門歌曲。"
-		}
+		},
+		"text_size": "字體大小",
+		"text_size_hint": "讓歌詞文字放大或縮小",
+		"text_size_larger": "放大",
+		"text_size_smaller": "縮小"
 	},
 	"queue": {
 		"title": "待播清單"
