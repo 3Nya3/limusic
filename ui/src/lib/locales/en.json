@@ -204,7 +204,8 @@
 		"remove_dislike": "Remove dislike",
 		"add_to_playlist": "Add to playlist",
 		"pin_to_top": "Pin to top",
-		"unpin": "Unpin"
+		"unpin": "Unpin",
+		"scroll_to_end": "Scroll to bottom"
 	},
 	"home": {
 		"good_morning": "Good morning",
