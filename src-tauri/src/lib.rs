@@ -486,6 +486,26 @@ pub fn run() {
         }
     }
 
+    // WebKitGTK 2.54 composites with Skia by default, and that compositor draws a layer at its
+    // opacity from before an animation on the frame the animation ends, so every fade blinks: the
+    // player view, dialogs, switches (#433, any GPU, opaque windows too). `ui/perf/flashprobe.py`
+    // counts it offline: 7-8 one-frame flashes in 6.5 s of fades on 2.54.1, 0 on 2.52.1, 0 with
+    // this variable, which selects TextureMapper, the compositor every release before 2.54 used.
+    // Older releases do not read it.
+    //
+    // An env var rather than WebKit's feature list in `tune_webview`: the web process reads the
+    // compositor choice once, when it builds the page, and wry starts that load inside `build()`,
+    // before tauri hands the webview over. The same switch flipped there is ignored (same probe).
+    //
+    // ponytail: drop this once a WebKitGTK release fixes the Skia compositor; run flashprobe.py
+    // on it first.
+    #[cfg(target_os = "linux")]
+    {
+        if std::env::var_os("WEBKIT_USE_SKIA_FOR_COMPOSITION").is_none() {
+            std::env::set_var("WEBKIT_USE_SKIA_FOR_COMPOSITION", "0");
+        }
+    }
+
     let mut builder = tauri::Builder::default();
 
     // Must be the first plugin registered (its documented requirement). A second launch —
