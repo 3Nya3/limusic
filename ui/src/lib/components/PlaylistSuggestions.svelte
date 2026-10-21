@@ -112,7 +112,7 @@
 	async function refill() {
 		// A window can be all rows already seen or already in the playlist. A couple more tries
 		// reach fresh ones; the cap keeps a radio that has run dry from asking forever.
-		for (let tries = 0; tries < 3 && !pool.length; tries++) {
+		for (let tries = 0; tries < 3 && !pool.length && !hidden; tries++) {
 			const got = await api.getPlaylistSuggestions(playlistId, cursor ?? token);
 			const have = new Set(current().map((s) => s.video_id));
 			pool = got.items.filter((s) => !seen.has(s.video_id) && !have.has(s.video_id));
@@ -124,7 +124,8 @@
 	}
 
 	async function load() {
-		if (loading) return;
+		// Hidden: the reload a last pick schedules stops here, refill's retries at its loop.
+		if (loading || hidden) return;
 		loading = true;
 		failed = false;
 		try {
