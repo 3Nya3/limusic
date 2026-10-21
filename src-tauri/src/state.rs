@@ -75,7 +75,7 @@ pub struct AppState {
     /// Bumped on every explicit `play`/jump so superseded async resolves discard their result
     /// (cancellation without JoinHandle bookkeeping). context/06 §6.
     generation: AtomicU64,
-    /// Bumped by the `rate` command. [`Self::refresh_rating`] samples it before its round trip
+    /// Bumped by the `rate` command. [`Self::refresh_from_next`] samples it before its round trip
     /// and throws the answer away if it moved: a like landing in that ~400 ms window is newer
     /// than what YouTube was asked, and applying the stale reply would flip the heart back.
     pub rate_epoch: AtomicU64,
@@ -1368,8 +1368,8 @@ impl AppState {
                     {
                         // Search and home cards carry no album name; the radio's own row for the
                         // same track does (#309). Nor its video twin, signed in (#442).
+                        adopt_twin(have, &item);
                         have.album = have.album.take().or(item.album);
-                        have.counterpart = have.counterpart.take().or(item.counterpart);
                     }
                 }
                 // The seed is already playing and Last.fm, Discord and the OS media widget were
@@ -1812,6 +1812,7 @@ impl AppState {
             let resume = q.duration > 0.0 && pos > 1.0 && pos < q.duration;
             let Some(item) = q.items.get_mut(cur) else { return };
             let old = item.video_id.clone();
+            let pos = twin_position(pos, item.counterpart_offset_ms);
             if !swap_version(item) {
                 return;
             }
@@ -1976,7 +1977,7 @@ impl AppState {
         if let Some(item) = self.current_item().await {
             self.emit_now_playing(&item, "gapless");
             // Same as `start_current`: an autoplay-appended track carries no rating of its own.
-            self.refresh_rating(&item.video_id, gen);
+            self.refresh_from_next(&item.video_id, gen);
         }
         self.emit_queue().await;
         self.persist_queue().await; // index advanced without an explicit load → persist it
@@ -2256,7 +2257,7 @@ impl AppState {
         self.emit_now_playing(&item, &data.stream_client);
         // The rating just emitted is whatever the row was parsed with, which for a search result
         // or a radio track is nothing at all (issue #93). Ask.
-        self.refresh_rating(&item.video_id, gen);
+        self.refresh_from_next(&item.video_id, gen);
         // We just told mpv to play, but its `pause` flag was already `false`, so no property event
         // will announce it (see `Player::is_playing`). Say so ourselves — otherwise MPRIS and
         // Discord never learn the track started. After `emit_now_playing`, so the new track is the
@@ -2476,9 +2477,12 @@ impl AppState {
     ///
     /// Detached and doubly guarded: nothing waits on it, a skip during the round trip discards the
     /// answer (`generation`), and so does a rating the user set meanwhile (`rate_epoch`).
-    fn refresh_rating(self: &std::sync::Arc<Self>, video_id: &str, gen: u64) {
-        // Signed out there is no rating to be wrong about, and a local file is not a videoId
-        // YouTube has ever heard of.
+    ///
+    /// The same reply carries the track's Song/Video twin on accounts YouTube pairs them for, so
+    /// it fills that in too, at no extra request (#520).
+    fn refresh_from_next(self: &std::sync::Arc<Self>, video_id: &str, gen: u64) {
+        // Signed out there is no rating to be wrong about and no twin to learn (signed-out `/next`
+        // never wraps a row), and a local file is not a videoId YouTube has ever heard of.
         if !self.it.is_logged_in() || crate::local::is_local_song(video_id) {
             return;
         }
@@ -2487,16 +2491,34 @@ impl AppState {
         tauri::async_runtime::spawn(async move {
             let Some(client) = me.clients.get(innertube::METADATA_CLIENT) else { return };
             let epoch = me.rate_epoch.load(Ordering::SeqCst);
-            // No playlist id: the overlay is all this call is for, and the bare form is ~25x
-            // smaller than the radio one (4 KB vs 100 KB gzipped).
-            let rating = match me.it.next(client, Some(&video_id), None).await {
-                Ok(next) => next.rating,
+            // No playlist id: the bare form is ~25x smaller than the radio one (4 KB vs 100 KB
+            // gzipped), and it is the request the web client sends for the track itself.
+            let next = match me.it.next(client, Some(&video_id), None).await {
+                Ok(next) => next,
                 Err(e) => {
-                    tracing::debug!(error = %e, "rating refresh failed; keeping the snapshot");
+                    tracing::debug!(error = %e, "next refresh failed; keeping the snapshot");
                     return;
                 }
             };
-            let Some(rating) = rating else { return };
+            // The track's other version, on accounts YouTube pairs them for (#520). The radio
+            // started from a music video wraps nothing, so this is the only place a video played
+            // on its own learns its song. A fact about the id, so no generation check.
+            if let Some(seed) = next.items.iter().find(|i| i.video_id == video_id) {
+                let learned = {
+                    let mut q = me.queue.lock().await;
+                    let q = &mut *q;
+                    let mut learned = false;
+                    let rows = q.items.iter_mut().chain(q.shuffle_orig.iter_mut().flatten());
+                    for item in rows.filter(|i| i.video_id == video_id) {
+                        learned |= adopt_twin(item, seed);
+                    }
+                    learned
+                };
+                if learned {
+                    me.emit_queue().await;
+                }
+            }
+            let Some(rating) = next.rating else { return };
             if me.generation.load(Ordering::SeqCst) != gen
                 || me.rate_epoch.load(Ordering::SeqCst) != epoch
             {
@@ -3170,7 +3192,7 @@ impl AppState {
             self.emit_now_playing(&item, "restored");
             // The stored rating is as old as the database: a like made on another device since
             // has never been seen here (issue #93).
-            self.refresh_rating(&item.video_id, self.generation.load(Ordering::SeqCst));
+            self.refresh_from_next(&item.video_id, self.generation.load(Ordering::SeqCst));
             let _ = self.app.emit("playback-state", "paused");
             // mpv has nothing loaded until play, so it reports neither: the bar gets the saved
             // position and the row's own length from here.
@@ -4114,6 +4136,8 @@ fn track_to_song(t: &Track) -> SongItem {
         is_video: false,
         // Only the host switches versions (`switch_version`), so a guest's row needs no twin.
         counterpart: None,
+        counterpart_thumbnail: None,
+        counterpart_offset_ms: 0,
         // The Listen Together wire shape carries no upload flag either; a guest could not stream
         // the host's upload anyway, so false is the right answer, not a lossy one.
         is_upload: false,
@@ -4529,7 +4553,29 @@ pub(crate) fn swap_version(item: &mut SongItem) -> bool {
     let Some(other) = item.counterpart.take() else { return false };
     item.counterpart = Some(std::mem::replace(&mut item.video_id, other));
     item.is_video = !item.is_video;
+    // Only a pair trades: an album row has art of its own but none for the video it swapped out.
+    if let (Some(a), Some(b)) = (item.thumbnail.as_mut(), item.counterpart_thumbnail.as_mut()) {
+        std::mem::swap(a, b);
+    }
+    item.counterpart_offset_ms = -item.counterpart_offset_ms;
     true
+}
+
+/// Take `from`'s twin, with its art and offset, when `into` has none. True when it did.
+fn adopt_twin(into: &mut SongItem, from: &SongItem) -> bool {
+    if into.counterpart.is_some() || from.counterpart.is_none() {
+        return false;
+    }
+    into.counterpart = from.counterpart.clone();
+    into.counterpart_thumbnail = from.counterpart_thumbnail.clone();
+    into.counterpart_offset_ms = from.counterpart_offset_ms;
+    true
+}
+
+/// Where `pos` (seconds into this version) falls in its counterpart, which starts `offset_ms` into
+/// this one: a video's intro is skipped going to the song and added back coming from it (#520).
+fn twin_position(pos: f64, offset_ms: i64) -> f64 {
+    (pos - offset_ms as f64 / 1000.0).max(0.0)
 }
 
 /// Whether a row YouTube pairs with its other version should play the music video (#464).
@@ -4718,12 +4764,12 @@ fn persist_fingerprint(q: &QueueState) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        append_page, backfill_metadata, cache_horizon, drop_duplicates, enqueue_at,
+        adopt_twin, append_page, backfill_metadata, cache_horizon, drop_duplicates, enqueue_at,
         format_duration, get_url, guest_insert_index, history_threshold, is_mix, loudness_gain,
         merge_radio, next_index, parse_duration_ms, persist_fingerprint, prefer_version,
         prev_track_title, put_url, queue_fingerprint, radio_seed_for, retain_upcoming,
         shuffle_new_queue, shuffle_upcoming, splice_radio_into, swap_version, trim_played,
-        unshuffled, upcoming_queued, QueueState, RepeatMode, VideoUrls, KEEP_PLAYED,
+        twin_position, unshuffled, upcoming_queued, QueueState, RepeatMode, VideoUrls, KEEP_PLAYED,
         LOCAL_PLAYLIST_PREFIX, MAX_BOOST_DB,
     };
 
@@ -4735,18 +4781,61 @@ mod tests {
         let mut it = innertube::SongItem {
             video_id: "audio".into(),
             counterpart: Some("video".into()),
+            thumbnail: Some("cover".into()),
+            counterpart_thumbnail: Some("frame".into()),
+            counterpart_offset_ms: -5477,
             ..Default::default()
         };
         assert!(swap_version(&mut it));
         assert_eq!((it.video_id.as_str(), it.counterpart.as_deref()), ("video", Some("audio")));
         assert!(it.is_video);
+        assert_eq!((it.thumbnail.as_deref(), it.counterpart_offset_ms), (Some("frame"), 5477));
         assert!(swap_version(&mut it));
         assert_eq!((it.video_id.as_str(), it.counterpart.as_deref()), ("audio", Some("video")));
         assert!(!it.is_video);
+        assert_eq!((it.thumbnail.as_deref(), it.counterpart_offset_ms), (Some("cover"), -5477));
+        // An album row knows no art for its twin: it keeps its own rather than losing it.
+        let mut album = innertube::SongItem {
+            video_id: "audio".into(),
+            counterpart: Some("video".into()),
+            thumbnail: Some("cover".into()),
+            ..Default::default()
+        };
+        assert!(swap_version(&mut album));
+        assert_eq!(album.thumbnail.as_deref(), Some("cover"));
         // Nothing to switch to: the row is left exactly as it was.
         let mut lone = innertube::SongItem { video_id: "a".into(), ..Default::default() };
         assert!(!swap_version(&mut lone));
         assert_eq!(lone.video_id, "a");
+    }
+
+    // The Mirrors pair from #520: the song starts 5.477 s into the video.
+    #[test]
+    fn a_switch_lands_on_the_same_moment_of_the_other_version() {
+        assert!((twin_position(100.0, 5477) - 94.523).abs() < 1e-9); // video -> song
+        assert!((twin_position(94.523, -5477) - 100.0).abs() < 1e-9); // and back
+        assert_eq!(twin_position(3.0, 5477), 0.0); // still in the intro: the song's start
+        assert_eq!(twin_position(42.0, 0), 42.0); // no segmentMap, as before
+    }
+
+    #[test]
+    fn a_twin_is_adopted_only_by_a_row_without_one() {
+        let twin = innertube::SongItem {
+            video_id: "v".into(),
+            counterpart: Some("s".into()),
+            counterpart_thumbnail: Some("cover".into()),
+            counterpart_offset_ms: 5477,
+            ..Default::default()
+        };
+        let mut row = innertube::SongItem { video_id: "v".into(), ..Default::default() };
+        assert!(adopt_twin(&mut row, &twin));
+        assert_eq!(row.counterpart_thumbnail.as_deref(), Some("cover"));
+        assert_eq!(row.counterpart_offset_ms, 5477);
+        // A row that already knows its twin (an album swap, an earlier answer) keeps it.
+        assert!(!adopt_twin(&mut row, &innertube::SongItem::default()));
+        let other = innertube::SongItem { counterpart: Some("x".into()), ..Default::default() };
+        assert!(!adopt_twin(&mut row, &other));
+        assert_eq!(row.counterpart.as_deref(), Some("s"));
     }
 
     #[test]
