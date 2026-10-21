@@ -2614,14 +2614,21 @@ impl AppState {
         Ok(())
     }
 
-    /// Tempo changes do not emit a new mpv duration; refresh the OS timeline immediately.
+    /// Tempo changes do not emit a new mpv duration; refresh OS and Discord timelines immediately.
     pub async fn media_refresh_timing(&self) {
+        let secs = self.queue.lock().await.duration;
+        let speed = self.player.speed();
         if let Some(m) = &self.media {
-            let secs = self.queue.lock().await.duration;
             if secs > 0.0 {
-                m.set_duration(secs, self.player.playback_params().0);
+                m.set_duration(secs, speed);
             }
             self.media_set_playing(self.is_playing.load(Ordering::Relaxed));
+        }
+        if let Some(d) = &self.discord {
+            if secs > 0.0 {
+                d.set_duration(secs, speed);
+            }
+            d.set_position(self.current_position(), speed);
         }
     }
 
@@ -2636,7 +2643,7 @@ impl AppState {
             let pos = self.current_position();
             // Record what the controls now hold, or the next tick would repeat this very push.
             *self.last_media_state.lock().unwrap() = Some((playing, pos));
-            m.set_playback(playing, pos, self.player.playback_params().0);
+            m.set_playback(playing, pos, self.player.speed());
         }
         #[cfg(target_os = "windows")]
         crate::taskbar::set_playing(&self.app, playing);
@@ -2929,11 +2936,12 @@ impl AppState {
     pub async fn on_duration(&self, secs: f64) {
         if secs.is_finite() && secs > 0.0 {
             self.queue.lock().await.duration = secs;
+            let speed = self.player.speed();
             if let Some(m) = &self.media {
-                m.set_duration(secs, self.player.playback_params().0);
+                m.set_duration(secs, speed);
             }
             if let Some(d) = &self.discord {
-                d.set_duration(secs);
+                d.set_duration(secs, speed);
             }
             self.lastfm.set_duration(secs);
         }
@@ -3258,6 +3266,7 @@ impl AppState {
             // synchronous on mpv's core lock. `is_playing` is kept current by `PlayerEvent::Playing`,
             // which mpv now pushes (it derives from `idle-active`, not just `pause`).
             let playing = self.is_playing.load(Ordering::Relaxed);
+            let speed = self.player.speed();
             if let Some(m) = &self.media {
                 // Push when the play state flipped, or when the position moved further than one
                 // tick of ordinary playback explains (a seek, a track change). Not every second:
@@ -3271,11 +3280,11 @@ impl AppState {
                 if send {
                     *last = Some((playing, pos));
                     drop(last);
-                    m.set_playback(playing, pos, self.player.playback_params().0);
+                    m.set_playback(playing, pos, speed);
                 }
             }
             if let Some(d) = &self.discord {
-                d.set_position(pos);
+                d.set_position(pos, speed);
             }
             self.lastfm.set_position(pos);
         }

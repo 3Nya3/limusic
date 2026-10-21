@@ -809,6 +809,10 @@ impl Player {
         Ok(())
     }
 
+    pub fn speed(&self) -> f64 {
+        self.decks.speed()
+    }
+
     pub fn playback_params(&self) -> (f64, i32, Reverb) {
         let af = self.decks.af.lock().unwrap();
         (af.speed, af.semitones, af.reverb)
