@@ -913,7 +913,8 @@
 			"kugou": "Daha nadir parçalar için Çince katalog."
 		},
 		"text_size_larger": "Daha büyük metin",
-		"text_size_smaller": "Daha küçük metin"
+		"text_size_smaller": "Daha küçük metin",
+		"text_size": "Metin boyutu"
 	},
 	"queue": {
 		"title": "Sıra"
