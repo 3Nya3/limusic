@@ -47,6 +47,9 @@ pub enum PlayerEvent {
     Paused(bool),
     /// One track finished normally (EOF) — orchestrator advances the queue.
     TrackEnded,
+    /// Repeat-one started the file over. `loop-file` sends no end-file, so this is the only sign
+    /// a new pass began; the app counts it as a new play (#518).
+    Looped,
     /// One track died (end-file with error, e.g. its URL 403'd). mpv may have auto-advanced
     /// into the next playlist entry or gone idle — the orchestrator asks [`Player::is_idle`].
     TrackFailed(String),
@@ -785,6 +788,8 @@ fn event_loop(mut ev: EventContext, deck: usize, decks: Arc<Decks>) {
     // the app is playing.
     let live = || decks.active.load(Ordering::SeqCst) == deck;
     let mut duration = 0.0f64;
+    // The previous `time-pos`, to spot repeat-one going back to the top (`loop_wrapped`).
+    let mut last_pos = f64::NAN;
     // Playback state is derived from two properties, never polled: mpv answers `mpv_get_property`
     // synchronously on its core lock, so asking it from the app's async event pump can stall that
     // pump exactly when mpv is busiest (a gapless transition opening the next stream) — and a
@@ -810,6 +815,13 @@ fn event_loop(mut ev: EventContext, deck: usize, decks: Arc<Decks>) {
                         if live() && !paused && !idle {
                             maybe_crossfade(&decks, deck, p, duration);
                         }
+                        if live()
+                            && decks.loop_file.load(Ordering::Relaxed)
+                            && loop_wrapped(last_pos, p, duration)
+                        {
+                            let _ = tx.send(PlayerEvent::Looped);
+                        }
+                        last_pos = p;
                         Some(PlayerEvent::Position(p))
                     }
                     Event::PropertyChange {
@@ -981,6 +993,14 @@ fn fade_due(setting: f64, pos: f64, duration: f64) -> Option<f64> {
     let left = duration - pos;
     let fade = setting.min(duration / 2.0);
     (left <= fade).then(|| fade.min(left).max(0.0))
+}
+
+/// Whether a position tick is repeat-one wrapping: the previous tick was in the file's last stretch
+/// and this one is back at its start. A seek from the end to the top reads the same, and counting
+/// that as another play is right too.
+fn loop_wrapped(last: f64, pos: f64, duration: f64) -> bool {
+    const EDGE: f64 = 1.5;
+    duration > 2.0 * EDGE && last >= duration - EDGE && pos < EDGE
 }
 
 /// Called on every position tick of the active deck. Everything has to line up: crossfading is on,
@@ -1193,7 +1213,19 @@ fn perceptual_to_mpv(percent: i64) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{af_chain, is_ao_init_failed, loadfile_args, perceptual_to_mpv, quoted};
+    use super::{
+        af_chain, is_ao_init_failed, loadfile_args, loop_wrapped, perceptual_to_mpv, quoted,
+    };
+
+    #[test]
+    fn repeat_one_wrap_is_end_to_start_only() {
+        assert!(loop_wrapped(199.9, 0.02, 200.0));
+        assert!(!loop_wrapped(f64::NAN, 0.0, 200.0), "the first tick of a file");
+        assert!(!loop_wrapped(120.0, 0.0, 200.0), "a seek back from the middle");
+        assert!(!loop_wrapped(199.9, 30.0, 200.0), "a seek back from the end, not to the top");
+        assert!(!loop_wrapped(199.9, 0.0, 0.0), "no duration yet");
+        assert!(!loop_wrapped(2.0, 0.0, 2.5), "too short to tell the end from the start");
+    }
 
     #[test]
     fn gain_and_pitch_share_one_chain() {

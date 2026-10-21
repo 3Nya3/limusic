@@ -3224,6 +3224,24 @@ impl AppState {
         }
     }
 
+    /// Repeat-one started the track over (#518): a new play, so the local play count, the
+    /// watch-history ping and the scrobble each fire again. mpv's `loop-file` sends no end-file,
+    /// so nothing else resets them, and the whole loop used to count once. The duration is kept:
+    /// it is the same file, and mpv won't report it again.
+    pub async fn on_looped(&self) {
+        let duration = {
+            let mut q = self.queue.lock().await;
+            q.cpn = innertube::generate_cpn();
+            self.history_pinged.store(false, Ordering::Relaxed);
+            self.end_listen();
+            q.duration
+        };
+        if let Some(item) = self.current_item().await {
+            self.lastfm.set_track(&item);
+            self.lastfm.set_duration(duration);
+        }
+    }
+
     /// Flush the latest known position to the DB immediately (e.g. on pause), and the time heard
     /// of the play it belongs to.
     pub fn flush_position(&self) {
