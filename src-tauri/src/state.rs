@@ -1350,7 +1350,8 @@ impl AppState {
             .await;
         self.end_hydration(gen).await; // autoplay may top this queue up from here on
         match hydrated {
-            Ok(next) => {
+            Ok(mut next) => {
+                self.freshen_radio(&mut next.items);
                 let mut q = self.queue.lock().await;
                 if self.generation.load(Ordering::SeqCst) != gen {
                     return; // superseded
@@ -1559,7 +1560,12 @@ impl AppState {
             other => return Err(format!("unknown radio kind: {other}")),
         };
 
-        let (items, seed) = self.fetch_radio(video_id.as_deref(), &playlist_id).await?;
+        let (mut items, seed) = self.fetch_radio(video_id.as_deref(), &playlist_id).await?;
+        // The seed song comes back inside the first page (usually first, but the panel decides):
+        // start there so a radio on song X actually opens on X. Only what follows it is reordered,
+        // and a radio with no seed song (artist, album, playlist) is reordered whole.
+        let seed_at = video_id.as_ref().and_then(|v| items.iter().position(|i| &i.video_id == v));
+        self.freshen_radio(&mut items[seed_at.map_or(0, |i| i + 1)..]);
         let title = name.map(|n| format!("{n} Radio"));
 
         // Radio on the song that's already playing: splice instead of replacing, so the track
@@ -1572,13 +1578,7 @@ impl AppState {
             self.splice_radio(items, seed, title).await;
             return Ok(());
         }
-        // The seed song comes back inside the first page (usually first, but the panel decides) —
-        // start there so a radio on song X actually opens on X.
-        let start = video_id
-            .as_ref()
-            .and_then(|v| items.iter().position(|i| &i.video_id == v))
-            .unwrap_or(0);
-        self.play_tracks(items, Some(start), Some(seed), title, false, None).await;
+        self.play_tracks(items, Some(seed_at.unwrap_or(0)), Some(seed), title, false, None).await;
         self.queue.lock().await.radio = true;
         Ok(())
     }
@@ -2905,6 +2905,15 @@ impl AppState {
         self.db.get_setting("autoplay").map(|v| v != "false").unwrap_or(true)
     }
 
+    /// Reorder a radio page so the songs you heard lately come last. YouTube ranks a radio the same
+    /// way every time it is asked for the same seed, so every radio on a song, and every autoplay
+    /// after the same playlist, used to open on the same handful of tracks.
+    fn freshen_radio(&self, items: &mut [SongItem]) {
+        const RECENT: i64 = 30 * 24 * 3600;
+        let heard = self.db.last_played(now_secs() - RECENT).into_iter().collect();
+        freshen(items, &heard);
+    }
+
     /// Lift the hold `play_song` put on the autoplay trigger while it hydrated a radio, unless a
     /// newer queue has taken it over in the meantime (its own `play_song` clears it).
     async fn end_hydration(&self, gen: u64) {
@@ -2987,7 +2996,7 @@ impl AppState {
     /// the network right before it.
     async fn absorb_radio(
         self: &std::sync::Arc<Self>,
-        fresh: Vec<SongItem>,
+        mut fresh: Vec<SongItem>,
         gen: u64,
         seed: &str,
         cap: usize,
@@ -3000,6 +3009,8 @@ impl AppState {
         if !self.autoplay_enabled() {
             return 0;
         }
+        // Before the cap: the batch that lands is the songs you haven't heard, when there are any.
+        self.freshen_radio(&mut fresh);
         let (added, trimmed) = {
             let mut q = self.queue.lock().await;
             // Against the queue as it is *now*, not a snapshot from before the fetch: a playlist
@@ -4286,6 +4297,13 @@ fn trim_played(items: &mut Vec<innertube::SongItem>, current: usize, keep: usize
     drop
 }
 
+/// [`AppState::freshen_radio`]'s order: songs not in `heard` keep YouTube's order and go first,
+/// then the heard ones, least recently heard first, so a page heard end to end still rotates.
+fn freshen(items: &mut [SongItem], heard: &std::collections::HashMap<String, i64>) {
+    // Stable, and `None` sorts before any `Some`.
+    items.sort_by_key(|i| heard.get(&i.video_id).copied());
+}
+
 /// Append radio-continuation tracks to the queue: dedupe against `existing` (the whole current
 /// queue + everything appended this hop), cap at `cap`, and mark each as `autoplay` so the UI can
 /// show where the chosen queue ends and autoplay begins. Returns how many were appended.
@@ -4719,11 +4737,11 @@ fn persist_fingerprint(q: &QueueState) -> u64 {
 mod tests {
     use super::{
         append_page, backfill_metadata, cache_horizon, drop_duplicates, enqueue_at,
-        format_duration, get_url, guest_insert_index, history_threshold, is_mix, loudness_gain,
-        merge_radio, next_index, parse_duration_ms, persist_fingerprint, prefer_version,
-        prev_track_title, put_url, queue_fingerprint, radio_seed_for, retain_upcoming,
-        shuffle_new_queue, shuffle_upcoming, splice_radio_into, swap_version, trim_played,
-        unshuffled, upcoming_queued, QueueState, RepeatMode, VideoUrls, KEEP_PLAYED,
+        format_duration, freshen, get_url, guest_insert_index, history_threshold, is_mix,
+        loudness_gain, merge_radio, next_index, parse_duration_ms, persist_fingerprint,
+        prefer_version, prev_track_title, put_url, queue_fingerprint, radio_seed_for,
+        retain_upcoming, shuffle_new_queue, shuffle_upcoming, splice_radio_into, swap_version,
+        trim_played, unshuffled, upcoming_queued, QueueState, RepeatMode, VideoUrls, KEEP_PLAYED,
         LOCAL_PLAYLIST_PREFIX, MAX_BOOST_DB,
     };
 
@@ -5573,6 +5591,16 @@ mod tests {
         assert!(!items[0].autoplay && !items[1].autoplay);
         // Nothing new in the radio result → 0, queue untouched (playback then stops as before).
         assert_eq!(merge_radio(&mut items.clone(), vec![song("a", None)], existing, 20), 0);
+    }
+
+    #[test]
+    fn radio_puts_unheard_songs_first() {
+        let mut items: Vec<_> = ["a", "b", "c", "d", "e"].map(|id| song(id, None)).into();
+        let heard = [("a".to_owned(), 300), ("c".to_owned(), 100)].into();
+        freshen(&mut items, &heard);
+        let ids: Vec<_> = items.iter().map(|i| i.video_id.as_str()).collect();
+        // Unheard keep YouTube's order; heard follow, the one heard longest ago first.
+        assert_eq!(ids, ["b", "d", "e", "c", "a"]);
     }
 
     #[test]
