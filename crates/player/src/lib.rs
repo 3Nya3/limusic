@@ -172,6 +172,8 @@ const REVERB_PRESETS: [(&str, &[u8]); 6] = [
 /// one it always was (the lookahead goes into mpv's own playlist, gaplessly).
 struct Decks {
     af: Mutex<AudioFilters>,
+    /// Last committed tempo as f64 bits; the event pump must not wait on effect updates.
+    speed_bits: AtomicU64,
     a: Arc<Mpv>,
     b: OnceLock<Arc<Mpv>>,
     /// Which deck the app is listening to. Events from the other one are dropped.
@@ -243,6 +245,10 @@ impl Decks {
 
     fn crossfade_secs(&self) -> f64 {
         self.crossfade_ms.load(Ordering::Relaxed) as f64 / 1000.0
+    }
+
+    fn speed(&self) -> f64 {
+        f64::from_bits(self.speed_bits.load(Ordering::Relaxed))
     }
 }
 
@@ -389,6 +395,7 @@ impl Player {
                 semitones: 0,
                 reverb: Reverb::default(),
             }),
+            speed_bits: AtomicU64::new(1.0_f64.to_bits()),
             a: a.clone(),
             b: OnceLock::new(),
             active: AtomicUsize::new(0),
@@ -798,6 +805,7 @@ impl Player {
             }
         }
         *af = wanted;
+        self.decks.speed_bits.store(speed.to_bits(), Ordering::Relaxed);
         Ok(())
     }
 
@@ -880,8 +888,9 @@ fn apply_filters(decks: &Decks, deck: usize, af: &AudioFilters) -> Result<(), Er
 
 fn set_filter_chain(mpv: &Mpv, chain: &str) -> Result<(), libmpv2::Error> {
     // `af set` initializes the graph and reports failure; writing the `af` property does not.
-    // With no decoded audio it only stores the chain, so validate lavfi on silent stereo first.
-    if chain.contains("lavfi") && mpv.get_property::<MpvNode>("audio-out-params").is_err() {
+    // Cold decks only store the chain; probe effect graphs before accepting them.
+    let needs_probe = chain.contains("@reverb") || chain.contains(pitch_filter());
+    if needs_probe && mpv.get_property::<MpvNode>("audio-out-params").is_err() {
         validate_lavfi(chain)?;
     }
     mpv.command("af", &["set", &quoted(chain)])
@@ -899,6 +908,8 @@ fn choose_afir_normalization(
 }
 
 fn validate_lavfi(chain: &str) -> Result<(), libmpv2::Error> {
+    #[cfg(test)]
+    FILTER_PROBES.set(FILTER_PROBES.get() + 1);
     let probe = Mpv::new()?;
     probe.set_property("ao", "null")?;
     probe.set_property("vid", "no")?;
@@ -934,20 +945,7 @@ fn reverb_filter(
     // Keep the song at unity gain and add reflections at an independent wet level.
     // Changing presets, seeking, or skipping rebuilds the room and resets its tail.
     // Stretch the song inside lavfi, before the room, so no native speed metadata enters lavfi.
-    // FFmpeg exposes no engine option; its integer window passes EngineFiner | WindowShort to
-    // Rubber Band's C API. These R3 options match the native short/shifted settings.
-    // FFmpeg can drop buffered audio at EOF, truncating the final sound.
-    let pitch = if speed != 1.0 || semitones != 0 {
-        format!(
-            "{}=tempo={speed}:pitch={}:window={}:formant=shifted:\
-             transients=mixed:pitchq=consistency:channels=together,",
-            pitch_filter(),
-            2f64.powf(semitones as f64 / 12.0),
-            0x20100000
-        )
-    } else {
-        String::new()
-    };
+    let pitch = lavfi_stretch(speed, semitones);
     let stretch = REVERB_DECAYS[reverb.preset as usize - 1] / reverb.decay;
     let rate = (48000.0 * stretch).round() as u32;
     let dry = f64::from(reverb.dry) / 100.0;
@@ -982,6 +980,22 @@ fn reverb_filter(
         filter.push_str(&format!(",scaletempo=scale={}:overlap=0:search=0", 1.0 / speed));
     }
     filter
+}
+
+fn lavfi_stretch(speed: f64, semitones: i32) -> String {
+    if speed == 1.0 && semitones == 0 {
+        return String::new();
+    }
+    // FFmpeg exposes no engine option; its integer window passes EngineFiner | WindowShort to
+    // Rubber Band's C API. These R3 options match the native short/shifted settings.
+    // Its real-time wrapper can truncate or pad the EOF block.
+    format!(
+        "{}=tempo={speed}:pitch={}:window={}:formant=shifted:\
+         transients=mixed:pitchq=consistency:channels=together,",
+        pitch_filter(),
+        2f64.powf(semitones as f64 / 12.0),
+        0x20100000
+    )
 }
 
 /// Loudness gain, then tempo/pitch. Normal speed and zero Pitch bypass Rubber Band.
@@ -1020,6 +1034,8 @@ std::thread_local! {
     /// Test seam: force a missing filter so [`Player::set_pitch`] exercises chain rollback.
     /// Thread-local so parallel playback tests keep their real filters. Absent from the app.
     static NO_RUBBERBAND: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Count validation players independently of parallel playback tests.
+    static FILTER_PROBES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 fn pitch_filter() -> &'static str {
@@ -1281,7 +1297,7 @@ fn maybe_crossfade(decks: &Arc<Decks>, deck: usize, pos: f64, duration: f64) {
         return;
     }
     // mpv positions follow the source clock, whereas the volume worker sleeps in real time.
-    let speed = decks.af.lock().unwrap().speed;
+    let speed = decks.speed();
     let Some(fade) = fade_due(decks.crossfade_secs(), pos / speed, duration / speed) else {
         return;
     };
@@ -1296,21 +1312,15 @@ fn maybe_crossfade(decks: &Arc<Decks>, deck: usize, pos: f64, duration: f64) {
 /// change over with the audio rather than seconds late. The outgoing deck's real end-of-file is
 /// dropped by [`event_loop`], which by then is no longer the live deck.
 fn start_crossfade(decks: &Arc<Decks>, from: usize, fade: f64) {
-    // Serialize the deck swap with effect updates so both halves see the same session settings.
-    let af = decks.af.lock().unwrap();
     let (Some(out), Some(incoming)) = (decks.mpv(from), decks.mpv(1 - from)) else { return };
     let (out, incoming) = (out.clone(), incoming.clone());
-    // Tempo is per instance and is set on whatever deck was active at the time (`set_speed`, the
-    // tempo dialog), so a track preloaded before the user touched it would come in at 1x.
-    let speed = af.speed;
-    let _ = incoming.set_property("speed", speed);
+    let speed = decks.speed();
     decks.preloaded.store(false, Ordering::Release);
     // Read before `fading` goes up, which is what lets a cancel bump it: taken afterwards, a
     // cancel landing in between would be captured as the current value and never noticed.
     let gen = decks.fade_gen.load(Ordering::SeqCst);
     decks.fading.store(true, Ordering::Release);
     decks.active.store(1 - from, Ordering::SeqCst);
-    drop(af);
     video::deck_swapped(decks);
     // Back on the real device (see `preload`). mpv reopens the output from where the null one had
     // prefilled to, 0.2 s into the track, so seek back to the start: a preload never has a
@@ -1554,6 +1564,27 @@ mod tests {
         assert!(af_chain(None, 1, 1.0).ends_with("1.0594630943592953"));
     }
 
+    #[test]
+    fn cold_gain_updates_skip_filter_probes() {
+        use super::{Player, Reverb, FILTER_PROBES};
+
+        let dir = tempfile::tempdir().unwrap();
+        let p = Player::new(dir.path().to_str().unwrap()).unwrap();
+        assert!(p.mpv().get_property::<super::MpvNode>("audio-out-params").is_err());
+        let before = FILTER_PROBES.get();
+        for gain in [Some(-7.7), Some(6.0), None] {
+            p.set_gain(gain).unwrap();
+        }
+        assert_eq!(FILTER_PROBES.get(), before, "gain-only updates started a temporary mpv");
+
+        // Cold effect chains still need validation even though no track is decoded yet.
+        p.set_pitch(1).unwrap();
+        assert_eq!(FILTER_PROBES.get(), before + 1, "Rubber Band was not probed");
+        let reverb = Reverb { enabled: true, wet: 0, ..Reverb::default() };
+        p.set_playback_params(1.0, 0, reverb).unwrap();
+        assert_eq!(FILTER_PROBES.get(), before + 2, "reverb was not probed");
+    }
+
     /// Everything above is string-building; this drives a real libmpv and reads `af` back out of
     /// it, because the questions that matter ("is the gain still in the chain", "what does mpv keep
     /// when it rejects a chain") are answered by mpv, not by us. Nothing is played, so no audio
@@ -1566,6 +1597,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let p = Player::new(dir.to_str().unwrap()).expect("libmpv");
         let af = || p.mpv().get_property::<String>("af").unwrap();
+        assert_eq!(p.decks.speed(), 1.0);
 
         // `stream-lavf-o` is the one option here mpv could reject outright (it isn't a plain
         // flag), and `new` is infallible-by-expect at the call site, so a rejection would be a
@@ -1685,6 +1717,7 @@ mod tests {
         NO_RUBBERBAND.set(false);
         assert!(matches!(err, Error::NoPitchFilter));
         assert_eq!(p.playback_params(), (1.0, 0, reverb(0)));
+        assert_eq!(p.decks.speed(), 1.0, "rejected tempo changed crossfade timing");
         assert_eq!(p.mpv().get_property::<f64>("speed").unwrap(), 1.0);
         assert_eq!(af(), before, "rejected tempo changed the live chain");
 
@@ -1694,6 +1727,7 @@ mod tests {
 
         // Reverb joins the same chain; retuning a track must preserve both session effects.
         p.set_playback_params(0.8, -3, reverb(3)).unwrap();
+        assert_eq!(p.decks.speed(), 0.8);
         p.set_gain(Some(-3.0)).unwrap();
         assert!(
             af().contains("afir") && af().contains("rubberband") && af().contains("volume=-3dB")
@@ -1704,6 +1738,7 @@ mod tests {
         NO_RUBBERBAND.set(false);
         assert!(rejected.is_err());
         assert_eq!(p.playback_params(), (0.8, -3, reverb(3)));
+        assert_eq!(p.decks.speed(), 0.8, "rejected effects changed crossfade timing");
         assert_eq!(af(), before, "a refused effect changed the existing chain");
         assert_eq!(p.mpv().get_property::<f64>("speed").unwrap(), 0.8);
         for bad in [f64::NAN, f64::INFINITY, 0.0, 0.49, 3.0] {
@@ -1827,6 +1862,7 @@ mod tests {
         p.mpv().set_property("keep-open", true).unwrap();
         let mut render_index = 0;
         let tempo = std::cell::Cell::new(1.0);
+        let padding = std::cell::Cell::new(4.0);
         let mut render = |controls: super::Reverb| {
             let output = dir.join(format!("render-{render_index}.pcm"));
             render_index += 1;
@@ -1835,7 +1871,10 @@ mod tests {
             // Seeded broadband audio followed by silence checks actual level AND decay.
             p.pause().unwrap();
             p.load(
-                "av://lavfi:anoisesrc=color=pink:amplitude=0.05:seed=42:d=0.4,apad=pad_dur=4",
+                &format!(
+                    "av://lavfi:anoisesrc=color=pink:amplitude=0.05:seed=42:d=0.4,apad=pad_dur={}",
+                    padding.get()
+                ),
                 &HashMap::new(),
                 None,
                 None,
@@ -1934,10 +1973,28 @@ mod tests {
             tempo.set(speed);
             let samples = render(wet_controls);
             let duration = samples.len() as f64 / 48000.0 / 2.0;
-            assert!(
-                (duration * speed - 4.4).abs() < 0.08,
-                "tempo {speed}: wrong duration {duration}"
-            );
+            // Rubber Band rounds its real-time EOF flush to processing blocks:
+            // https://breakfastquay.com/rubberband/integration.html
+            // Ubuntu 24.04 renders 2.246667 s at 2x: 46.667 ms extra output (93.333 ms
+            // in source time). Only that upper bound grows; other speeds and truncation
+            // retain the original 80 ms source-time limit. The isolated stage comparison
+            // checks that reverb and the speed adapter add no samples of their own.
+            let error = duration * speed - 4.4;
+            let max_extra = if speed == 2.0 { 0.10 } else { 0.08 };
+            assert!(error > -0.08 && error < max_extra, "tempo {speed}: wrong duration {duration}");
+            if speed == 2.0 {
+                // A fixed EOF allowance must not hide an incorrect stretching rate.
+                // Extra source silence should add exactly its scaled duration, apart
+                // from block rounding, even if the graph has a fixed buffered tail.
+                padding.set(8.0);
+                let longer = render(wet_controls);
+                padding.set(4.0);
+                let added = (longer.len() as f64 - samples.len() as f64) / 48000.0 / 2.0;
+                assert!(
+                    (added - 4.0 / speed).abs() < 0.04,
+                    "tempo {speed}: added duration {added}"
+                );
+            }
             let drop = tail_drop(&samples, 0.4 / speed);
             eprintln!("tempo {speed}: tail drop {drop:.2} dB, reference {reference_drop:.2} dB");
             assert!((drop - reference_drop).abs() < 5.0, "tempo {speed} changed room decay");
@@ -2125,6 +2182,40 @@ mod tests {
         // It scales the user's own volume rather than jumping to full.
         assert_eq!(fade_volume(40, 1.0), perceptual_to_mpv(40));
         assert_eq!(fade_volume(40, 0.0), 0.0);
+    }
+
+    #[test]
+    fn crossfade_does_not_wait_for_effect_updates() {
+        use super::{maybe_crossfade, Ordering, Player};
+        use std::sync::mpsc;
+
+        let dir = tempfile::tempdir().unwrap();
+        let p = Player::new(dir.path().to_str().unwrap()).unwrap();
+        p.mpv().set_property("ao", "null").unwrap();
+        let incoming = p.idle_mpv().unwrap();
+        incoming.set_property("ao", "null").unwrap();
+        p.set_speed(0.8).unwrap();
+        p.set_crossfade(Some(1.5));
+        // An effects update may have reached the incoming deck before it commits its tempo.
+        incoming.set_property("speed", 1.2).unwrap();
+        for (position, active) in [(0.0, 0), (9.0, 1)] {
+            p.decks.preloaded.store(true, Ordering::Release);
+            let effects = p.decks.af.lock().unwrap();
+            let decks = p.decks.clone();
+            let (tx, rx) = mpsc::channel();
+            let worker = std::thread::spawn(move || {
+                maybe_crossfade(&decks, 0, position, 10.0);
+                tx.send(()).unwrap();
+            });
+            let finished = rx.recv_timeout(std::time::Duration::from_secs(1));
+            // Release before joining so a regression fails instead of hanging the test suite.
+            drop(effects);
+            worker.join().unwrap();
+            assert!(finished.is_ok(), "crossfade blocked on effects at position {position}");
+            assert_eq!(p.decks.active.load(Ordering::SeqCst), active);
+            assert_eq!(incoming.get_property::<f64>("speed").unwrap(), 1.2);
+        }
+        p.stop().unwrap();
     }
 
     #[test]

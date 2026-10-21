@@ -96,6 +96,47 @@ fn band_energy(samples: &[f64], hz: f64) -> f64 {
 }
 
 #[test]
+fn reverb_and_speed_adapter_preserve_rubberband_sample_count() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = "av://lavfi:anoisesrc=color=pink:amplitude=0.05:seed=42:d=0.4,apad=pad_dur=4";
+    for speed in [0.5, 0.8, 1.2, 2.0] {
+        let mut lengths = [0; 2];
+        for (index, room) in [false, true].into_iter().enumerate() {
+            let p = Player::new(dir.path().to_str().unwrap()).unwrap();
+            let output = dir.path().join(format!("duration-{speed}-{room}.pcm"));
+            pcm(p.mpv(), &output);
+            p.mpv().set_property("gapless-audio", "no").unwrap();
+            p.mpv().set_property("keep-open", true).unwrap();
+            if room {
+                p.set_playback_params(speed, 0, effects()).unwrap();
+            } else {
+                // Run exactly the same FFmpeg stretcher alone, at mpv speed 1 so its
+                // automatic pitch correction cannot stretch the reference a second time.
+                let chain = format!("lavfi=[{}anull]", lavfi_stretch(speed, 0));
+                set_filter_chain(p.mpv(), &chain).unwrap();
+            }
+            // Player::load reapplies the session filters; load the reference directly.
+            p.mpv().command("loadfile", &[&quoted(source), "replace"]).unwrap();
+            p.play().unwrap();
+            wait_for("duration render EOF", 5.0, || {
+                p.mpv().get_property::<bool>("eof-reached").unwrap_or(false)
+            });
+            p.stop().unwrap();
+            wait_for("duration render unload", 2.0, || {
+                p.mpv().get_property::<String>("path").is_err()
+            });
+            lengths[index] = samples(&output).len();
+        }
+        let [bare, room] = lengths;
+        eprintln!("tempo {speed}: Rubber Band={bare} frames, reverb/adapter={room} frames");
+        assert!(
+            bare.abs_diff(room) <= 1,
+            "reverb or the speed adapter added/lost samples at {speed}x: {bare} -> {room}"
+        );
+    }
+}
+
+#[test]
 fn final_note_survives_unpadded_eof() {
     let dir = tempfile::tempdir().unwrap();
     let short = dir.path().join("eof.wav");

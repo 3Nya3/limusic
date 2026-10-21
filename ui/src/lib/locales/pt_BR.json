@@ -735,48 +735,10 @@
 			"quit_app": "Sair do Limusic"
 		},
 		"tempo_pitch": {
-			"title": "Tempo, tom e reverberação",
+			"title": "Controles de tempo e tom",
 			"desc": "Vale para tudo que tocar, até você mudar de novo ou reiniciar o app.",
-			"presets": "Seus presets",
-			"preset_choose": "Escolha um preset",
-			"preset_name": "Nome do novo preset",
-			"preset_add": "Adicionar preset",
-			"preset_modified": "Modificado",
-			"preset_update": "Atualizar preset",
-			"preset_duplicate": "Esse nome já está salvo. Selecione o preset para atualizá-lo ou use outro nome.",
-			"preset_save_error": "Não foi possível salvar os presets. Tente novamente; os presets salvos foram preservados.",
-			"preset_load_error": "Não foi possível ler os presets salvos. O salvamento foi desativado para protegê-los.",
-			"presets_hint": "Salve o tempo, o tom e todos os ajustes de reverberação atuais. Os presets ficam neste dispositivo após reiniciar.",
-			"preset_room_hint": "Em uma sala, os presets aplicam apenas tom e reverberação. O tempo salvo é mantido para ouvir sozinho.",
 			"tempo": "Tempo (Velocidade)",
-			"pitch": "Tom (Semitons)",
-			"reverb": "Reverberação",
-			"reverb_hint": "Adiciona reflexões de ambiente e uma cauda prolongada ao redor da música original.",
-			"reverb_type": "Tipo de reverberação",
-			"reverb_types": {
-				"small_room": "Sala pequena",
-				"medium_room": "Sala média",
-				"large_room": "Sala grande",
-				"medium_hall": "Salão médio",
-				"large_hall": "Salão grande",
-				"plate": "Placa"
-			},
-			"reverb_controls": {
-				"dry": "Nível seco",
-				"wet": "Nível reverberado",
-				"decay": "Decaimento",
-				"preDelay": "Pré-atraso",
-				"damping": "Amortecimento (corte de agudos)",
-				"reflections": "Reflexões iniciais"
-			},
-			"reverb_control_hints": {
-				"dry": "Volume da música original.",
-				"wet": "Volume da reverberação adicionada.",
-				"decay": "Tempo nominal para a cauda cair 60 dB. Valores maiores também espaçam as reflexões.",
-				"preDelay": "Tempo extra antes de a reverberação chegar até você.",
-				"damping": "Frequências menores deixam a reverberação mais escura; a música original não é afetada.",
-				"reflections": "Nível dos primeiros 80 ms de reflexões, antes da cauda mais longa."
-			}
+			"pitch": "Tom (Afinação)"
 		},
 		"link": {
 			"title": "Abrir link",
