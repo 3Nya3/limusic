@@ -1293,6 +1293,7 @@ fn spawn_event_pump(
                 PlayerEvent::TrackEnded => {
                     state.on_track_ended().await;
                 }
+                PlayerEvent::Looped => state.on_looped().await,
                 PlayerEvent::TrackFailed(msg) => {
                     // The track died (dead/403 URL etc). on_track_failed records a WEB_REMIX 403
                     // (context/06 §2), evicts the poisoned cache, and retries the track once via
