@@ -19,7 +19,7 @@
 #
 # ~/.local/state/limusic/
 #   stream-health.log                 full output of the last run
-#   stream-health-<date>-<HHMM>.log   full output of every run that was not green, kept
+#   stream-health-<date>-<time>.log   full output of every run that was not green, kept
 #   stream-health.history             one line per run: when, dev commit, verdict, each leg
 #
 # A red run is one of three things, and the notification says which: YouTube changed something
@@ -99,12 +99,21 @@ export CARGO_INCREMENTAL=0
 smoke() { cargo test -p innertube --features integration-tests --test live_smoke -- --nocapture "$@"; }
 smoke direct_clients_resolve_and_stream rustypipe_url_is_fetchable >> "$LOG" 2>&1
 status=$?
+# A renamed test matches no filter, and zero tests run is a pass to cargo.
+note=
+if [[ $status -eq 0 ]] && ! grep -q '^test result: ok. 2 passed' "$LOG"; then
+  note="the two stream tests did not run: renamed in live_smoke.rs? Update this script."
+  echo "$note" >> "$LOG"
+  status=1
+fi
 
 # Issue #292's one-mebibyte cap on rustypipe URLs. The nightly skips this test because it fails
 # every night while the cap stands, so nothing else would notice the cap lifting. Information
 # only: it never turns the run red.
 echo "--- #292 cap check (information only)" >> "$LOG"
-smoke --exact rustypipe_url_streams_to_the_end >> "$LOG" 2>&1 && cap=lifted || cap=on
+cap_out=$(smoke --exact rustypipe_url_streams_to_the_end 2>&1)
+echo "$cap_out" >> "$LOG"
+grep -q '^test result: ok. 1 passed' <<< "$cap_out" && cap=lifted || cap=on
 
 # Classified on the main run only, so a challenge on the cap check cannot relabel its red.
 main=$(sed '/^--- #292/q' "$LOG")
@@ -123,7 +132,7 @@ legs=$(grep -E '^[A-Z][A-Z0-9_]+: |^rustypipe itag' "$LOG" | paste -sd ';' | sed
 echo "$(date -Is) $sha $verdict cap:$cap | $legs" >> "$HISTORY"
 
 tail -n 30 "$LOG"
-kept="$STATE/stream-health-$(date +%F-%H%M).log"
+kept="$STATE/stream-health-$(date +%F-%H%M%S).log"
 [[ $verdict == ok ]] || cp "$LOG" "$kept"
 
 # The first line of each test's own panic message names which leg of the chain went.
@@ -141,6 +150,6 @@ case $verdict in
       "Not a code break, and it lifts on its own. Keep live testing off this IP meanwhile. See $kept" 2>/dev/null ;;
   red)
     notify-send -u critical "Limusic: YouTube stream check failed" \
-      "${why:-no panic message} (dev $sha, $kept)" 2>/dev/null ;;
+      "${why:-${note:-no panic message}} (dev $sha, $kept)" 2>/dev/null ;;
 esac
 exit "$status"
