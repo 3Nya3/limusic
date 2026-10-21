@@ -869,6 +869,10 @@ fn event_loop(mut ev: EventContext, deck: usize, decks: Arc<Decks>) {
                     // A cancelled preload gets here too (mpv delivers the event before the
                     // `stop`), which is what the generation check is for.
                     Event::FileLoaded => {
+                        // A new file, so the old one's end is not this one's: a skip from a
+                        // track's last seconds under repeat-one is not a wrap. Looping is a seek
+                        // inside mpv and never loads the file again.
+                        last_pos = f64::NAN;
                         video::file_loaded(&decks, deck);
                         if !live()
                             && decks.preload_armed.load(Ordering::SeqCst)
