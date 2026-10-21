@@ -87,9 +87,19 @@ pub struct SongItem {
     pub is_video: bool,
     /// The same song's other version: the music video for an audio track, or the audio track for
     /// a video. What the player's Song/Video switch swaps to (#442). Known only where YouTube
-    /// pairs them: an album row we swapped to its audio id, and a signed-in radio's wrapper rows.
+    /// pairs them: an album row we swapped to its audio id, and the wrapper rows of a signed-in
+    /// `/next`, which YouTube sends to some accounts and not others (#520).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub counterpart: Option<String>,
+    /// The `counterpart`'s own art, traded with `thumbnail` on a switch so the player shows the
+    /// cover of the version playing, not the video frame it started on (#520).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub counterpart_thumbnail: Option<String>,
+    /// Where the `counterpart` starts inside this version, in ms, off the wrapper's `segmentMap`:
+    /// a video's intro, so the switch lands on the same moment of the song. Negative from the
+    /// other side, 0 when YouTube sent none.
+    #[serde(default)]
+    pub counterpart_offset_ms: i64,
     /// One of the signed-in user's own uploads ([`is_upload_row`]). Only an authenticated client
     /// can stream these, so the orchestrator swaps in a login-only fallback chain. Issue #71.
     #[serde(default)]
@@ -299,7 +309,9 @@ pub fn parse_next(root: &Value) -> NextResult {
     panel_rows(root, &mut rows);
     for (node, counterpart) in rows {
         if let Some(mut item) = parse_panel_video(node) {
-            item.counterpart = counterpart;
+            if let Some(c) = counterpart {
+                set_twin(&mut item, c);
+            }
             items.push(item);
         }
     }
@@ -325,8 +337,9 @@ pub fn parse_next(root: &Value) -> NextResult {
 /// with its music-video twin (what YouTube's own Song/Video toggle switches between), so a plain
 /// [`find_all`] takes both and the queue gets every song twice. Issue #170.
 ///
-/// The twin's id rides along with its primary row instead, for our own Song/Video switch (#442).
-fn panel_rows<'a>(node: &'a Value, out: &mut Vec<(&'a Value, Option<String>)>) {
+/// The twin's `counterpart` arm rides along with its primary row instead, for our own Song/Video
+/// switch (#442).
+fn panel_rows<'a>(node: &'a Value, out: &mut Vec<(&'a Value, Option<&'a Value>)>) {
     match node {
         Value::Object(map) => {
             let start = out.len();
@@ -339,7 +352,7 @@ fn panel_rows<'a>(node: &'a Value, out: &mut Vec<(&'a Value, Option<String>)>) {
                 }
                 panel_rows(v, out);
             }
-            if let Some(twin) = map.get("counterpart").and_then(|c| find_first_str(c, "videoId")) {
+            if let Some(twin) = map.get("counterpart") {
                 // A wrapper holds exactly one primary row; anything else is a shape we don't know.
                 if let [(_, slot)] = &mut out[start..] {
                     *slot = Some(twin);
@@ -349,6 +362,26 @@ fn panel_rows<'a>(node: &'a Value, out: &mut Vec<(&'a Value, Option<String>)>) {
         Value::Array(arr) => arr.iter().for_each(|e| panel_rows(e, out)),
         _ => {}
     }
+}
+
+/// Copy a wrapper's `counterpart` arm onto its primary row: the other version's id and art, and
+/// from `segmentMap` where that version starts inside this one (#520).
+/// ponytail: the first segment only, every pairing seen so far has exactly one.
+fn set_twin(item: &mut SongItem, counterpart: &Value) {
+    let Some(row) = find_all(counterpart, "playlistPanelVideoRenderer").into_iter().next() else {
+        return;
+    };
+    let Some(id) = row.get("videoId").and_then(Value::as_str) else { return };
+    item.counterpart = Some(id.to_owned());
+    item.counterpart_thumbnail = last_thumbnail(row);
+    let ms = |key| find_first_str(counterpart, key).and_then(|s| s.parse::<i64>().ok());
+    item.counterpart_offset_ms = match (
+        ms("primaryVideoStartTimeMilliseconds"),
+        ms("counterpartVideoStartTimeMilliseconds"),
+    ) {
+        (Some(primary), Some(twin)) => primary - twin,
+        _ => 0,
+    };
 }
 
 /// The lyrics tab's browseId from a `next` response: the browseEndpoint whose pageType is
@@ -589,6 +622,8 @@ pub(crate) fn parse_list_item(node: &Value) -> Option<SongItem> {
         autoplay: false,
         is_video,
         counterpart: None,
+        counterpart_thumbnail: None,
+        counterpart_offset_ms: 0,
         is_upload: is_upload_row(node),
         explicit: is_explicit(node),
         library: library_toggle(node),
@@ -897,6 +932,8 @@ fn parse_panel_video(node: &Value) -> Option<SongItem> {
         autoplay: false,
         is_video: is_video_row(node),
         counterpart: None,
+        counterpart_thumbnail: None,
+        counterpart_offset_ms: 0,
         is_upload: is_upload_row(node),
         // Queue-panel rows carry no badges today; asking anyway costs a map lookup and picks the
         // flag up for free if YouTube ever adds one.
@@ -1374,6 +1411,24 @@ mod tests {
         // The twin is kept on its primary for the Song/Video switch (#442), and only there.
         assert_eq!(out.items[0].counterpart.as_deref(), Some("video1"));
         assert_eq!(out.items[1].counterpart, None);
+    }
+
+    // The reporter's capture of the web client's first `/next` for a music video played on its
+    // own, on an account YouTube pairs versions for (#520): the seed is wrapped, and the song
+    // starts 5477 ms into the video.
+    #[test]
+    fn a_wrapped_seed_carries_its_twin_art_and_offset() {
+        let root: Value =
+            serde_json::from_str(include_str!("../../tests/fixtures/next_wrapped_video_seed.json"))
+                .unwrap();
+        let out = parse_next(&root);
+        let [seed] = &out.items[..] else { panic!("one row, got {}", out.items.len()) };
+        assert_eq!(seed.video_id, "uuZE_IRwLNI");
+        assert!(seed.is_video);
+        assert_eq!(seed.counterpart.as_deref(), Some("59nAgJZ5IoE"));
+        let art = seed.counterpart_thumbnail.as_deref().unwrap_or_default();
+        assert!(art.starts_with("https://yt3.googleusercontent.com/"), "{art}");
+        assert_eq!(seed.counterpart_offset_ms, 5477);
     }
 
     // A real radio page has no automix marker — nothing to escalate to, and nothing to mistake a
