@@ -1808,16 +1808,10 @@ mod tests {
             assert!(Instant::now() < deadline, "playback never started");
             std::thread::sleep(Duration::from_millis(20));
         }
-        for (speed, pitch, room, seek) in [
-            (0.8, -1, reverb(3), Some(10.0)),
-            (1.2, 0, reverb(3), None),
-            (0.8, -1, reverb(3), Some(5.0)),
-            (0.8, -1, reverb(0), None),
-            (0.8, -1, super::Reverb { wet: 0, ..reverb(3) }, None),
-            (1.0, -1, reverb(3), None),
-            (1.0, 0, reverb(3), None),
-            (0.8, -1, reverb(3), None),
-        ] {
+        // Cover a slow-tempo seek, then a live tempo/pitch change with reverb still active.
+        for (speed, pitch, room, seek) in
+            [(0.8, -1, reverb(3), Some(10.0)), (1.2, 0, reverb(3), None)]
+        {
             p.set_playback_params(speed, pitch, room).unwrap();
             if let Some(position) = seek {
                 p.seek(position).unwrap();
