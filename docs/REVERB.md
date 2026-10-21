@@ -54,6 +54,3 @@ Player tests cover actual PCM output, every room control, both decks, gain,
 rollback, escaped cache paths, live controls, seeking, playback rate and the
 original metadata/channel-layout log regressions. UI checks cover saved presets,
 including legacy Tempo migration and the shared-listening restriction.
-The known stock-mpv boundary-energy regression is ignored in the default suite;
-run `cargo test -p player gapless_join_energy_matches_continuous_audio -- --ignored --nocapture`
-to reproduce it explicitly when evaluating playback dependencies.
