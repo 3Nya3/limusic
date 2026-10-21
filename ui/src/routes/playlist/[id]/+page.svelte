@@ -12,7 +12,7 @@
 		Radio02Icon,
 		ArrowUpNarrowWideIcon,
 		ArrowDownWideNarrowIcon,
-		ArrowDown01Icon,
+		ArrowDownBigIcon,
 		DashboardSquare02Icon,
 		PlayListAddIcon,
 		Share08Icon,
@@ -677,8 +677,7 @@
 	let scrollingToEnd = $state(false);
 
 	// Pull the rest of the playlist in before scrolling, so the end of the whole list is reached
-	// rather than just the rows mounted so far. The menu stays open with the row disabled so the
-	// loading state is visible, and closes once the walk is done.
+	// rather than just the rows mounted so far. The button pulses, disabled, while the walk runs.
 	async function scrollToEnd() {
 		if (!pl?.items.length || scrollingToEnd || !scrollerEl) return;
 		const pid = id;
@@ -691,10 +690,7 @@
 			if (pid !== id || !scrollerEl?.isConnected) return;
 			scrollerEl.scrollTop = scrollerEl.scrollHeight;
 		} finally {
-			if (pid === id) {
-				scrollingToEnd = false;
-				menuOpen = false;
-			}
+			if (pid === id) scrollingToEnd = false;
 		}
 	}
 
@@ -1026,6 +1022,8 @@
 	{:else if error}
 		<div class="p-6"><ErrorState message={error} onRetry={() => load(id)} /></div>
 	{:else if pl}
+		<!-- One scroller for the whole page: the header scrolls away above the rows, same as the
+		     album page. -->
 		<div
 			bind:this={scrollerEl}
 			class="content-in min-h-0 flex-1 overflow-y-auto"
@@ -1136,7 +1134,7 @@
 							/>
 						</div>
 						<!-- Pushed to the far end of the header, away from the play controls. -->
-						<div class="flex items-center gap-1">
+						<div class="flex items-center">
 							<Button
 								variant="ghost"
 								size="sm"
@@ -1149,13 +1147,27 @@
 							</Button>
 							<Button
 								variant="ghost"
-								size="icon"
+								size="icon-sm"
 								class={desc ? '' : 'text-muted-foreground'}
 								aria-label={t('sort.direction', { dir: desc ? t('sort.descending') : t('sort.ascending') })}
 								onclick={toggleDesc}
 								disabled={!pl.items.length}
 							>
 								<HugeiconsIcon icon={ArrowUpDownIcon} class="h-4 w-4" />
+							</Button>
+							<Button
+								variant="ghost"
+								size="icon-sm"
+								class="text-muted-foreground"
+								aria-label={t('player.scroll_to_end')}
+								title={t('player.scroll_to_end')}
+								onclick={scrollToEnd}
+								disabled={scrollingToEnd || !pl.items.length}
+							>
+								<HugeiconsIcon
+									icon={ArrowDownBigIcon}
+									class="h-4 w-4 {scrollingToEnd ? 'animate-pulse' : ''}"
+								/>
 							</Button>
 						</div>
 					</div>
@@ -1330,14 +1342,6 @@
 			disabled={!pl?.items.length}
 		>
 			<HugeiconsIcon icon={ArrowDownWideNarrowIcon} class="h-4 w-4" /> {t('player.add_to_queue')}
-		</button>
-		<button
-			class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10 disabled:opacity-50"
-			onclick={scrollToEnd}
-			disabled={scrollingToEnd || !pl?.items.length}
-		>
-			<HugeiconsIcon icon={ArrowDown01Icon} class="h-4 w-4" />
-			{scrollingToEnd ? t('common.loading') : t('player.scroll_to_end')}
 		</button>
 		<!-- On Repeat is built from local play counts, and a playlist on this machine is no YouTube
 		     playlist either: neither has a radio to seed. -->
