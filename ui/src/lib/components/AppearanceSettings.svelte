@@ -404,6 +404,11 @@
 					desc: t('settings.themes.blur_playlist_header_hint'),
 					control: blurHeaderSwitch
 				})}
+				{@render row({
+					title: t('settings.themes.now_playing_pill'),
+					desc: t('settings.themes.now_playing_pill_hint'),
+					control: nowPlayingPillSwitch
+				})}
 			</div>
 		</section>
 
@@ -670,6 +675,10 @@
 {#snippet blurHeaderSwitch()}<Switch
 		checked={appearance.blurPlaylistHeader}
 		onCheckedChange={(on) => setAppearance({ blurPlaylistHeader: on })}
+	/>{/snippet}
+{#snippet nowPlayingPillSwitch()}<Switch
+		checked={appearance.nowPlayingPill}
+		onCheckedChange={(on) => setAppearance({ nowPlayingPill: on })}
 	/>{/snippet}
 {#snippet classicPlayerSwitch()}<Switch
 		checked={appearance.classicPlayer}

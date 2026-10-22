@@ -115,6 +115,9 @@ export const appearance = $state({
 	/** Blur the cover behind a playlist's header. Sharp, a square cover stretched to the page's
 	 *  width is often too small for it and shows its pixels (#461). */
 	blurPlaylistHeader: false,
+	/** The "Now playing" pill a list floats over its rows while the playing one is off screen, in
+	 *  the queue and on a playlist (#366). Off for whoever finds it in the way. */
+	nowPlayingPill: true,
 	/** The original now-playing view, before the redesign (title and album under the picture, a
 	 *  lit backdrop, a full-height queue/lyrics column) became the default. A new key rather than
 	 *  `stagePlayer` flipped: that one was saved as `false` for everyone, so a new default would
@@ -522,6 +525,7 @@ export function initTheme(): void {
 		for (const k of [
 			'artworkBackground',
 			'blurPlaylistHeader',
+			'nowPlayingPill',
 			'classicPlayer',
 			'tabbedPlayer',
 			'openPlayerOnPlay',
