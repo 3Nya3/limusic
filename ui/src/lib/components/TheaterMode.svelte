@@ -94,7 +94,6 @@
 			api.theaterFullscreen(false).catch(() => {});
 			// Cinema is per opening, not a setting: theater always starts in its normal layout.
 			video.cinema = false;
-			clearTimeout(clickTimer);
 		};
 	});
 
@@ -118,17 +117,6 @@
 	// Cinema: the picture fills the screen, the title, lyrics and queue step aside and the header
 	// and dock float over it.
 	const cinema = $derived(cinemaOn());
-	// A double click is two clicks. Pausing on the first would stutter the music, so a click waits
-	// to see if it becomes a dblclick.
-	let clickTimer: ReturnType<typeof setTimeout>;
-	function onPictureClick() {
-		clearTimeout(clickTimer);
-		clickTimer = setTimeout(toggle, 220); // wait to see whether this becomes a double click
-	}
-	function onPictureDblClick() {
-		clearTimeout(clickTimer);
-		toggleCinema();
-	}
 	function toggleCinema() {
 		video.cinema = !video.cinema;
 		wake();
@@ -713,8 +701,7 @@
 		<div class="absolute inset-0 z-0 {video.hole ? '' : 'bg-black'}" onwheel={onArtWheel}>
 			<button
 				type="button"
-				onclick={onPictureClick}
-				ondblclick={onPictureDblClick}
+				onclick={toggle}
 				class="block h-full w-full cursor-pointer"
 				aria-label={t('a11y.play_pause')}
 			>
