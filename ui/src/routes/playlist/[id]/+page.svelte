@@ -2,6 +2,7 @@
 	import { untrack, tick } from 'svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
+	import { MediaQuery } from 'svelte/reactivity';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import {
 		PlayIcon,
@@ -42,6 +43,7 @@
 	import TrackRowSkeleton from '$lib/components/TrackRowSkeleton.svelte';
 	import PlaylistSuggestions from '$lib/components/PlaylistSuggestions.svelte';
 	import ErrorState from '$lib/components/ErrorState.svelte';
+	import NowPlayingPill from '$lib/components/NowPlayingPill.svelte';
 	import * as api from '$lib/api';
 	import { ON_REPEAT_ID } from '$lib/api';
 	import type { BrowseItem, PlaylistPage, SongItem } from '$lib/api';
@@ -51,6 +53,7 @@
 	import { anchorMenu, fitMenu, NO_ANCHOR } from '$lib/menu';
 	import { rowWindow } from '$lib/rows';
 	import { rowScroller } from '$lib/rows.svelte';
+	import { restoreTo } from '$lib/scrollrestore';
 	import { t } from '$lib/i18n.svelte';
 	import { imp, updateFromSpotify } from '$lib/import.svelte';
 	import {
@@ -695,6 +698,49 @@
 		}
 	}
 
+	// Back from an artist page lands where you left the list (#366). Kit hands the offset over once
+	// the page has mounted, when a cache miss is still loading and has no scroller yet, so it waits
+	// for one; the settle loop then rides out the rows filling in.
+	let restoreY = $state<number | null>(null);
+	export const snapshot = {
+		capture: () => scrollerEl?.scrollTop,
+		restore: (y: unknown) => {
+			if (typeof y === 'number') restoreY = y;
+		}
+	};
+	$effect(() => {
+		if (!scrollerEl || restoreY === null) return;
+		restoreTo(scrollerEl, restoreY);
+		restoreY = null;
+	});
+
+	// The playing track's row, and the queue's pill back to it while it is off screen (#366).
+	// Arithmetic on what the windowing already tracks, so it costs no layout read.
+	// ponytail: the first row holding the track, so a playlist with it twice jumps to the first.
+	const playingRow = $derived(nowId ? shown.findIndex((s) => s.video_id === nowId) : -1);
+	const playingY = $derived(sc.offsetPx + playingRow * sc.rowPx);
+	const away = $derived(
+		playingRow >= 0 &&
+			sc.viewportPx > 0 &&
+			(playingY + sc.rowPx <= sc.scrollTop || playingY >= sc.scrollTop + sc.viewportPx)
+	);
+	const reducedMotion = new MediaQuery('(prefers-reduced-motion: reduce)');
+
+	// Centred, so the songs coming up show under it. Smooth across thousands of rows would mount
+	// every window on the way, so a long trip lands a screen short first, as the queue does.
+	function toPlaying() {
+		const el = scrollerEl;
+		if (!el || playingRow < 0) return;
+		const top = playingY - (el.clientHeight - sc.rowPx) / 2;
+		if (reducedMotion.current) {
+			el.scrollTop = top;
+			return;
+		}
+		const gap = el.scrollTop - top;
+		if (Math.abs(gap) > 2 * el.clientHeight) el.scrollTop = top + Math.sign(gap) * el.clientHeight;
+		el.scrollTo({ top, behavior: 'smooth' });
+	}
+
 	// One page per approach to the bottom: the observer only fires when the sentinel *enters* view,
 	// so an appended page that pushes it back out is required before the next fetch. rootMargin
 	// starts the fetch early enough that the rows are usually there by the time you reach them.
@@ -1004,7 +1050,8 @@
 	}
 </script>
 
-<div class="flex h-full flex-col">
+<!-- relative: the Now playing pill floats over the bottom of the scroller. -->
+<div class="relative flex h-full flex-col">
 	{#if loading}
 		<div class="flex items-end gap-6 p-6">
 			<Skeleton class="h-40 w-40 shrink-0 rounded-xl" />
@@ -1024,10 +1071,11 @@
 		<div class="p-6"><ErrorState message={error} onRetry={() => load(id)} /></div>
 	{:else if pl}
 		<!-- One scroller for the whole page: the header scrolls away above the rows, same as the
-		     album page. -->
+		     album page. `pb-12` is the Now playing pill's height plus its offset, so at the end of
+		     the list it covers no row (#380 on the queue). -->
 		<div
 			bind:this={scrollerEl}
-			class="content-in min-h-0 flex-1 overflow-y-auto"
+			class="content-in min-h-0 flex-1 overflow-y-auto pb-12"
 			{@attach sc.attach}
 		>
 			<div class="relative flex min-h-[38vh] shrink-0 items-end gap-6 overflow-hidden p-6">
@@ -1277,6 +1325,10 @@
 				{/key}
 			{/if}
 		</div>
+		<!-- Not while selecting: the selection bar sits in the same spot. -->
+		{#if away && !selection.active}
+			<NowPlayingPill above={playingY < sc.scrollTop} onclick={toPlaying} />
+		{/if}
 	{/if}
 </div>
 
