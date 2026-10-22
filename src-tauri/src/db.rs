@@ -272,6 +272,9 @@ impl Db {
         // Same for the AlbumArtist tag, which older scans read but never stored. The SCAN_VERSION
         // bump in local.rs is what refills it; this only makes the column exist.
         let _ = conn.execute("ALTER TABLE local_tracks ADD COLUMN album_artist TEXT", []);
+        // Older rows get pos = id so their relative order remains unchanged after adding position ordering.
+        let _ = conn.execute("ALTER TABLE local_playlist_tracks ADD COLUMN pos INTEGER", []);
+        let _ = conn.execute("UPDATE local_playlist_tracks SET pos = id WHERE pos IS NULL", []);
         // And the disc number (issue #315), refilled the same way.
         let _ = conn
             .execute("ALTER TABLE local_tracks ADD COLUMN disc_no INTEGER NOT NULL DEFAULT 0", []);
@@ -1123,7 +1126,7 @@ impl Db {
         let mut out = Vec::new();
         if let Ok(mut stmt) = conn.prepare(
             "SELECT id, song_json, added_at FROM local_playlist_tracks WHERE playlist_id = ?1 \
-             ORDER BY id",
+             ORDER BY pos, id",
         ) {
             if let Ok(rows) = stmt.query_map([id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))) {
                 out.extend(rows.flatten());
@@ -1154,7 +1157,8 @@ impl Db {
         for (video_id, json) in songs {
             let n = tx.execute(
                 "INSERT OR IGNORE INTO local_playlist_tracks(playlist_id, video_id, song_json, \
-                 added_at) VALUES(?1, ?2, ?3, ?4)",
+                 added_at, pos) VALUES(?1, ?2, ?3, ?4, \
+                 (SELECT COALESCE(MAX(pos), 0) + 1 FROM local_playlist_tracks WHERE playlist_id = ?1))",
                 rusqlite::params![id, video_id, json, now],
             )?;
             added.push(n > 0);
@@ -1164,6 +1168,61 @@ impl Db {
         }
         tx.commit()?;
         Ok(added)
+    }
+
+    /// Reorder a track within the playlist by moving `row` before `before` (or at the end if `None`),
+    /// rewriting all positions sequentially and updating the playlist's `updated_at` timestamp.
+    #[allow(dead_code)]
+    pub fn move_local_playlist_track(
+        &self,
+        id: i64,
+        row: i64,
+        before: Option<i64>,
+        now: i64,
+    ) -> rusqlite::Result<()> {
+        let mut conn = self.0.lock().unwrap();
+        let tx = conn.transaction()?;
+        let mut ids = {
+            let mut stmt = tx.prepare(
+                "SELECT id FROM local_playlist_tracks WHERE playlist_id = ?1 ORDER BY pos, id",
+            )?;
+            let rows = stmt.query_map([id], |r| r.get(0))?;
+            rows.collect::<rusqlite::Result<Vec<i64>>>()?
+        };
+
+        let idx = match ids.iter().position(|&x| x == row) {
+            Some(i) => i,
+            None => return Err(rusqlite::Error::QueryReturnedNoRows),
+        };
+        ids.remove(idx);
+
+        match before {
+            Some(b) => {
+                let target_idx = match ids.iter().position(|&x| x == b) {
+                    Some(i) => i,
+                    None => return Err(rusqlite::Error::QueryReturnedNoRows),
+                };
+                ids.insert(target_idx, row);
+            }
+            None => {
+                ids.push(row);
+            }
+        }
+
+        for (pos, track_id) in ids.iter().enumerate() {
+            tx.execute(
+                "UPDATE local_playlist_tracks SET pos = ?1 WHERE id = ?2",
+                rusqlite::params![pos as i64, track_id],
+            )?;
+        }
+
+        tx.execute(
+            "UPDATE local_playlists SET updated_at = ?1 WHERE id = ?2",
+            rusqlite::params![now, id],
+        )?;
+
+        tx.commit()?;
+        Ok(())
     }
 
     /// Drop rows by their row id. Scoped to the playlist, so a stale id from another list can
@@ -1591,6 +1650,40 @@ mod tests {
         // once the table is empty (a plain rowid would start again from 1).
         d.delete_local_playlist(b).unwrap();
         assert!(d.create_local_playlist("New", 50).unwrap() > b);
+    }
+
+    #[test]
+    fn local_playlist_track_reordering() {
+        let d = db();
+        let song = |v: &str| (v.to_string(), format!(r#"{{"video_id":"{v}"}}"#));
+        let a = d.create_local_playlist("Mix", 10).unwrap();
+        d.add_local_playlist_tracks(a, &[song("t1"), song("t2"), song("t3")], 20).unwrap();
+
+        let rows = d.local_playlist_tracks(a);
+        assert_eq!(rows.len(), 3);
+        let id1 = rows[0].0;
+        let _id2 = rows[1].0;
+        let id3 = rows[2].0;
+        assert_eq!(
+            rows.iter().map(|r| r.1.clone()).collect::<Vec<_>>(),
+            vec![song("t1").1, song("t2").1, song("t3").1]
+        );
+
+        // Move the last one to the front.
+        d.move_local_playlist_track(a, id3, Some(id1), 21).unwrap();
+        let rows = d.local_playlist_tracks(a);
+        assert_eq!(
+            rows.iter().map(|r| r.1.clone()).collect::<Vec<_>>(),
+            vec![song("t3").1, song("t1").1, song("t2").1]
+        );
+
+        // Move the first one to the end.
+        d.move_local_playlist_track(a, id3, None, 22).unwrap();
+        let rows = d.local_playlist_tracks(a);
+        assert_eq!(
+            rows.iter().map(|r| r.1.clone()).collect::<Vec<_>>(),
+            vec![song("t1").1, song("t2").1, song("t3").1]
+        );
     }
 
     #[test]

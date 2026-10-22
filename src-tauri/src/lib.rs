@@ -1199,6 +1199,7 @@ pub fn run() {
             commands::local_playlists,
             commands::remove_from_playlist,
             commands::remove_many_from_playlist,
+            commands::move_in_playlist,
             commands::create_playlist,
             commands::edit_playlist_details,
             commands::set_playlist_cover,

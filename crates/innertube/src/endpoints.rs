@@ -1121,6 +1121,22 @@ impl InnerTube {
         self.edit_playlist_actions(client, playlist_id, actions).await
     }
 
+    /// Move a video in a playlist before another video (or to the end if successor is None).
+    pub async fn playlist_move(
+        &self,
+        client: &YouTubeClient,
+        playlist_id: &str,
+        set_video_id: &str,
+        before_set_video_id: Option<&str>,
+    ) -> Result<(), Error> {
+        self.edit_playlist_actions(
+            client,
+            playlist_id,
+            vec![move_video_action(set_video_id, before_set_video_id)],
+        )
+        .await
+    }
+
     /// Store a sort order on a playlist you own, so every other client on the account shows the
     /// list the same way. context/01 `browse/edit_playlist`.
     ///
@@ -1473,6 +1489,17 @@ fn add_video_action(video_id: &str, allow_duplicates: bool) -> serde_json::Value
     action
 }
 
+fn move_video_action(set_video_id: &str, before: Option<&str>) -> serde_json::Value {
+    let mut action = serde_json::json!({
+        "action": "ACTION_MOVE_VIDEO_BEFORE",
+        "setVideoId": set_video_id,
+    });
+    if let Some(before) = before {
+        action["movedSetVideoIdSuccessor"] = before.into();
+    }
+    action
+}
+
 /// `browse/edit_playlist` answers HTTP 200 even when it applies nothing: the refusal is
 /// `"status": "STATUS_FAILED"` in the body. Adding a track the playlist already holds is the
 /// common one, and YouTube marks it by offering an "Add anyway" button whose endpoint repeats the
@@ -1504,6 +1531,25 @@ mod tests {
                 "action": "ACTION_ADD_VIDEO",
                 "addedVideoId": "dQw4w9WgXcQ",
                 "dedupeOption": "DEDUPE_OPTION_SKIP"
+            })
+        );
+    }
+
+    #[test]
+    fn move_video_action_json() {
+        assert_eq!(
+            move_video_action("SET_123", Some("SET_456")),
+            json!({
+                "action": "ACTION_MOVE_VIDEO_BEFORE",
+                "setVideoId": "SET_123",
+                "movedSetVideoIdSuccessor": "SET_456"
+            })
+        );
+        assert_eq!(
+            move_video_action("SET_123", None),
+            json!({
+                "action": "ACTION_MOVE_VIDEO_BEFORE",
+                "setVideoId": "SET_123"
             })
         );
     }

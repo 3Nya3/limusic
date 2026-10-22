@@ -1727,6 +1727,36 @@ pub async fn remove_many_from_playlist(
     Ok(())
 }
 
+/// Move a track within a playlist. `before_set_video_id` None = move to the end;
+/// local playlists use row ids, while YouTube ones use `setVideoId`.
+#[tauri::command]
+pub async fn move_in_playlist(
+    state: St<'_>,
+    playlist_id: String,
+    set_video_id: String,
+    before_set_video_id: Option<String>,
+) -> Result<(), String> {
+    if is_local_playlist(&playlist_id) {
+        let row = set_video_id.parse().map_err(|_| GONE.to_string())?;
+        let before = match before_set_video_id {
+            Some(b) => Some(b.parse().map_err(|_| GONE.to_string())?),
+            None => None,
+        };
+        let key = local_key(&playlist_id)?;
+        return state
+            .db
+            .move_local_playlist_track(key, row, before, crate::db::now_secs())
+            .map_err(db_err);
+    }
+    let client = editable_playlist(&state, &playlist_id)?;
+    state
+        .it
+        .playlist_move(client, &playlist_id, &set_video_id, before_set_video_id.as_deref())
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// `local`: keep it on this machine instead of the account (issue #251), which is the only kind
 /// there is while signed out. Answers the new playlist's id, a `LOCALPLAYLIST:` browseId for that.
 #[tauri::command]

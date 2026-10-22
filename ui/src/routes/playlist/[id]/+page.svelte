@@ -47,6 +47,8 @@
 	import * as api from '$lib/api';
 	import { ON_REPEAT_ID } from '$lib/api';
 	import type { BrowseItem, PlaylistPage, SongItem } from '$lib/api';
+	import { dragScroll, PLAYLIST_ROW_MIME } from '$lib/dnd';
+	import { canDropAt, reorder, successorId } from '$lib/reorder';
 	import { getCached, putCached, invalidateCachedPrefix } from '$lib/pagecache';
 	import { thumb } from '$lib/thumb';
 	import { appearance } from '$lib/theme.svelte';
@@ -56,6 +58,7 @@
 	import { restoreTo } from '$lib/scrollrestore';
 	import { t } from '$lib/i18n.svelte';
 	import { imp, updateFromSpotify } from '$lib/import.svelte';
+
 	import {
 		SORTS,
 		fetchSort,
@@ -107,6 +110,61 @@
 	// The delete confirmation dialog, and the request it is waiting on.
 	let confirmingDelete = $state(false);
 	let deleting = $state(false);
+
+	// --- drag to reorder ---------------------------------------------------------------------
+	let dragFrom = $state<number | null>(null);
+	// `dropAt` is the index the dragged row goes in front of.
+	let dropAt = $state<number | null>(null);
+
+	function onDragStart(e: DragEvent, n: number) {
+		if (!e.dataTransfer) return;
+		e.dataTransfer.setData(PLAYLIST_ROW_MIME, String(n));
+		e.dataTransfer.effectAllowed = 'move';
+		dragFrom = n;
+	}
+
+	function onDragOver(e: DragEvent, n: number) {
+		if (dragFrom === null || !e.dataTransfer?.types.includes(PLAYLIST_ROW_MIME)) return;
+		e.preventDefault();
+		e.dataTransfer.dropEffect = 'move';
+		const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+		const target = e.clientY < r.top + r.height / 2 ? n : n + 1;
+		if (canDropAt(target, shown.length, !!pl?.continuation)) {
+			dropAt = target;
+		}
+	}
+
+	function onDrop() {
+		if (dragFrom !== null && dropAt !== null) {
+			moveTrack(dragFrom, dropAt);
+		}
+		dragFrom = null;
+		dropAt = null;
+	}
+
+	// Optimistic update: reorders immediately and reverts on error. `pl` is `$state.raw`,
+	// so it must be reassigned rather than mutated in place.
+	async function moveTrack(from: number, dropAt: number) {
+		if (!pl) return;
+		const prev = pl.items;
+		const moved = prev[from];
+		const before = successorId(prev, from, dropAt);
+		pl = { ...pl, items: reorder(prev, from, dropAt) };
+		try {
+			await api.moveInPlaylist(id, moved.set_video_id!, before);
+			cacheAfterRemoval();
+		} catch (e) {
+			pl = { ...pl, items: prev };
+			cacheCurrent();
+			toast.error(String(e));
+		}
+	}
+
+	$effect(() => {
+		id;
+		dragFrom = null;
+		dropAt = null;
+	});
 	// A random song's cover, the hero backdrop when the playlist has no cover of its own.
 	let bgImage = $state<string | null>(null);
 
@@ -264,6 +322,11 @@
 		// header count would be the wrong number to offer there.
 		() => (filtering ? undefined : headerCount), loadAll);
 	const filtering = $derived(!!applied.trim());
+	// Requires default manual order, no reverse, no filter, and no selection active, otherwise
+	// the rendered row indexes would not match `pl.items`.
+	const canReorder = $derived(
+		editable && !isOnRepeat && sort === 'default' && !desc && !filtering && !selection.active && !resorting
+	);
 	// YouTube's own count, which is what the subtitle under the title shows until every page is in.
 	// An upper bound, not a count: it includes rows that never arrive (unavailable, region-blocked).
 	// With no number to read, Select all falls back to the rows it has.
@@ -1050,6 +1113,14 @@
 	}
 </script>
 
+<svelte:window
+	ondragend={() => {
+		// A drag cancelled with Esc never reaches `drop`, so window `dragend` cleans up state.
+		dragFrom = null;
+		dropAt = null;
+	}}
+/>
+
 <!-- relative: the Now playing pill floats over the bottom of the scroller. -->
 <div class="relative flex h-full flex-col">
 	{#if loading}
@@ -1077,6 +1148,7 @@
 			bind:this={scrollerEl}
 			class="content-in min-h-0 flex-1 overflow-y-auto pb-12"
 			{@attach sc.attach}
+			{@attach (node) => dragScroll(node, PLAYLIST_ROW_MIME)}
 		>
 			<div class="relative flex min-h-[38vh] shrink-0 items-end gap-6 overflow-hidden p-6">
 				<!-- The backdrop and its fade share one layer (`art-wash` on the wrapper): see HomeHero. -->
@@ -1249,7 +1321,24 @@
 							{#each shown.slice(win.start, win.end) as item, i (JSON.stringify([item.video_id, win.start + i]))}
 								{@const n = win.start + i}
 								<!-- data-row: what the scroller measures a row's real height from. -->
-								<div data-row>
+								<div
+									role="listitem"
+									class="relative {dragFrom === n ? 'opacity-40' : ''}"
+									draggable={canReorder && !!item.set_video_id}
+									ondragstart={(e) => onDragStart(e, n)}
+									ondragover={(e) => onDragOver(e, n)}
+									ondrop={onDrop}
+									data-row
+								>
+									{#if dropAt === n}
+										<div
+											class="pointer-events-none absolute inset-x-2 top-0 z-10 h-0.5 rounded-full bg-primary"
+										></div>
+									{:else if dropAt === n + 1 && n === shown.length - 1}
+										<div
+											class="pointer-events-none absolute inset-x-2 bottom-0 z-10 h-0.5 rounded-full bg-primary"
+										></div>
+									{/if}
 									<TrackRow
 										song={item}
 										{selection}
