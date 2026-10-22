@@ -24,6 +24,7 @@
 	import { dragScroll, QUEUE_ROW_MIME } from '$lib/dnd';
 	import { playback, prefs, setAutoplay, openAddToPlaylist } from '$lib/player.svelte';
 	import { lt } from '$lib/lt.svelte';
+	import { appearance } from '$lib/theme.svelte';
 	import { currentLocale, t } from '$lib/i18n.svelte';
 
 	const reducedMotion = new MediaQuery('(prefers-reduced-motion: reduce)');
@@ -403,7 +404,7 @@
 			<p class="p-4 text-sm text-muted-foreground">{t('player.empty_queue')}</p>
 		{/if}
 	</div>
-	{#if away}
+	{#if away && appearance.nowPlayingPill}
 		<NowPlayingPill above={awayAbove} onclick={() => toPlaying(true)} />
 	{/if}
 </div>

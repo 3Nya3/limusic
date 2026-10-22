@@ -1326,7 +1326,7 @@
 			{/if}
 		</div>
 		<!-- Not while selecting: the selection bar sits in the same spot. -->
-		{#if away && !selection.active}
+		{#if away && !selection.active && appearance.nowPlayingPill}
 			<NowPlayingPill above={playingY < sc.scrollTop} onclick={toPlaying} />
 		{/if}
 	{/if}
