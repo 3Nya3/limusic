@@ -416,8 +416,8 @@ function setArtVars(c: { h: number; hex: string }): void {
 
 /**
  * Point the theme at a cover URL. `null`/undefined (setting off, nothing playing) drops the layer
- * immediately; an unreadable or colourless image leaves the current colours alone rather than
- * flashing to grey.
+ * immediately. An unreadable or colourless cover drops it too once decoded: keeping the last
+ * track's colour paints this one in a cover it doesn't have (#522).
  */
 export function applyArtworkAccent(url: string | undefined | null): void {
 	wanted = url ?? '';
@@ -429,11 +429,11 @@ export function applyArtworkAccent(url: string | undefined | null): void {
 		return;
 	}
 	artworkAccent(url).then((hex) => {
-		if (!hex || wanted !== url) return; // colourless cover, or a faster track change already won
-		if (art?.hex === hex) return; // same colour (a repeat, or the queue moved under us)
-		const hsv = hexToHsv(hex);
-		if (!hsv) return;
-		art = { h: hsv.h, hex };
+		if (wanted !== url) return; // a faster track change already won
+		const hsv = hex ? hexToHsv(hex) : null;
+		const next = hsv ? { h: hsv.h, hex: hex! } : null;
+		if (art?.hex === next?.hex) return; // same colour (a repeat, the queue moved), or theme already
+		art = next;
 		restyle(); // through the normal path, so `effective` and the pickers agree
 	});
 }
