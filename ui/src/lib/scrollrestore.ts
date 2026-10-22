@@ -39,13 +39,15 @@ export const restoreTo = (el: HTMLElement, y: number) => {
 		lastHeight = el.scrollHeight;
 		// Release when the scroller can hold y *and* the content has stopped changing for
 		// ~300ms: a late shelf or an image filling in shifts the layout under a pixel
-		// position, so a single reach isn't stable. A list that got genuinely shorter sits at
-		// the clamped bottom and releases the same way once its height is quiet. Give up after
-		// ~2.5s overall (budget counts every frame and never resets, so a destination that keeps
-		// growing occupies the position for at most that long), or the user steers: wheel,
-		// touch, pointer, keys, or a drag all cancel.
+		// position, so a single reach isn't stable. Still clamped short of y, it keeps waiting:
+		// the playlist page pulls its next page in only as the bottom comes into view, and one
+		// page can take longer than the quiet window. A list that got genuinely shorter sits at
+		// the clamped bottom until the budget runs out. Give up after ~2.5s overall (budget
+		// counts every frame and never resets, so a destination that keeps growing occupies the
+		// position for at most that long), or the user steers: wheel, touch, pointer, keys, or a
+		// drag all cancel.
 		if (++budget > 150) return cancelRestore();
-		if (!grown) {
+		if (!grown && el.scrollTop + 1 >= y) {
 			if (++quiet > 18) return cancelRestore();
 		} else {
 			quiet = 0;
