@@ -115,6 +115,7 @@
 	let dragFrom = $state<number | null>(null);
 	// `dropAt` is the index the dragged row goes in front of.
 	let dropAt = $state<number | null>(null);
+	let moving = $state(false);
 
 	function onDragStart(e: DragEvent, n: number) {
 		if (!e.dataTransfer) return;
@@ -129,8 +130,10 @@
 		e.dataTransfer.dropEffect = 'move';
 		const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
 		const target = e.clientY < r.top + r.height / 2 ? n : n + 1;
-		if (canDropAt(target, shown.length, !!pl?.continuation)) {
+		if (canDropAt(target, shown, !!pl?.continuation)) {
 			dropAt = target;
+		} else {
+			dropAt = null;
 		}
 	}
 
@@ -144,19 +147,30 @@
 
 	// Optimistic update: reorders immediately and reverts on error. `pl` is `$state.raw`,
 	// so it must be reassigned rather than mutated in place.
-	async function moveTrack(from: number, dropAt: number) {
-		if (!pl) return;
+	async function moveTrack(from: number, to: number) {
+		if (!pl || moving) return;
 		const prev = pl.items;
+		const next = reorder(prev, from, to);
+		if (next === prev) return;
+		const pid = id;
 		const moved = prev[from];
-		const before = successorId(prev, from, dropAt);
-		pl = { ...pl, items: reorder(prev, from, dropAt) };
+		const before = successorId(prev, from, to);
+		// moves are serialized (`moving`) and a result that arrives after navigating
+		// to another playlist must not touch the current one.
+		moving = true;
+		pl = { ...pl, items: next };
 		try {
-			await api.moveInPlaylist(id, moved.set_video_id!, before);
-			cacheAfterRemoval();
+			await api.moveInPlaylist(pid, moved.set_video_id!, before);
+			invalidateCachedPrefix(`playlist:${pid}`);
+			if (pid === id) cacheCurrent();
 		} catch (e) {
-			pl = { ...pl, items: prev };
-			cacheCurrent();
+			if (pid === id && pl) {
+				pl = { ...pl, items: prev };
+				cacheCurrent();
+			}
 			toast.error(String(e));
+		} finally {
+			moving = false;
 		}
 	}
 
@@ -325,7 +339,7 @@
 	// Requires default manual order, no reverse, no filter, and no selection active, otherwise
 	// the rendered row indexes would not match `pl.items`.
 	const canReorder = $derived(
-		editable && !isOnRepeat && sort === 'default' && !desc && !filtering && !selection.active && !resorting
+		editable && !isOnRepeat && sort === 'default' && !desc && !filtering && !selection.active && !resorting && !moving
 	);
 	// YouTube's own count, which is what the subtitle under the title shows until every page is in.
 	// An upper bound, not a count: it includes rows that never arrive (unavailable, region-blocked).

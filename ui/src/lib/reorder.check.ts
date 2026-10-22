@@ -41,8 +41,11 @@ ok(successorId(items, 0, 2) === 'sv_c', 'successorId for middle row');
 ok(successorId(items, 0, 4) === null, 'successorId at or past end is null');
 
 // --- canDropAt ---------------------------------------------------------------------------------
-ok(canDropAt(2, 4, true) === true, 'can drop in middle when hasMore is true');
-ok(canDropAt(4, 4, true) === false, 'cannot drop at end when hasMore is true');
-ok(canDropAt(4, 4, false) === true, 'can drop at end when hasMore is false');
+ok(canDropAt(2, items, true) === true, 'can drop in middle when hasMore is true');
+ok(canDropAt(4, items, true) === false, 'cannot drop at end when hasMore is true');
+ok(canDropAt(4, items, false) === true, 'can drop at end when hasMore is false');
+const itemsMissing = [song('a', 'sv_a'), song('b'), song('c', 'sv_c')];
+ok(canDropAt(1, itemsMissing, false) === false, 'cannot drop in front of row without set_video_id');
+ok(canDropAt(2, itemsMissing, false) === true, 'can drop after row without set_video_id');
 
 console.log('ok');

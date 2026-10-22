@@ -18,8 +18,9 @@ export function successorId(items: SongItem[], from: number, dropAt: number): st
 	return items[dropAt]?.set_video_id ?? null;
 }
 
-// Forbids dropping at the end of loaded rows while more pages exist, because the true tail is still unfetched.
-export function canDropAt(dropAt: number, total: number, hasMore: boolean): boolean {
-	if (hasMore && dropAt === total) return false;
+// Forbids dropping at the end of loaded rows while more pages exist, or in front of rows without a set_video_id yet.
+export function canDropAt(dropAt: number, items: { set_video_id?: string }[], hasMore: boolean): boolean {
+	if (hasMore && dropAt === items.length) return false;
+	if (dropAt < items.length && !items[dropAt]?.set_video_id) return false;
 	return true;
 }

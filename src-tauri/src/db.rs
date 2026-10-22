@@ -1093,7 +1093,7 @@ impl Db {
             "SELECT p.id, p.title, p.description,
                     (SELECT COUNT(*) FROM local_playlist_tracks t WHERE t.playlist_id = p.id),
                     (SELECT song_json FROM local_playlist_tracks t WHERE t.playlist_id = p.id
-                     ORDER BY t.id LIMIT 1)
+                     ORDER BY t.pos, t.id LIMIT 1)
              FROM local_playlists p {}
              ORDER BY p.updated_at DESC, p.id DESC",
             if id.is_some() { "WHERE p.id = ?1" } else { "" }
@@ -1676,6 +1676,7 @@ mod tests {
             rows.iter().map(|r| r.1.clone()).collect::<Vec<_>>(),
             vec![song("t3").1, song("t1").1, song("t2").1]
         );
+        assert!(d.local_playlists()[0].first_song.as_deref().unwrap().contains("t3"));
 
         // Move the first one to the end.
         d.move_local_playlist_track(a, id3, None, 22).unwrap();
