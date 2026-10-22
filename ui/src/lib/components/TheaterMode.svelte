@@ -28,7 +28,9 @@
 	import {
 		Cancel01Icon,
 		FavouriteIcon,
+		MaximizeScreenIcon,
 		Mic01Icon,
+		MinimizeScreenIcon,
 		MusicNote01Icon,
 		NextIcon,
 		PauseIcon,
@@ -56,6 +58,7 @@
 	} from '$lib/player.svelte';
 	import {
 		canSwitch,
+		cinema as cinemaOn,
 		claimVideo,
 		parkVideo,
 		pickVersion,
@@ -68,6 +71,7 @@
 	import { appearance, setAppearance } from '$lib/theme.svelte';
 	import { isMissingThumb, thumb } from '$lib/thumb';
 	import { t } from '$lib/i18n.svelte';
+	import { keyOf, typing } from '$lib/shortcuts';
 	import ArtistLine from './ArtistLine.svelte';
 	import LyricsView from './LyricsView.svelte';
 	import QueueList from './QueueList.svelte';
@@ -88,6 +92,9 @@
 		api.theaterFullscreen(true).catch((e) => console.error('theater fullscreen failed', e));
 		return () => {
 			api.theaterFullscreen(false).catch(() => {});
+			// Cinema is per opening, not a setting: theater always starts in its normal layout.
+			video.cinema = false;
+			clearTimeout(clickTimer);
 		};
 	});
 
@@ -108,6 +115,24 @@
 		return () => clearTimeout(idleTimer);
 	});
 	const calm = $derived(idle && !playback.paused && !overDock);
+	// Cinema: the picture fills the screen, the title, lyrics and queue step aside and the header
+	// and dock float over it.
+	const cinema = $derived(cinemaOn());
+	// A double click is two clicks. Pausing on the first would stutter the music, so a click waits
+	// to see if it becomes a dblclick.
+	let clickTimer: ReturnType<typeof setTimeout>;
+	function onPictureClick() {
+		clearTimeout(clickTimer);
+		clickTimer = setTimeout(toggle, 220); // wait to see whether this becomes a double click
+	}
+	function onPictureDblClick() {
+		clearTimeout(clickTimer);
+		toggleCinema();
+	}
+	function toggleCinema() {
+		video.cinema = !video.cinema;
+		wake();
+	}
 
 	// The dock floats over the bottom of the stage. Once it has faded out, the lyrics and the queue
 	// grow down into its room until they end as far from the bottom edge as they start from the top
@@ -126,6 +151,10 @@
 		return () => clearTimeout(timer);
 	});
 
+	// A focused slider (the seek bar or volume, after a click) is not a text field: F must still
+	// work there.
+	const textTarget = (t: EventTarget | null) => typing(t) && !(t instanceof HTMLInputElement && t.type === 'range');
+
 	function onKey(e: KeyboardEvent) {
 		wake();
 		// A dialog or menu open over this one (the palette, the shortcut sheet, a track menu) already
@@ -135,6 +164,20 @@
 		if (e.key === 'Escape') {
 			e.preventDefault();
 			close();
+		}
+		// F toggles cinema. keyOf reads the physical key for non-Latin layouts, like the app-wide
+		// shortcuts do.
+		if (
+			keyOf(e) === 'f' &&
+			!e.ctrlKey &&
+			!e.metaKey &&
+			!e.altKey &&
+			!e.repeat &&
+			showVideo() &&
+			!textTarget(e.target)
+		) {
+			e.preventDefault();
+			toggleCinema();
 		}
 	}
 
@@ -366,12 +409,14 @@
 	onoutrostart={leave}
 	class="fixed inset-0 z-40 flex flex-col overflow-hidden text-foreground inert:bg-background {video.hole
 		? ''
-		: 'bg-background'} {calm ? 'cursor-none' : ''}"
+		: cinema
+			? 'bg-black'
+			: 'bg-background'} {cinema ? 'dark' : ''} {calm ? 'cursor-none' : ''}"
 >
 	{#if showVideo()}
 		<!-- The video lights the room itself (Settings > Video > ambient light), and nothing else
 		     does: on Linux every layer here would paint over mpv's picture. -->
-		{#if prefs.ambient && picBox}<Ambient box={picBox} />{/if}
+		{#if prefs.ambient && picBox && !cinema}<Ambient box={picBox} />{/if}
 	{:else}
 		<!-- === Backdrop, three layers, none of which repaint with the content over them ===
 		     1. the cover, pre-blurred into a small bitmap once per track and upscaled. No live
@@ -408,7 +453,9 @@
 
 	<!-- === Top strip: where the queue came from, and the way out. === -->
 	<header
-		class="relative z-10 flex shrink-0 items-center justify-between gap-6 px-8 transition-opacity duration-500 xl:px-14 {calm
+		class="{cinema
+			? 'absolute inset-x-0 top-0 z-10 bg-gradient-to-b from-black/70 to-transparent'
+			: 'relative z-10'} flex shrink-0 items-center justify-between gap-6 px-8 transition-opacity duration-500 xl:px-14 {calm
 			? 'opacity-0'
 			: ''}"
 		style="height:{headerH}"
@@ -438,11 +485,12 @@
 	<!-- === The stage. The picture and what's playing, and beside it at most one column. ===
 	     A stacking context of its own (z-10), so the light behind the picture (-z-10) stays above the
 	     backdrop instead of sinking under it. -->
-	<div
-		class="relative z-10 mx-auto flex min-h-0 w-full max-w-[110rem] flex-1 gap-10 px-8 xl:px-14 {both
-			? 'xl:gap-12'
-			: 'xl:gap-20'}"
-	>
+	{#if !cinema}
+		<div
+			class="relative z-10 mx-auto flex min-h-0 w-full max-w-[110rem] flex-1 gap-10 px-8 xl:px-14 {both
+				? 'xl:gap-12'
+				: 'xl:gap-20'}"
+		>
 		<!-- A size container, so the picture is sized against the space actually left for it
 		     (cqw/cqh) instead of guessing at the window. -->
 		<div
@@ -656,6 +704,34 @@
 			</button>
 		{/if}
 	</div>
+	{:else}
+		<!--
+			Cinema. This wrapper has to stay transparent while mpv draws under the page
+			(video.hole), or its black would hide the picture.
+		-->
+		<!-- svelte-ignore a11y_no_static_element_interactions -- wheel is the volume gesture -->
+		<div class="absolute inset-0 z-0 {video.hole ? '' : 'bg-black'}" onwheel={onArtWheel}>
+			<button
+				type="button"
+				onclick={onPictureClick}
+				ondblclick={onPictureDblClick}
+				class="block h-full w-full cursor-pointer"
+				aria-label={t('a11y.play_pause')}
+			>
+				{#if prefs.nativeVideo}
+					<div class="h-full w-full inert:bg-black {video.hole ? '' : 'bg-black'}" {@attach holeFor}></div>
+				{:else}
+					<div
+						class="contents"
+						{@attach (box: HTMLElement) => {
+							claimVideo(box);
+							return () => parkVideo(box);
+						}}
+					></div>
+				{/if}
+			</button>
+		</div>
+	{/if}
 
 	<!-- === The dock: every control on one strip along the bottom. The scrubber runs the full width,
 	     the widest thing on screen to aim at; transport in the middle, what is playing on the left,
@@ -668,7 +744,9 @@
 		onpointerleave={() => (overDock = false)}
 		class="absolute inset-x-0 bottom-0 z-10 mx-auto w-full max-w-[110rem] px-8 transition-opacity duration-500 xl:px-14 {short.current
 			? 'pt-2 pb-4'
-			: 'pt-3 pb-7'} {calm ? 'opacity-0' : ''}"
+			: 'pt-3 pb-7'} {calm ? 'opacity-0' : ''} {cinema
+			? 'bg-gradient-to-t from-black/70 to-transparent'
+			: ''}"
 	>
 		<!-- Fixed-width slots for the times: the font may have no tabular figures, and the bar would
 		     shift a few px per tick (#463). -->
@@ -815,6 +893,23 @@
 
 			<!-- What the stage shows, and the volume. -->
 			<div class="flex min-w-0 items-center justify-end gap-3">
+				{#if showVideo()}
+					<button
+						type="button"
+						onclick={toggleCinema}
+						class="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
+						aria-label={cinema ? t('player.exit_fullscreen_video') : t('player.fullscreen_video')}
+						title={cinema ? t('player.exit_fullscreen_video') : t('player.fullscreen_video')}
+						aria-pressed={cinema}
+					>
+						<HugeiconsIcon
+							icon={MaximizeScreenIcon}
+							altIcon={MinimizeScreenIcon}
+							showAlt={cinema}
+							class="h-[18px] w-[18px]"
+						/>
+					</button>
+				{/if}
 				<!-- One pill, so it reads as a view switch rather than two more actions. -->
 				<div class="hidden items-center gap-0.5 rounded-full bg-foreground/[0.06] p-1 lg:flex">
 					{@render sideButton(Mic01Icon, t('player.lyrics'), lyricsShown, toggleLyrics)}

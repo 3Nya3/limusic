@@ -9,6 +9,7 @@
 		Comment01Icon,
 		Maximize01Icon,
 		Minimize01Icon,
+		MaximizeScreenIcon,
 		Mic01Icon,
 		MusicNote01Icon,
 		PlayIcon,
@@ -534,6 +535,26 @@
 							{@render mode(false, t('player.song'))}
 							{@render mode(true, t('player.video'))}
 						</div>
+					{/if}
+					{#if showVideo()}
+						<!--
+							Opens theater straight into cinema. data-np-keep: without it the
+							backdrop click handler treats this as a click outside and closes Now
+							Playing, and its hole teardown blanks the picture under theater.
+						-->
+						<button
+							type="button"
+							onclick={() => {
+								video.cinema = true;
+								ui.theaterOpen = true;
+							}}
+							class="flex size-9 cursor-pointer items-center justify-center justify-self-end rounded-full text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
+							aria-label={t('player.fullscreen_video')}
+							title={t('player.fullscreen_video')}
+							data-np-keep
+						>
+							<HugeiconsIcon icon={MaximizeScreenIcon} class="h-5 w-5" />
+						</button>
 					{/if}
 				</div>
 
