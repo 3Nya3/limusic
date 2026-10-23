@@ -1780,17 +1780,27 @@ impl AppState {
             return;
         }
         let gen = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
-        {
+        let video_id = {
             let mut q = self.queue.lock().await;
             if index >= q.items.len() {
                 return;
             }
             q.seek_to(index);
             q.lookahead_loaded = None;
-        }
-        // The next mpv tick is seconds away (a resolve has to finish first); until then
-        // `current_position` would still report the outgoing track's position.
-        self.latest_position.store(0f64.to_bits(), Ordering::SeqCst);
+            q.items[index].video_id.clone()
+        };
+        // The next mpv tick is seconds away because the track must be resolved first. Until then
+        // `latest_position` is still the value that pause/exit persistence will write, so seed it
+        // from `pending_seek` when that saved position belongs to this exact video. A different
+        // track must start at zero instead of inheriting the restored track's position.
+        let resume = self
+            .pending_seek
+            .lock()
+            .unwrap()
+            .as_ref()
+            .filter(|(pending_id, _)| pending_id == &video_id)
+            .map_or(0.0, |(_, position)| *position);
+        self.latest_position.store(resume.to_bits(), Ordering::SeqCst);
         if self.start_current(gen).await {
             self.prime_lookahead(gen).await;
         }
@@ -2705,8 +2715,7 @@ impl AppState {
         if position > 1.0 {
             *self.pending_seek.lock().unwrap() = Some((video_id, position));
         }
-        // Same reason as `play_index`: until mpv ticks, `current_position` would still be
-        // reporting the track we just left.
+        // Until mpv ticks, `current_position` would still report the track we just left.
         self.latest_position.store(0f64.to_bits(), Ordering::SeqCst);
         if self.start_current(gen).await {
             self.prime_lookahead(gen).await;
@@ -3213,6 +3222,30 @@ impl AppState {
             let _ = self.app.emit("duration", serde_json::json!({ "duration": row_secs(&item) }));
         }
         self.emit_queue().await;
+    }
+
+    /// Starts the restored queue when playback on startup is enabled.
+    ///
+    /// Called after [`Self::restore_queue`]. Guests in a Listen Together room leave playback to the
+    /// host, and an already active player must not be started a second time.
+    pub async fn play_on_start(self: &std::sync::Arc<Self>) {
+        let enabled = || self.db.get_setting("play_on_start").as_deref() == Some("true");
+        if !enabled() {
+            return;
+        }
+        let Some(item) = self.current_item().await else { return };
+        crate::UI_MOUNTED.notified().await;
+        // Login launches can run before Wi-Fi or DNS is ready (#483); a local file needs no
+        // network. The other checks come after the wait: in that minute the user can start
+        // something, join a room as a guest or turn this off.
+        if !crate::local::is_local_song(&item.video_id) && !crate::http::wait_for_network().await {
+            return;
+        }
+        if !enabled() || !self.player.is_idle() || self.lt.is_guest().await {
+            return;
+        }
+        let current = self.queue.lock().await.current;
+        self.play_index(current).await;
     }
 
     /// Throttled position persistence for resume-on-restart. Records the latest position always

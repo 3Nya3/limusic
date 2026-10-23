@@ -468,6 +468,8 @@
 			"language_search": "Search languages",
 			"language_contribute": "Help translate Limusic",
 			"shortcuts_hint": "Open the keyboard shortcuts with {key}",
+			"play_on_start": "Resume playback on open",
+			"play_on_start_hint": "Start playing your last queue when Limusic opens.",
 			"autostart": "Launch on startup",
 			"autostart_hint": "Automatically start Limusic when your system boots.",
 			"close_to_tray": "Close to system tray",
