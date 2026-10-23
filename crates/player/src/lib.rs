@@ -775,10 +775,11 @@ impl Player {
         let mut af = self.decks.af.lock().unwrap();
         if reverb.enabled && reverb.wet != 0 {
             let path = reverb_path(&self.decks, reverb.preset);
-            let bytes = REVERB_PRESETS[reverb.preset as usize - 1].1;
-            std::fs::create_dir_all(path.parent().unwrap())
-                .map_err(|e| Error::Reverb(e.to_string()))?;
-            if std::fs::read(&path).ok().as_deref() != Some(bytes) {
+            // Versioned filenames let us reuse existing assets without reading their contents.
+            if !path.is_file() {
+                std::fs::create_dir_all(path.parent().unwrap())
+                    .map_err(|e| Error::Reverb(e.to_string()))?;
+                let bytes = REVERB_PRESETS[reverb.preset as usize - 1].1;
                 std::fs::write(&path, bytes).map_err(|e| Error::Reverb(e.to_string()))?;
             }
         }
@@ -1587,6 +1588,31 @@ mod tests {
         let reverb = Reverb { enabled: true, wet: 0, ..Reverb::default() };
         p.set_playback_params(1.0, 0, reverb).unwrap();
         assert_eq!(FILTER_PROBES.get(), before + 2, "reverb was not probed");
+    }
+
+    #[test]
+    fn reverb_assets_are_reused_and_recreated_when_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = super::Player::new(dir.path().to_str().unwrap()).unwrap();
+        p.set_playback_params(1.0, 0, reverb(3)).unwrap();
+        let asset = super::reverb_path(&p.decks, 3);
+        let embedded = super::REVERB_PRESETS[2].1;
+        assert!(std::fs::read(&asset).unwrap() == embedded);
+        p.set_playback_params(1.0, 0, reverb(0)).unwrap();
+
+        // Valid extra WAV padding must not trigger a content comparison and rewrite.
+        let mut cached = embedded.to_vec();
+        cached.extend_from_slice(b"JUNK\0\0\0\0");
+        let size = (cached.len() as u32 - 8).to_le_bytes();
+        cached[4..8].copy_from_slice(&size);
+        std::fs::write(&asset, &cached).unwrap();
+        p.set_playback_params(0.8, 0, reverb(3)).unwrap();
+        assert!(std::fs::read(&asset).unwrap() == cached, "existing IR was rewritten");
+        p.set_playback_params(1.0, 0, reverb(0)).unwrap();
+
+        std::fs::remove_file(&asset).unwrap();
+        p.set_playback_params(1.0, 0, reverb(3)).unwrap();
+        assert!(std::fs::read(&asset).unwrap() == embedded, "missing IR was not restored");
     }
 
     /// Everything above is string-building; this drives a real libmpv and reads `af` back out of

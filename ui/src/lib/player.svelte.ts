@@ -37,7 +37,6 @@ export const playback = $state({
 	speed: 1,
 	semitones: 0,
 	reverb: { ...api.DEFAULT_REVERB },
-	effectsPending: false,
 	// Rating of the current track — seeded from its real `likeStatus` on each change, then
 	// optimistic on toggle. Owned here rather than in `ratings` below because the mini player is a
 	// separate webview with its own module instance: the backend reseed is what keeps them agreeing.
@@ -932,31 +931,11 @@ export function wheelVolume(e: WheelEvent) {
  * Session effects (the "Advanced" dialog). Show confirmed values while Rust applies an atomic
  * update; a missing pitch/reverb filter leaves the previous settings intact.
  */
-let effectsUpdate = Promise.resolve();
-let effectsEpoch = 0;
 export function setTempoPitch(speed: number, semitones: number, reverb = playback.reverb) {
-	reverb = { ...reverb }; // Snapshot the controls before another request can change them.
-	// Serialize local changes; the backend also orders these against room tempo resets.
-	playback.effectsPending = true;
-	const update = effectsUpdate.then(async () => {
-		const epoch = effectsEpoch;
-		try {
-			await api.setPlaybackParams(speed, semitones, reverb);
-			// An event may already confirm a newer update (including the backend's room reset).
-			if (effectsEpoch === epoch) {
-				effectsEpoch++;
-				Object.assign(playback, { speed, semitones, reverb });
-			}
-		} catch (e) {
-			toast.error(String(e));
-			playback.reverb = { ...playback.reverb }; // Discard a slider draft if Rust refused it.
-		}
+	return api.setPlaybackParams(speed, semitones, reverb).catch((e) => {
+		toast.error(String(e));
+		playback.reverb = { ...playback.reverb }; // Discard a slider draft if Rust refused it.
 	});
-	effectsUpdate = update;
-	update.finally(() => {
-		if (effectsUpdate === update) playback.effectsPending = false;
-	});
-	return update;
 }
 
 // Mute *is* volume 0 — no separate flag, so dragging the slider off zero un-mutes for free and the
@@ -1519,10 +1498,10 @@ let started = false;
 export function initApp(mini = false): () => void {
 	if (started) return () => {};
 	started = true;
-	const snapshotEffectsEpoch = effectsEpoch;
+	let receivedEffects = false;
 	const subs = [
 		api.onPlaybackParams((p) => {
-			effectsEpoch++;
+			receivedEffects = true;
 			Object.assign(playback, p);
 		}),
 		api.onNowPlaying((n) => {
@@ -1634,14 +1613,9 @@ export function initApp(mini = false): () => void {
 	// is created mid-song. Ask for the current state once rather than guessing at it.
 	api.getPlayback()
 		.then((s) => {
-			// If a command is pending, let it settle first. A rejected command changes no effects,
-			// so its startup snapshot is still useful; a successful command or event invalidates it.
-			effectsUpdate.then(async () => {
-				while (playback.effectsPending) await effectsUpdate;
-				if (!playback.effectsPending && effectsEpoch === snapshotEffectsEpoch) {
-					Object.assign(playback, { speed: s.speed, semitones: s.semitones, reverb: s.reverb });
-				}
-			});
+			if (!receivedEffects) {
+				Object.assign(playback, { speed: s.speed, semitones: s.semitones, reverb: s.reverb });
+			}
 			playback.volume = s.volume; // before the guard below: the slider is stale either way
 			if (playback.now) return; // a real now-playing event beat us to it
 			playback.now = s.now;

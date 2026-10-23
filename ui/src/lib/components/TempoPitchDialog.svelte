@@ -41,7 +41,7 @@
 	});
 
 	function persistPresets(next: EffectPreset[]) {
-		if (!storageReady || playback.effectsPending) return false;
+		if (!storageReady) return false;
 		try {
 			localStorage.setItem(EFFECT_PRESETS_KEY, JSON.stringify(next));
 			presets = next;
@@ -70,12 +70,12 @@
 		}
 	}
 
-	async function selectPreset(name: string) {
+	function selectPreset(name: string) {
 		const preset = presets.find((p) => p.name === name);
-		if (!preset || playback.effectsPending) return;
+		if (!preset) return;
 		const settings = presetSettings(preset, inRoom());
-		await apply(settings.speed, settings.semitones, settings.reverb);
-		if (sameEffects(settings, playback)) selectedName = name;
+		selectedName = name;
+		apply(settings.speed, settings.semitones, settings.reverb);
 	}
 
 	function deletePreset() {
@@ -127,12 +127,11 @@
 			</Dialog.Description>
 		</div>
 
-		<!-- Pending updates lock preset actions without flashing their disabled opacity. -->
-		<div class="grid gap-2 rounded-2xl border bg-muted/20 p-3" aria-busy={playback.effectsPending}>
+		<div class="grid gap-2 rounded-2xl border bg-muted/20 p-3">
 			<label for="effect-preset" class="text-sm font-medium">{t('dialogs.tempo_pitch.presets')}</label>
 			<div class="flex flex-wrap items-center gap-2">
-				<Select.Root type="single" value={modified ? '' : selectedName} disabled={!presets.length || playback.effectsPending} onValueChange={selectPreset}>
-					<Select.Trigger id="effect-preset" size="sm" class={['w-64 max-w-full min-w-0', presets.length && 'disabled:opacity-100']}>
+				<Select.Root type="single" value={modified ? '' : selectedName} disabled={!presets.length} onValueChange={selectPreset}>
+					<Select.Trigger id="effect-preset" size="sm" class="w-64 max-w-full min-w-0">
 						<span class="flex-1 truncate text-left">{selectedPreset ? `${selectedPreset.name}${modified ? ` · ${t('dialogs.tempo_pitch.preset_modified')}` : ''}` : t('dialogs.tempo_pitch.preset_choose')}</span>
 					</Select.Trigger>
 					<Select.Content>
@@ -143,13 +142,13 @@
 				</Select.Root>
 				{#if selectedPreset}
 					{#if modified}
-						<Button size="sm" variant="outline" class={storageReady ? 'disabled:opacity-100' : undefined} disabled={!storageReady || playback.effectsPending} onclick={() => savePreset(true)}>{t('dialogs.tempo_pitch.preset_update')}</Button>
+						<Button size="sm" variant="outline" disabled={!storageReady} onclick={() => savePreset(true)}>{t('dialogs.tempo_pitch.preset_update')}</Button>
 					{/if}
-					<Button size="icon-sm" variant="ghost" class={['text-muted-foreground hover:bg-destructive/10 hover:text-destructive', storageReady && 'disabled:opacity-100']} aria-label={t('common.delete')} title={t('common.delete')} disabled={!storageReady || playback.effectsPending} onclick={deletePreset}>
+					<Button size="icon-sm" variant="ghost" class="text-muted-foreground hover:bg-destructive/10 hover:text-destructive" aria-label={t('common.delete')} title={t('common.delete')} disabled={!storageReady} onclick={deletePreset}>
 						<HugeiconsIcon icon={Delete02Icon} />
 					</Button>
 				{/if}
-				<Button size="sm" variant="outline" class="sm:ml-auto" aria-expanded={addingPreset} aria-controls="add-effect-preset" disabled={!storageReady || playback.effectsPending} onclick={() => (addingPreset = !addingPreset)}>
+				<Button size="sm" variant="outline" class="sm:ml-auto" aria-expanded={addingPreset} aria-controls="add-effect-preset" disabled={!storageReady} onclick={() => (addingPreset = !addingPreset)}>
 					<HugeiconsIcon icon={Add01Icon} />
 					{t('dialogs.tempo_pitch.preset_add')}
 				</Button>
@@ -157,10 +156,10 @@
 			{#if addingPreset}
 				<form id="add-effect-preset" class="grid gap-2 border-t pt-3" onsubmit={(e) => { e.preventDefault(); savePreset(); }}>
 					<div class="flex flex-wrap items-center gap-2">
-						<Input bind:value={presetName} class={['h-8 w-64 max-w-full', storageReady && 'disabled:opacity-100']} maxlength={PRESET_NAME_MAX} aria-label={t('dialogs.tempo_pitch.preset_name')}
+						<Input bind:value={presetName} class="h-8 w-64 max-w-full" maxlength={PRESET_NAME_MAX} aria-label={t('dialogs.tempo_pitch.preset_name')}
 							placeholder={t('dialogs.tempo_pitch.preset_name')} aria-invalid={duplicateName}
-							aria-describedby={duplicateName ? 'preset-name-error' : undefined} disabled={!storageReady || playback.effectsPending} />
-						<Button type="submit" size="sm" class={presetName.trim() && !duplicateName && storageReady ? 'disabled:opacity-100' : undefined} disabled={!presetName.trim() || duplicateName || !storageReady || playback.effectsPending}>{t('common.save')}</Button>
+							aria-describedby={duplicateName ? 'preset-name-error' : undefined} disabled={!storageReady} />
+						<Button type="submit" size="sm" disabled={!presetName.trim() || duplicateName || !storageReady}>{t('common.save')}</Button>
 						<Button size="sm" variant="ghost" onclick={() => { addingPreset = false; presetName = ''; }}>{t('common.cancel')}</Button>
 					</div>
 					{#if duplicateName}
@@ -177,8 +176,7 @@
 			{/if}
 		</div>
 
-		<!-- Saving briefly locks input; keep its appearance stable to avoid flashing every control. -->
-		<div class="grid gap-4 sm:grid-cols-2 sm:gap-x-6" aria-busy={playback.effectsPending}>
+		<div class="grid gap-4 sm:grid-cols-2 sm:gap-x-6">
 			<!-- Tempo moves you off the shared clock, so it's out while a room is on. Pitch is yours
 			     alone: it changes nothing about when the next track starts. -->
 			{#if !inRoom()}
@@ -187,9 +185,9 @@
 						<label for="tempo-slider">{t('dialogs.tempo_pitch.tempo')}</label>
 						<span class="tabular-nums">{tempo.toFixed(2)}x</span>
 					</div>
-					<Slider id="tempo-slider" type="single" class="data-disabled:opacity-100"
+					<Slider id="tempo-slider" type="single"
 						aria-label={t('dialogs.tempo_pitch.tempo')}
-						min={TEMPO_SLIDER.min} max={TEMPO_SLIDER.max} step={1} value={tempoSliderValue(tempo)} disabled={playback.effectsPending}
+						min={TEMPO_SLIDER.min} max={TEMPO_SLIDER.max} step={1} value={tempoSliderValue(tempo)}
 						onValueChange={(v) => (tempo = tempoFromSlider(v))}
 						onValueCommit={(v) => void apply(tempoFromSlider(v), playback.semitones).finally(() => (tempo = playback.speed))} />
 				</div>
@@ -199,25 +197,25 @@
 					<label for="pitch-slider">{t('dialogs.tempo_pitch.pitch')}</label>
 					<span class="tabular-nums">{pitch > 0 ? `+${pitch}` : pitch}</span>
 				</div>
-				<Slider id="pitch-slider" type="single" class="data-disabled:opacity-100"
+				<Slider id="pitch-slider" type="single"
 					aria-label={t('dialogs.tempo_pitch.pitch')}
-					min={SEMITONES.min} max={SEMITONES.max} step={1} value={pitch} disabled={playback.effectsPending}
+					min={SEMITONES.min} max={SEMITONES.max} step={1} value={pitch}
 					onValueChange={(v) => (pitch = v)}
 					onValueCommit={(v) => void apply(playback.speed, v).finally(() => (pitch = playback.semitones))} />
 			</div>
 			<div class="border-t pt-4 sm:col-span-2">
 				<div class="flex items-center justify-between gap-4">
 					<label for="reverb-enabled" class="text-sm font-medium">{t('dialogs.tempo_pitch.reverb')}</label>
-					<Switch id="reverb-enabled" class="data-disabled:opacity-100" checked={playback.reverb.enabled} disabled={playback.effectsPending} onCheckedChange={toggleReverb} />
+					<Switch id="reverb-enabled" checked={playback.reverb.enabled} onCheckedChange={toggleReverb} />
 				</div>
 				<p class="mt-1 text-xs text-muted-foreground">{t('dialogs.tempo_pitch.reverb_hint')}</p>
 				{#if playback.reverb.enabled}
 					<div class="mt-3 grid gap-2">
 						<div class="flex flex-wrap items-center gap-2">
 							<label for="reverb-type" class="text-sm">{t('dialogs.tempo_pitch.reverb_type')}</label>
-							<Select.Root type="single" value={String(playback.reverb.preset)} disabled={playback.effectsPending}
+							<Select.Root type="single" value={String(playback.reverb.preset)}
 								onValueChange={(value) => { if (value) apply(playback.speed, playback.semitones, { ...playback.reverb, preset: Number(value) }); }}>
-								<Select.Trigger id="reverb-type" size="sm" class="w-72 max-w-full min-w-0 disabled:opacity-100">
+								<Select.Trigger id="reverb-type" size="sm" class="w-72 max-w-full min-w-0">
 									<span class="min-w-0 flex-1 truncate text-left" title={t(`dialogs.tempo_pitch.reverb_types.${REVERB_TYPES[playback.reverb.preset - 1]}`)}>{t(`dialogs.tempo_pitch.reverb_types.${REVERB_TYPES[playback.reverb.preset - 1]}`)}</span>
 								</Select.Trigger>
 								<Select.Content>
@@ -234,10 +232,10 @@
 										<label for={`reverb-${control.key}`}>{t(`dialogs.tempo_pitch.reverb_controls.${control.key}`)}</label>
 										<span class="tabular-nums">{control.key === 'decay' ? draft.decay.toFixed(1) : draft[control.key]} {control.unit}</span>
 									</div>
-									<Slider id={`reverb-${control.key}`} type="single" class="data-disabled:opacity-100"
+									<Slider id={`reverb-${control.key}`} type="single"
 										aria-label={t(`dialogs.tempo_pitch.reverb_controls.${control.key}`)}
 										min={control.min} max={control.max} step={control.step}
-										value={draft[control.key]} disabled={playback.effectsPending}
+										value={draft[control.key]}
 										onValueChange={(v) => { draft = { ...draft, [control.key]: v }; }}
 										onValueCommit={(v) => apply(playback.speed, playback.semitones, { ...draft, [control.key]: v })} />
 									<p class="text-xs text-muted-foreground">{t(`dialogs.tempo_pitch.reverb_control_hints.${control.key}`)}</p>
@@ -250,8 +248,8 @@
 		</div>
 
 		<div class="flex justify-end gap-2">
-			<Button variant="ghost" size="sm" class="h-7 w-fit gap-1.5 px-2 text-xs disabled:opacity-100"
-				disabled={playback.effectsPending} onclick={() => { selectedName = ''; apply(1, 0, { ...DEFAULT_REVERB }); }}>
+			<Button variant="ghost" size="sm" class="h-7 w-fit gap-1.5 px-2 text-xs"
+				onclick={() => { selectedName = ''; apply(1, 0, { ...DEFAULT_REVERB }); }}>
 				<HugeiconsIcon icon={ArrowTurnBackwardIcon} class="h-3.5 w-3.5" />
 				{t('settings.discord.reset')}
 			</Button>
