@@ -38,6 +38,7 @@
 		wheelVolume
 	} from '$lib/player.svelte';
 	import { thumb } from '$lib/thumb';
+	import { appearance } from '$lib/theme.svelte';
 	import ArtistLine from './ArtistLine.svelte';
 	import Marquee from './Marquee.svelte';
 	import TrackMenu from './TrackMenu.svelte';
@@ -131,8 +132,9 @@
 	// Anywhere on the bar that isn't a control opens (or closes) the now-playing view: the bar is
 	// what's left of it once it's minimised, so it's the way back in. Deliberately no pointer
 	// cursor, because this is the whole bar, not a button, and every real button keeps its own click.
+	// Settings can switch it off for whoever keeps tripping it on a missed control.
 	function onBarClick(e: MouseEvent) {
-		if (pressedControl || isControl(e.target)) return;
+		if (!appearance.emptyClickTogglesPlayer || pressedControl || isControl(e.target)) return;
 		np.open = !np.open;
 	}
 </script>

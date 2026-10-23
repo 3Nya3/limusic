@@ -85,7 +85,7 @@
 	let pressedKeep = false;
 	let releasedKeep = false;
 	function onBackdropClick(e: MouseEvent) {
-		if (pressedKeep || releasedKeep || keeps(e.target)) return;
+		if (!appearance.emptyClickTogglesPlayer || pressedKeep || releasedKeep || keeps(e.target)) return;
 		np.open = false;
 	}
 
