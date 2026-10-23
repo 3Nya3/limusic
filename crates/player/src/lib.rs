@@ -777,14 +777,7 @@ impl Player {
         }
         let mut af = self.decks.af.lock().unwrap();
         if reverb.enabled && reverb.wet != 0 {
-            let path = reverb_path(&self.decks, reverb.preset);
-            // Versioned filenames let us reuse existing assets without reading their contents.
-            if !path.is_file() {
-                std::fs::create_dir_all(path.parent().unwrap())
-                    .map_err(|e| Error::Reverb(e.to_string()))?;
-                let bytes = REVERB_PRESETS[reverb.preset as usize - 1].1;
-                std::fs::write(&path, bytes).map_err(|e| Error::Reverb(e.to_string()))?;
-            }
+            ensure_reverb_asset(&self.decks, reverb.preset)?;
         }
         let previous = *af;
         let wanted = AudioFilters { speed, semitones, reverb, ..previous };
@@ -829,6 +822,20 @@ fn reverb_path(decks: &Decks, preset: u8) -> std::path::PathBuf {
     std::path::Path::new(&decks.cache_dir).join("effects").join(format!("reverb-{name}-v1.wav"))
 }
 
+fn ensure_reverb_asset(decks: &Decks, preset: u8) -> Result<std::path::PathBuf, Error> {
+    let path = reverb_path(decks, preset);
+    let bytes = REVERB_PRESETS[preset as usize - 1].1;
+    // Versioned assets need only a size check; valid extra WAV chunks can stay in place.
+    if !std::fs::metadata(&path).is_ok_and(|m| m.is_file() && m.len() >= bytes.len() as u64) {
+        let error = |e: std::io::Error| Error::Reverb(e.to_string());
+        std::fs::create_dir_all(path.parent().unwrap()).map_err(error)?;
+        let temporary = path.with_extension("wav.tmp");
+        std::fs::write(&temporary, bytes).map_err(error)?;
+        std::fs::rename(&temporary, &path).map_err(error)?;
+    }
+    Ok(path)
+}
+
 fn apply_filters(decks: &Decks, deck: usize, af: &AudioFilters) -> Result<(), Error> {
     let Some(mpv) = decks.mpv(deck) else { return Ok(()) };
     let mut chain = af_chain(af.gain[deck], 0, 1.0);
@@ -844,6 +851,7 @@ fn apply_filters(decks: &Decks, deck: usize, af: &AudioFilters) -> Result<(), Er
             );
             chain.push_str(&format!("@reverb:lavfi=graph=%{}%{graph}:o=%9%threads=1", graph.len()));
         } else {
+            let path = ensure_reverb_asset(decks, af.reverb.preset)?;
             let normalization = if let Some(option) = decks.afir_normalization.get() {
                 *option
             } else {
@@ -860,13 +868,7 @@ fn apply_filters(decks: &Decks, deck: usize, af: &AudioFilters) -> Result<(), Er
                 let _ = decks.afir_normalization.set(option);
                 option
             };
-            chain.push_str(&reverb_filter(
-                &reverb_path(decks, af.reverb.preset),
-                af.reverb,
-                normalization,
-                af.speed,
-                af.semitones,
-            ));
+            chain.push_str(&reverb_filter(&path, af.reverb, normalization, af.speed, af.semitones));
         }
     }
     // The audible room graph already stretches its input; never add a second Rubber Band.
@@ -1649,6 +1651,14 @@ mod tests {
         std::fs::remove_file(&asset).unwrap();
         p.set_playback_params(1.0, 0, reverb(3)).unwrap();
         assert!(std::fs::read(&asset).unwrap() == embedded, "missing IR was not restored");
+
+        std::fs::remove_file(&asset).unwrap();
+        p.set_gain(Some(-3.0)).unwrap();
+        assert!(std::fs::read(&asset).unwrap() == embedded, "gain update did not restore the IR");
+
+        std::fs::write(&asset, &embedded[..44]).unwrap();
+        p.set_playback_params(0.8, 0, reverb(3)).unwrap();
+        assert!(std::fs::read(&asset).unwrap() == embedded, "truncated IR was not repaired");
     }
 
     /// Everything above is string-building; this drives a real libmpv and reads `af` back out of
