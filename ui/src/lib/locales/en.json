@@ -164,6 +164,8 @@
 		"video": "Video",
 		"playing_from": "Playing from",
 		"exit_theater": "Exit theater mode",
+		"fullscreen_video": "Fullscreen video",
+		"exit_fullscreen_video": "Exit fullscreen video",
 		"up_next": "Up next",
 		"now_playing": "Now Playing",
 		"autoplay_notice": "Autoplay is on",
