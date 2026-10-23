@@ -17,7 +17,7 @@ function deferred() {
 }
 const source = readFileSync(new URL('./player.svelte.ts', import.meta.url), 'utf8');
 const commandStart = source.indexOf('export function setTempoPitch(');
-const commandEnd = source.indexOf('// Mute *is* volume', commandStart);
+const commandEnd = source.indexOf('// playback-effects-check:end', commandStart);
 const initStart = source.indexOf('export function initApp(');
 ok(commandStart >= 0 && commandEnd > commandStart && initStart >= 0, 'Effect handlers must be found');
 const code = stripTypeScriptTypes(

@@ -937,6 +937,7 @@ export function setTempoPitch(speed: number, semitones: number, reverb = playbac
 		playback.reverb = { ...playback.reverb }; // Discard a slider draft if Rust refused it.
 	});
 }
+// playback-effects-check:end
 
 // Mute *is* volume 0 — no separate flag, so dragging the slider off zero un-mutes for free and the
 // icon can't disagree with what you hear. Remembers the level to come back to; falls back to 100
