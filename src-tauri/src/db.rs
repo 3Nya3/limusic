@@ -901,6 +901,17 @@ impl Db {
         out
     }
 
+    /// When each song heard since `since` was last heard. Radio pages put these behind the songs
+    /// you haven't heard (`AppState::freshen_radio`).
+    pub fn last_played(&self, since: i64) -> Vec<(String, i64)> {
+        all(
+            &self.0.lock().unwrap(),
+            "SELECT video_id, MAX(played_at) FROM listens WHERE played_at >= ?1 GROUP BY video_id",
+            [since],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+    }
+
     /// Everything the stats page draws for `[since, now)`, in one lock. Grouping by the local
     /// calendar (`'localtime'`) is SQLite's, which reads the same zone the webview does.
     pub fn listening(&self, since: i64, now: i64) -> Listening {
@@ -1489,6 +1500,10 @@ mod tests {
             d.play_counts(1_500) == vec![("c".into(), 1)],
             "`since` cuts the same way it does for top_plays"
         );
+
+        let mut last = d.last_played(900);
+        last.sort();
+        assert_eq!(last, vec![("a".into(), 1_100), ("b".into(), 1_060), ("c".into(), 2_000)]);
     }
 
     #[test]

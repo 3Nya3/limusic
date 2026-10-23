@@ -9,6 +9,7 @@
 		Comment01Icon,
 		Maximize01Icon,
 		Minimize01Icon,
+		FullScreenIcon,
 		Mic01Icon,
 		MusicNote01Icon,
 		PlayIcon,
@@ -616,6 +617,24 @@
 													: ''}"
 											/>
 										</span>
+									</button>
+								{/if}
+								{#if showVideo()}
+									<!-- Opens theater straight into cinema. data-np-keep: without it the backdrop
+									     click handler treats this as a click outside and closes Now Playing, and its
+									     hole teardown blanks the picture under theater. -->
+									<button
+										type="button"
+										onclick={() => {
+											video.cinema = true;
+											ui.theaterOpen = true;
+										}}
+										class="flex size-10 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
+										aria-label={t('player.fullscreen_video')}
+										title="{t('player.fullscreen_video')} (F)"
+										data-np-keep
+									>
+										<HugeiconsIcon icon={FullScreenIcon} class="h-5 w-5" />
 									</button>
 								{/if}
 								{#if currentSong}

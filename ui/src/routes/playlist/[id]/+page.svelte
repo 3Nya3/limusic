@@ -1,7 +1,8 @@
 <script lang="ts">
-	import { untrack } from 'svelte';
+	import { untrack, tick } from 'svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
+	import { MediaQuery } from 'svelte/reactivity';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import {
 		PlayIcon,
@@ -12,6 +13,7 @@
 		Radio02Icon,
 		ArrowUpNarrowWideIcon,
 		ArrowDownWideNarrowIcon,
+		ArrowDownBigIcon,
 		DashboardSquare02Icon,
 		PlayListAddIcon,
 		Share08Icon,
@@ -31,7 +33,7 @@
 	import { Skeleton } from '$lib/components/ui/skeleton';
 	import TrackRow from '$lib/components/TrackRow.svelte';
 	import TrackColumns, { chosen, loadMyPlays, myPlays } from '$lib/components/TrackColumns.svelte';
-	import { availableColumns } from '$lib/trackcolumns';
+	import { availableColumns, fitColumns } from '$lib/trackcolumns';
 	import TrackSelectionBar from '$lib/components/TrackSelectionBar.svelte';
 	import TrackSelectButton from '$lib/components/TrackSelectButton.svelte';
 	import { trackSelection } from '$lib/selection.svelte';
@@ -41,6 +43,7 @@
 	import TrackRowSkeleton from '$lib/components/TrackRowSkeleton.svelte';
 	import PlaylistSuggestions from '$lib/components/PlaylistSuggestions.svelte';
 	import ErrorState from '$lib/components/ErrorState.svelte';
+	import NowPlayingPill from '$lib/components/NowPlayingPill.svelte';
 	import * as api from '$lib/api';
 	import { ON_REPEAT_ID } from '$lib/api';
 	import type { BrowseItem, PlaylistPage, SongItem } from '$lib/api';
@@ -50,6 +53,7 @@
 	import { anchorMenu, fitMenu, NO_ANCHOR } from '$lib/menu';
 	import { rowWindow } from '$lib/rows';
 	import { rowScroller } from '$lib/rows.svelte';
+	import { restoreTo } from '$lib/scrollrestore';
 	import { t } from '$lib/i18n.svelte';
 	import { imp, updateFromSpotify } from '$lib/import.svelte';
 	import {
@@ -271,7 +275,8 @@
 	const availCols = $derived(
 		availableColumns(pl?.items ?? []).filter((c) => c !== 'added' || !pl?.collaborative)
 	);
-	const cols = $derived(availCols.filter((c) => chosen.list.includes(c)));
+	let listPx = $state(0);
+	const cols = $derived(fitColumns(availCols.filter((c) => chosen.list.includes(c)), listPx));
 
 	// A sort has to cover the whole playlist, not the pages scrolled so far, so pull the rest in.
 	// Stops on a failed page (`moreError`), on navigation, and on any pass that made no progress.
@@ -443,6 +448,7 @@
 		query = '';
 		applied = '';
 		searchOpened = false;
+		scrollingToEnd = false;
 		clearTimeout(filterTimer);
 		// A page that failed on the last playlist would otherwise keep this one's retry state
 		// showing, and block the filter's own walk (`loadAll` bails while it's set).
@@ -670,6 +676,70 @@
 	const win = $derived(
 		rowWindow(sc.scrollTop - sc.offsetPx, sc.viewportPx, shown.length, sc.rowPx)
 	);
+
+	let scrollerEl = $state<HTMLElement | null>(null);
+	let scrollingToEnd = $state(false);
+
+	// Pull the rest of the playlist in before scrolling, so the end of the whole list is reached
+	// rather than just the rows mounted so far. The button pulses, disabled, while the walk runs.
+	async function scrollToEnd() {
+		if (!pl?.items.length || scrollingToEnd || !scrollerEl) return;
+		const pid = id;
+		scrollingToEnd = true;
+		try {
+			if (pl?.continuation) {
+				await loadAll();
+			}
+			await tick();
+			if (pid !== id || !scrollerEl?.isConnected) return;
+			scrollerEl.scrollTop = scrollerEl.scrollHeight;
+		} finally {
+			if (pid === id) scrollingToEnd = false;
+		}
+	}
+
+	// Back from an artist page lands where you left the list (#366). Kit hands the offset over once
+	// the page has mounted, when a cache miss is still loading and has no scroller yet, so it waits
+	// for one; the settle loop then rides out the rows filling in.
+	let restoreY = $state<number | null>(null);
+	export const snapshot = {
+		capture: () => scrollerEl?.scrollTop,
+		restore: (y: unknown) => {
+			if (typeof y === 'number') restoreY = y;
+		}
+	};
+	$effect(() => {
+		if (!scrollerEl || restoreY === null) return;
+		restoreTo(scrollerEl, restoreY);
+		restoreY = null;
+	});
+
+	// The playing track's row, and the queue's pill back to it while it is off screen (#366).
+	// Arithmetic on what the windowing already tracks, so it costs no layout read.
+	// ponytail: the first row holding the track, so a playlist with it twice jumps to the first.
+	const playingRow = $derived(nowId ? shown.findIndex((s) => s.video_id === nowId) : -1);
+	const playingY = $derived(sc.offsetPx + playingRow * sc.rowPx);
+	const away = $derived(
+		playingRow >= 0 &&
+			sc.viewportPx > 0 &&
+			(playingY + sc.rowPx <= sc.scrollTop || playingY >= sc.scrollTop + sc.viewportPx)
+	);
+	const reducedMotion = new MediaQuery('(prefers-reduced-motion: reduce)');
+
+	// Centred, so the songs coming up show under it. Smooth across thousands of rows would mount
+	// every window on the way, so a long trip lands a screen short first, as the queue does.
+	function toPlaying() {
+		const el = scrollerEl;
+		if (!el || playingRow < 0) return;
+		const top = playingY - (el.clientHeight - sc.rowPx) / 2;
+		if (reducedMotion.current) {
+			el.scrollTop = top;
+			return;
+		}
+		const gap = el.scrollTop - top;
+		if (Math.abs(gap) > 2 * el.clientHeight) el.scrollTop = top + Math.sign(gap) * el.clientHeight;
+		el.scrollTo({ top, behavior: 'smooth' });
+	}
 
 	// One page per approach to the bottom: the observer only fires when the sentinel *enters* view,
 	// so an appended page that pushes it back out is required before the next fetch. rootMargin
@@ -980,7 +1050,8 @@
 	}
 </script>
 
-<div class="flex h-full flex-col">
+<!-- relative: the Now playing pill floats over the bottom of the scroller. -->
+<div class="relative flex h-full flex-col">
 	{#if loading}
 		<div class="flex items-end gap-6 p-6">
 			<Skeleton class="h-40 w-40 shrink-0 rounded-xl" />
@@ -1000,8 +1071,13 @@
 		<div class="p-6"><ErrorState message={error} onRetry={() => load(id)} /></div>
 	{:else if pl}
 		<!-- One scroller for the whole page: the header scrolls away above the rows, same as the
-		     album page. -->
-		<div class="content-in min-h-0 flex-1 overflow-y-auto" {@attach sc.attach}>
+		     album page. `pb-12` is the Now playing pill's height plus its offset, so at the end of
+		     the list it covers no row (#380 on the queue). -->
+		<div
+			bind:this={scrollerEl}
+			class="content-in min-h-0 flex-1 overflow-y-auto pb-12"
+			{@attach sc.attach}
+		>
 			<div class="relative flex min-h-[38vh] shrink-0 items-end gap-6 overflow-hidden p-6">
 				<!-- The backdrop and its fade share one layer (`art-wash` on the wrapper): see HomeHero. -->
 				<div class="art-wash pointer-events-none absolute inset-0 overflow-hidden">
@@ -1107,7 +1183,7 @@
 							/>
 						</div>
 						<!-- Pushed to the far end of the header, away from the play controls. -->
-						<div class="flex items-center gap-1">
+						<div class="flex items-center">
 							<Button
 								variant="ghost"
 								size="sm"
@@ -1120,13 +1196,27 @@
 							</Button>
 							<Button
 								variant="ghost"
-								size="icon"
+								size="icon-sm"
 								class={desc ? '' : 'text-muted-foreground'}
 								aria-label={t('sort.direction', { dir: desc ? t('sort.descending') : t('sort.ascending') })}
 								onclick={toggleDesc}
 								disabled={!pl.items.length}
 							>
 								<HugeiconsIcon icon={ArrowUpDownIcon} class="h-4 w-4" />
+							</Button>
+							<Button
+								variant="ghost"
+								size="icon-sm"
+								class="text-muted-foreground"
+								aria-label={t('player.scroll_to_end')}
+								title={t('player.scroll_to_end')}
+								onclick={scrollToEnd}
+								disabled={scrollingToEnd || !pl.items.length}
+							>
+								<HugeiconsIcon
+									icon={ArrowDownBigIcon}
+									class="h-4 w-4 {scrollingToEnd ? 'animate-pulse' : ''}"
+								/>
 							</Button>
 						</div>
 					</div>
@@ -1149,8 +1239,8 @@
 				aria-busy={resorting}
 			>
 				{#if shown.length}
-					<!-- A size container: the columns' widths read it (`trackcolumns.ts`). -->
-					<div class="@container">
+					<!-- Its width decides which columns fit (`fitColumns`). -->
+					<div bind:clientWidth={listPx}>
 						<TrackColumns available={availCols} columns={cols} selecting={selection.active} />
 						<!-- The padding stands in for the rows outside the window, so the scrollbar is the
 						     length of the whole playlist even though only ~30 rows exist.
@@ -1235,6 +1325,10 @@
 				{/key}
 			{/if}
 		</div>
+		<!-- Not while selecting: the selection bar sits in the same spot. -->
+		{#if away && !selection.active && appearance.nowPlayingPill}
+			<NowPlayingPill above={playingY < sc.scrollTop} onclick={toPlaying} />
+		{/if}
 	{/if}
 </div>
 

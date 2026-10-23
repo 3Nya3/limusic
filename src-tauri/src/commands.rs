@@ -242,7 +242,7 @@ pub async fn get_queue(state: St<'_>) -> Result<serde_json::Value, String> {
 /// `visitor_data`) and internal blobs (`queue_json`, `queue_index`, `queue_position`) never cross
 /// into the webview: they'd otherwise ship the login credential to the renderer on every open, and
 /// the webview can't overwrite them either.
-const UI_SETTINGS: [&str; 31] = [
+const UI_SETTINGS: [&str; 32] = [
     "volume",
     "proxy",
     "quality",
@@ -254,6 +254,7 @@ const UI_SETTINGS: [&str; 31] = [
     "close_to_tray",
     "track_notifications",
     "track_notifications_focused",
+    "play_on_start",
     "autostart",
     "start_minimized",
     "autoplay",
@@ -785,6 +786,7 @@ pub fn take_launch_args() -> Vec<String> {
 
 #[tauri::command]
 pub async fn show_main(state: St<'_>, window: tauri::WebviewWindow) -> Result<bool, String> {
+    crate::UI_MOUNTED.notify_one();
     if crate::should_start_minimized(&state.db) {
         return Ok(false);
     }
@@ -818,12 +820,7 @@ pub async fn get_home_more(state: St<'_>, token: String) -> Result<HomePage, Str
 /// on every try. Any status counts, only getting no reply means the network is still down.
 #[tauri::command]
 pub async fn network_reachable() -> bool {
-    crate::http::client()
-        .head("https://music.youtube.com/")
-        .timeout(std::time::Duration::from_secs(5))
-        .send()
-        .await
-        .is_ok()
+    crate::http::network_reachable().await
 }
 
 /// Why a comments command failed, as a stable word the UI words itself. Details go to the debug log.
@@ -1519,7 +1516,7 @@ fn require_login(state: &Arc<AppState>) -> Result<&innertube::YouTubeClient, Str
 #[tauri::command]
 pub async fn rate(state: St<'_>, video_id: String, rating: Rating) -> Result<(), String> {
     let client = require_login(&state)?;
-    // Before the write, not after: a `refresh_rating` round trip already in flight was asked
+    // Before the write, not after: a `refresh_from_next` round trip already in flight was asked
     // before this rating existed, so its answer is stale from here on either way (issue #93).
     state.rate_epoch.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     state.it.rate(client, &video_id, rating).await.map_err(|e| e.to_string())
