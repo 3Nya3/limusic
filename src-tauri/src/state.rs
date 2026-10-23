@@ -1822,7 +1822,7 @@ impl AppState {
             let resume = q.duration > 0.0 && pos > 1.0 && pos < q.duration;
             let Some(item) = q.items.get_mut(cur) else { return };
             let old = item.video_id.clone();
-            let pos = twin_position(pos, item.counterpart_offset_ms);
+            let pos = twin_position(pos, &item.counterpart_segments);
             if !swap_version(item) {
                 return;
             }
@@ -4181,7 +4181,7 @@ fn track_to_song(t: &Track) -> SongItem {
         // Only the host switches versions (`switch_version`), so a guest's row needs no twin.
         counterpart: None,
         counterpart_thumbnail: None,
-        counterpart_offset_ms: 0,
+        counterpart_segments: Vec::new(),
         // The Listen Together wire shape carries no upload flag either; a guest could not stream
         // the host's upload anyway, so false is the right answer, not a lossy one.
         is_upload: false,
@@ -4608,25 +4608,55 @@ pub(crate) fn swap_version(item: &mut SongItem) -> bool {
     if let (Some(a), Some(b)) = (item.thumbnail.as_mut(), item.counterpart_thumbnail.as_mut()) {
         std::mem::swap(a, b);
     }
-    item.counterpart_offset_ms = -item.counterpart_offset_ms;
-    true
-}
-
-/// Take `from`'s twin, with its art and offset, when `into` has none. True when it did.
-fn adopt_twin(into: &mut SongItem, from: &SongItem) -> bool {
-    if into.counterpart.is_some() || from.counterpart.is_none() {
-        return false;
+    for seg in &mut item.counterpart_segments {
+        std::mem::swap(&mut seg.start_ms, &mut seg.twin_start_ms);
     }
-    into.counterpart = from.counterpart.clone();
-    into.counterpart_thumbnail = from.counterpart_thumbnail.clone();
-    into.counterpart_offset_ms = from.counterpart_offset_ms;
+    // `twin_position` walks them in this version's order.
+    item.counterpart_segments.sort_by_key(|s| s.start_ms);
     true
 }
 
-/// Where `pos` (seconds into this version) falls in its counterpart, which starts `offset_ms` into
-/// this one: a video's intro is skipped going to the song and added back coming from it (#520).
-fn twin_position(pos: f64, offset_ms: i64) -> f64 {
-    (pos - offset_ms as f64 / 1000.0).max(0.0)
+/// Take `from`'s twin, with its art and segments, when `into` has none, or fill in what `into`
+/// lacks for the same twin. True when anything changed.
+fn adopt_twin(into: &mut SongItem, from: &SongItem) -> bool {
+    let Some(twin) = &from.counterpart else { return false };
+    match &into.counterpart {
+        None => {
+            into.counterpart = Some(twin.clone());
+            into.counterpart_thumbnail = from.counterpart_thumbnail.clone();
+            into.counterpart_segments = from.counterpart_segments.clone();
+            true
+        }
+        // An album page names the video but carries neither its art nor the segments (#535).
+        Some(have) if have == twin => {
+            let mut learned = false;
+            if into.counterpart_thumbnail.is_none() && from.counterpart_thumbnail.is_some() {
+                into.counterpart_thumbnail = from.counterpart_thumbnail.clone();
+                learned = true;
+            }
+            if into.counterpart_segments.is_empty() && !from.counterpart_segments.is_empty() {
+                into.counterpart_segments = from.counterpart_segments.clone();
+                learned = true;
+            }
+            learned
+        }
+        Some(_) => false,
+    }
+}
+
+/// Where `pos` (seconds into this version) falls in its counterpart, through the segment playing
+/// (#520, #535). An intro or a break in the video has no moment in the song, so it lands where the
+/// song picks up again; past the last segment, at its end. No segments: the same timestamp.
+fn twin_position(pos: f64, segments: &[innertube::Segment]) -> f64 {
+    let ms = (pos * 1000.0).round() as i64;
+    let twin_ms = match segments.iter().find(|s| ms < s.start_ms + s.duration_ms) {
+        Some(s) => s.twin_start_ms + (ms - s.start_ms).max(0),
+        None => match segments.last() {
+            Some(s) => s.twin_start_ms + s.duration_ms,
+            None => return pos,
+        },
+    };
+    twin_ms as f64 / 1000.0
 }
 
 /// Whether a row YouTube pairs with its other version should play the music video (#464).
@@ -4834,17 +4864,19 @@ mod tests {
             counterpart: Some("video".into()),
             thumbnail: Some("cover".into()),
             counterpart_thumbnail: Some("frame".into()),
-            counterpart_offset_ms: -5477,
+            counterpart_segments: vec![seg(0, 5477, 484451)],
             ..Default::default()
         };
         assert!(swap_version(&mut it));
         assert_eq!((it.video_id.as_str(), it.counterpart.as_deref()), ("video", Some("audio")));
         assert!(it.is_video);
-        assert_eq!((it.thumbnail.as_deref(), it.counterpart_offset_ms), (Some("frame"), 5477));
+        assert_eq!(it.thumbnail.as_deref(), Some("frame"));
+        assert_eq!(it.counterpart_segments, [seg(5477, 0, 484451)]);
         assert!(swap_version(&mut it));
         assert_eq!((it.video_id.as_str(), it.counterpart.as_deref()), ("audio", Some("video")));
         assert!(!it.is_video);
-        assert_eq!((it.thumbnail.as_deref(), it.counterpart_offset_ms), (Some("cover"), -5477));
+        assert_eq!(it.thumbnail.as_deref(), Some("cover"));
+        assert_eq!(it.counterpart_segments, [seg(0, 5477, 484451)]);
         // An album row knows no art for its twin: it keeps its own rather than losing it.
         let mut album = innertube::SongItem {
             video_id: "audio".into(),
@@ -4860,13 +4892,33 @@ mod tests {
         assert_eq!(lone.video_id, "a");
     }
 
+    fn seg(start_ms: i64, twin_start_ms: i64, duration_ms: i64) -> innertube::Segment {
+        innertube::Segment { start_ms, twin_start_ms, duration_ms }
+    }
+
     // The Mirrors pair from #520: the song starts 5.477 s into the video.
     #[test]
     fn a_switch_lands_on_the_same_moment_of_the_other_version() {
-        assert!((twin_position(100.0, 5477) - 94.523).abs() < 1e-9); // video -> song
-        assert!((twin_position(94.523, -5477) - 100.0).abs() < 1e-9); // and back
-        assert_eq!(twin_position(3.0, 5477), 0.0); // still in the intro: the song's start
-        assert_eq!(twin_position(42.0, 0), 42.0); // no segmentMap, as before
+        let video = [seg(5477, 0, 484451)];
+        let song = [seg(0, 5477, 484451)];
+        assert_eq!(twin_position(100.0, &video), 94.523);
+        assert_eq!(twin_position(94.523, &song), 100.0); // and back
+        assert_eq!(twin_position(3.0, &video), 0.0); // still in the intro: the song's start
+        assert_eq!(twin_position(42.0, &[]), 42.0); // no segmentMap: the same timestamp
+    }
+
+    // "Locked Away" from #535: the video breaks between 1:49.1 and 2:03.6, so a switch after the
+    // break is 14.5 s further along than the intro alone says.
+    #[test]
+    fn a_switch_maps_through_every_segment() {
+        let song = [seg(0, 22698, 86438), seg(86439, 123644, 141061)];
+        let video = [seg(22698, 0, 86438), seg(123644, 86439, 141061)];
+        assert_eq!(twin_position(60.0, &song), 82.698);
+        assert_eq!(twin_position(150.0, &song), 187.205); // the first segment alone: 172.698
+        assert_eq!(twin_position(187.205, &video), 150.0);
+        assert_eq!(twin_position(10.0, &video), 0.0); // the intro: the song's start
+        assert_eq!(twin_position(115.0, &video), 86.439); // the break: where the song picks up
+        assert_eq!(twin_position(265.5, &video), 227.5); // the outro: the song's end
     }
 
     #[test]
@@ -4875,18 +4927,42 @@ mod tests {
             video_id: "v".into(),
             counterpart: Some("s".into()),
             counterpart_thumbnail: Some("cover".into()),
-            counterpart_offset_ms: 5477,
+            counterpart_segments: vec![seg(5477, 0, 484451)],
             ..Default::default()
         };
         let mut row = innertube::SongItem { video_id: "v".into(), ..Default::default() };
         assert!(adopt_twin(&mut row, &twin));
         assert_eq!(row.counterpart_thumbnail.as_deref(), Some("cover"));
-        assert_eq!(row.counterpart_offset_ms, 5477);
+        assert_eq!(row.counterpart_segments, [seg(5477, 0, 484451)]);
         // A row that already knows its twin (an album swap, an earlier answer) keeps it.
         assert!(!adopt_twin(&mut row, &innertube::SongItem::default()));
         let other = innertube::SongItem { counterpart: Some("x".into()), ..Default::default() };
         assert!(!adopt_twin(&mut row, &other));
         assert_eq!(row.counterpart.as_deref(), Some("s"));
+        // An album row knows its twin from the album page, without art or segments: the same
+        // twin fills them in, once.
+        let mut album = innertube::SongItem {
+            video_id: "v".into(),
+            counterpart: Some("s".into()),
+            ..Default::default()
+        };
+        assert!(adopt_twin(&mut album, &twin));
+        assert_eq!(album.counterpart_thumbnail.as_deref(), Some("cover"));
+        assert_eq!(album.counterpart_segments, [seg(5477, 0, 484451)]);
+        assert!(!adopt_twin(&mut album, &twin));
+    }
+
+    // A video that reorders the song's parts would swap into segments out of order.
+    #[test]
+    fn swapped_segments_stay_in_order() {
+        let mut it = innertube::SongItem {
+            video_id: "v".into(),
+            counterpart: Some("s".into()),
+            counterpart_segments: vec![seg(0, 50000, 10000), seg(20000, 0, 10000)],
+            ..Default::default()
+        };
+        assert!(swap_version(&mut it));
+        assert_eq!(it.counterpart_segments, [seg(0, 20000, 10000), seg(50000, 0, 10000)]);
     }
 
     #[test]
