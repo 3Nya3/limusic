@@ -131,6 +131,9 @@ export const appearance = $state({
 	tabbedPlayer: true,
 	/** Starting playback opens the now-playing view. Off, it plays and leaves you where you are (#64). */
 	openPlayerOnPlay: true,
+	/** A click on empty player-bar space toggles the now-playing view, and one around the artwork
+	 *  closes it (#302). Off, only the buttons and shortcuts do, for whoever trips it by accident. */
+	emptyClickTogglesPlayer: true,
 	/** Take the accent colour from the playing track's cover, crossfading on each change. */
 	artworkAccent: false,
 	/** Theater mode's second and third columns (#297). Sticky, like every view toggle. */
@@ -529,6 +532,7 @@ export function initTheme(): void {
 			'classicPlayer',
 			'tabbedPlayer',
 			'openPlayerOnPlay',
+			'emptyClickTogglesPlayer',
 			'artworkAccent',
 			'theaterLyrics',
 			'theaterQueue',

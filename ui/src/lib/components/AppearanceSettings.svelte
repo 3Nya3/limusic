@@ -449,6 +449,11 @@
 					control: openPlayerSwitch
 				})}
 				{@render row({
+					title: t('settings.themes.empty_click_player'),
+					desc: t('settings.themes.empty_click_player_hint'),
+					control: emptyClickSwitch
+				})}
+				{@render row({
 					title: t('settings.themes.tabbed_player'),
 					desc: t('settings.themes.tabbed_player_hint'),
 					control: tabbedSwitch
@@ -687,6 +692,10 @@
 {#snippet openPlayerSwitch()}<Switch
 		checked={appearance.openPlayerOnPlay}
 		onCheckedChange={(on) => setAppearance({ openPlayerOnPlay: on })}
+	/>{/snippet}
+{#snippet emptyClickSwitch()}<Switch
+		checked={appearance.emptyClickTogglesPlayer}
+		onCheckedChange={(on) => setAppearance({ emptyClickTogglesPlayer: on })}
 	/>{/snippet}
 {#snippet tabbedSwitch()}<Switch
 		checked={appearance.tabbedPlayer}
