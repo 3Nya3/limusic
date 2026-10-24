@@ -92,7 +92,8 @@
 		patchLibraryPlaylist,
 		forgetPlaylist,
 		lastPlaylistAdd,
-		lastPlaylistRemove
+		lastPlaylistRemove,
+		refreshLocalPlaylists
 	} from '$lib/player.svelte';
 
 	// `$state.raw`, not `$state`: a deep proxy makes every read of a row go through a trap and
@@ -118,7 +119,10 @@
 	let moving = $state(false);
 
 	function onDragStart(e: DragEvent, n: number) {
-		if (!e.dataTransfer) return;
+		// A child's drag bubbles here too (the cover art is a native image drag), so check the row
+		// is reorderable at all, not just `draggable`: with a filter or a sort, `n` is not an index
+		// into `pl.items`.
+		if (!e.dataTransfer || !canReorder || moving || !shown[n]?.set_video_id) return;
 		e.dataTransfer.setData(PLAYLIST_ROW_MIME, String(n));
 		e.dataTransfer.effectAllowed = 'move';
 		dragFrom = n;
@@ -155,17 +159,28 @@
 		const pid = id;
 		const moved = prev[from];
 		const before = successorId(prev, from, to);
+		const local = api.isLocalPlaylist(pid);
+		// A playlist on this device has its first track's art as its thumbnail
+		// (`local_playlist_page`), so that follows the rows.
+		const withItems = (items: SongItem[]) => ({
+			...pl!,
+			items,
+			...(local && { thumbnail: items[0]?.thumbnail })
+		});
 		// moves are serialized (`moving`) and a result that arrives after navigating
 		// to another playlist must not touch the current one.
 		moving = true;
-		pl = { ...pl, items: next };
+		pl = withItems(next);
 		try {
 			await api.moveInPlaylist(pid, moved.set_video_id!, before);
 			invalidateCachedPrefix(`playlist:${pid}`);
 			if (pid === id) cacheCurrent();
+			// The sidebar cover of a playlist on this device is its first track's art.
+			if (local) refreshLocalPlaylists();
 		} catch (e) {
 			if (pid === id && pl) {
-				pl = { ...pl, items: prev };
+				// Keep any page that arrived while the move was in the air.
+				pl = withItems([...prev, ...pl.items.slice(next.length)]);
 				cacheCurrent();
 			}
 			toast.error(String(e));
@@ -337,9 +352,10 @@
 		() => (filtering ? undefined : headerCount), loadAll);
 	const filtering = $derived(!!applied.trim());
 	// Requires default manual order, no reverse, no filter, and no selection active, otherwise
-	// the rendered row indexes would not match `pl.items`.
+	// the rendered row indexes would not match `pl.items`. Not gated on `moving`: the rows stay
+	// `select-none` while a move saves, or a press in that window starts a text selection.
 	const canReorder = $derived(
-		editable && !isOnRepeat && sort === 'default' && !desc && !filtering && !selection.active && !resorting && !moving
+		editable && !isOnRepeat && sort === 'default' && !desc && !filtering && !selection.active && !resorting
 	);
 	// YouTube's own count, which is what the subtitle under the title shows until every page is in.
 	// An upper bound, not a count: it includes rows that never arrive (unavailable, region-blocked).
@@ -1337,8 +1353,8 @@
 								<!-- data-row: what the scroller measures a row's real height from. -->
 								<div
 									role="listitem"
-									class="relative {dragFrom === n ? 'opacity-40' : ''}"
-									draggable={canReorder && !!item.set_video_id}
+									class="relative {canReorder ? 'select-none' : ''} {dragFrom === n ? 'opacity-40' : ''}"
+									draggable={canReorder && !moving && !!item.set_video_id}
 									ondragstart={(e) => onDragStart(e, n)}
 									ondragover={(e) => onDragOver(e, n)}
 									ondrop={onDrop}

@@ -1172,7 +1172,6 @@ impl Db {
 
     /// Reorder a track within the playlist by moving `row` before `before` (or at the end if `None`),
     /// rewriting all positions sequentially and updating the playlist's `updated_at` timestamp.
-    #[allow(dead_code)]
     pub fn move_local_playlist_track(
         &self,
         id: i64,
