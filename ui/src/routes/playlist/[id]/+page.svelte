@@ -287,7 +287,7 @@
 		moreError = false; // a page that failed earlier gets another go on an explicit action
 		while (pl?.continuation && !moreError) {
 			const token = pl.continuation;
-			await loadMore();
+			await loadMore(headerCount);
 			if (pid !== id) return false;
 			if (pl?.continuation === token) break; // no progress, and nothing left to try
 		}
@@ -639,18 +639,19 @@
 
 	// One page at a time, shared: the scroll sentinel and the "load the rest before playing" walk
 	// both go through here, so they can never fire overlapping requests for the same token.
-	function loadMore(): Promise<void> {
-		inflight ??= fetchPage().finally(() => (inflight = null));
+	// `total` is for a walk: the backend then fetches the pages after this one too (#536).
+	function loadMore(total?: number): Promise<void> {
+		inflight ??= fetchPage(total).finally(() => (inflight = null));
 		return inflight;
 	}
 
-	async function fetchPage() {
+	async function fetchPage(total?: number) {
 		const token = pl?.continuation;
 		if (!token) return;
 		loadingMore = true;
 		moreError = false;
 		try {
-			const more = await api.getPlaylistMore(token);
+			const more = await api.getPlaylistMore(token, total);
 			if (pl?.continuation !== token) return; // stale (navigated or mutated mid-flight)
 			pl = {
 				...pl,
@@ -1290,7 +1291,7 @@
 				{#if pl.continuation}
 					{#if moreError}
 						<div class="p-3 text-center">
-							<Button variant="outline" size="sm" onclick={loadMore} disabled={loadingMore}>
+							<Button variant="outline" size="sm" onclick={() => loadMore()} disabled={loadingMore}>
 								{loadingMore ? t('common.loading') : t('common.try_again')}
 							</Button>
 						</div>

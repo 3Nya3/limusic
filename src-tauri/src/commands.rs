@@ -1347,13 +1347,20 @@ fn now_secs() -> i64 {
         .unwrap_or(0)
 }
 
+/// `total` is the playlist's track count, passed by a walk that wants the whole list: it fetches
+/// the pages after this one too, several at a time (`InnerTube::playlist_pages`, #536).
 #[tauri::command]
 pub async fn get_playlist_more(
     state: St<'_>,
     token: String,
+    total: Option<usize>,
 ) -> Result<PlaylistContinuation, String> {
     let client = metadata_client(&state)?;
-    state.it.playlist_continuation(client, &token).await.map_err(|e| e.to_string())
+    match total {
+        Some(total) => state.it.playlist_pages(client, &token, total).await,
+        None => state.it.playlist_continuation(client, &token).await,
+    }
+    .map_err(|e| e.to_string())
 }
 
 /// A batch of suggestions for a playlist you own (#395). `token` is the page's `suggestions`, the
