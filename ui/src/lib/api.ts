@@ -899,6 +899,9 @@ export const removeFromPlaylist = (playlistId: string, videoId: string, setVideo
 /** Bulk removal: one request, all or nothing. `tracks` is [videoId, setVideoId] per row. */
 export const removeManyFromPlaylist = (playlistId: string, tracks: [string, string][]) =>
 	invoke<void>('remove_many_from_playlist', { playlistId, tracks });
+/** Move a playlist row in front of another one (`beforeSetVideoId`), or to the end when null. */
+export const moveInPlaylist = (playlistId: string, setVideoId: string, beforeSetVideoId: string | null) =>
+	invoke<void>('move_in_playlist', { playlistId, setVideoId, beforeSetVideoId });
 /** `local` keeps it on this machine instead of the account, the only kind there is signed out.
  *  Answers the new id: a `LOCALPLAYLIST:` browseId for a local one, YouTube's playlist id else. */
 export const createPlaylist = (title: string, local = false) =>
