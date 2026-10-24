@@ -741,8 +741,10 @@ export const getPlaylist = (id: string, sort?: ServerSort, desc?: boolean) =>
  */
 export const setPlaylistSort = (playlistId: string, sort: ServerSort) =>
 	invoke<void>('set_playlist_sort', { playlistId, sort });
-export const getPlaylistMore = (token: string) =>
-	invoke<PlaylistContinuation>('get_playlist_more', { token });
+/** With `total` (the playlist's track count) it fetches several pages at once, for a walk that wants
+ *  the whole list. Without it, one page. */
+export const getPlaylistMore = (token: string, total?: number) =>
+	invoke<PlaylistContinuation>('get_playlist_more', { token, total });
 /** `token` is `PlaylistPage.suggestions`, the last batch's `refresh`, or nothing at all. */
 export const getPlaylistSuggestions = (playlistId: string, token?: string) =>
 	invoke<PlaylistSuggestions>('get_playlist_suggestions', { playlistId, token });

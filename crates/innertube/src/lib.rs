@@ -7,6 +7,7 @@
 pub mod blocklist;
 pub mod clients;
 pub mod comments_session;
+pub mod ctoken;
 pub mod endpoints;
 pub mod models;
 pub mod rustypipe_fallback;
