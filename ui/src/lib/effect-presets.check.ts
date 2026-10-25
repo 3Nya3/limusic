@@ -1,5 +1,8 @@
 // Run: node --experimental-strip-types ui/src/lib/effect-presets.check.ts
-import { readEffectPresets, presetSettings, sameEffects, type EffectPreset } from './effect-presets.ts';
+import {
+	BUILTIN_PRESETS, ORIGINAL, presetSettings, readEffectPresets, sameEffects, sameSound, withRoom,
+	type EffectPreset
+} from './effect-presets.ts';
 
 function ok(condition: boolean, message: string) {
 	if (!condition) throw new Error(message);
@@ -38,4 +41,15 @@ for (const value of [null, {}, [null], [{ ...preset, name: ' ' }], [{ ...preset,
 	rejects(JSON.stringify(value));
 }
 rejects('{broken');
+
+// Built-ins must pass the same checks as a saved preset, or the backend refuses them, and sit on
+// the tempo slider's 0.05 grid, or its thumb can't show them.
+readEffectPresets(JSON.stringify(BUILTIN_PRESETS.map(({ id, ...s }) => ({ name: id, ...s }))));
+ok(BUILTIN_PRESETS.every((p) => Math.abs(p.speed * 20 - Math.round(p.speed * 20)) < 1e-9), 'Built-in tempos are on the grid');
+ok(sameSound(ORIGINAL, { ...ORIGINAL, reverb: { ...ORIGINAL.reverb, wet: 90 } }),
+	'A switched-off reverb sounds the same whatever its settings');
+ok(!sameSound(ORIGINAL, { ...ORIGINAL, reverb: withRoom(ORIGINAL.reverb, 2) }), 'Reverb on is a different sound');
+ok(withRoom(preset.reverb, 5).decay === 3.2 && withRoom(preset.reverb, 5).wet === 40,
+	'A room brings its own length and keeps the amount');
+
 console.log('ok — effect presets');
