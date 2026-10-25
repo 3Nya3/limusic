@@ -1252,6 +1252,7 @@ impl AppState {
                 // the cache window (hours, and every track you just listened to) would fall back
                 // to the queue row's flag, which is exactly the thing that can't be trusted.
                 is_video: c.is_video,
+                is_episode: c.is_episode,
                 stream_client: c.client.unwrap_or_else(|| "cache".to_owned()),
             });
         }
@@ -1273,6 +1274,7 @@ impl AppState {
                     expires_at: now + data.expires_in_seconds.max(0),
                     loudness_db: data.loudness_db,
                     is_video: data.is_video,
+                    is_episode: data.is_episode,
                     ping_url: data.playback_ping.as_ref().map(|p| p.url.clone()),
                     ping_client: data.playback_ping.as_ref().map(|p| p.client.clone()),
                     client: Some(data.stream_client.clone()),
@@ -2241,6 +2243,7 @@ impl AppState {
             data.duration.as_deref(),
             data.artists.as_deref(),
             data.is_video,
+            data.is_episode,
         );
         self.attach_video(&item.video_id, item.is_video, &stream_url);
         {
@@ -2263,6 +2266,7 @@ impl AppState {
                         data.duration.as_deref(),
                         data.artists.as_deref(),
                         data.is_video,
+                        data.is_episode,
                     );
                 }
             }
@@ -2402,7 +2406,13 @@ impl AppState {
         // Same backfill as start_current: a gapless advance emits this item straight from the
         // queue, so the repair has to land before it becomes the current track.
         if let Some(qi) = q.items.get_mut(next_idx) {
-            backfill_metadata(qi, data.duration.as_deref(), data.artists.as_deref(), data.is_video);
+            backfill_metadata(
+                qi,
+                data.duration.as_deref(),
+                data.artists.as_deref(),
+                data.is_video,
+                data.is_episode,
+            );
             // Resolved now, minutes early, so the picture is there the moment the track starts.
             self.attach_video(&qi.video_id, qi.is_video, &url);
         }
@@ -2455,6 +2465,8 @@ impl AppState {
             // YouTube's own `musicVideoType` says this track is a video upload, not the generated
             // audio track, which is what the player view's music-video mode gates on (plan 031).
             "isVideo": item.is_video,
+            // Podcast controls in the transport (#500).
+            "isEpisode": item.is_episode,
         })
     }
 
@@ -3593,6 +3605,18 @@ impl AppState {
             self.history_pinged.store(false, Ordering::Relaxed);
             self.end_listen();
             q.duration = 0.0;
+            // The wire row carries neither flag, so this guest's own `/player` reply sets them, as
+            // `start_current` does: the music video and the podcast controls (#500).
+            let cur = q.current;
+            if let Some(qi) = q.items.get_mut(cur).filter(|qi| qi.video_id == track.id) {
+                backfill_metadata(
+                    qi,
+                    data.duration.as_deref(),
+                    data.artists.as_deref(),
+                    data.is_video,
+                    data.is_episode,
+                );
+            }
         }
         if let Some(item) = self.current_item().await {
             self.emit_now_playing(&item, "listen-together");
@@ -4251,6 +4275,8 @@ fn track_to_song(t: &Track) -> SongItem {
         queued_from: None,
         autoplay: false,
         is_video: false,
+        // Not on the wire either; `lt_apply_change_track` backfills it from the guest's `/player`.
+        is_episode: false,
         // Only the host switches versions (`switch_version`), so a guest's row needs no twin.
         counterpart: None,
         counterpart_thumbnail: None,
@@ -4761,6 +4787,7 @@ fn backfill_metadata(
     length_seconds: Option<&str>,
     author: Option<&str>,
     is_video: Option<bool>,
+    is_episode: Option<bool>,
 ) {
     if item.duration.is_none() {
         if let Some(secs) = length_seconds.and_then(|s| s.trim().parse::<i64>().ok()) {
@@ -4773,6 +4800,9 @@ fn backfill_metadata(
     // on an audio track would put the still album-art "video" on screen (plan 031).
     if let Some(is_video) = is_video {
         item.is_video = is_video;
+    }
+    if let Some(is_episode) = is_episode {
+        item.is_episode = is_episode;
     }
     if let Some(author) = author.map(str::trim).filter(|a| !a.is_empty()) {
         if item.artists.trim().is_empty() || item.artists.contains('•') {
@@ -5200,7 +5230,7 @@ mod tests {
 
         // No artist (an album track) → YouTube's own author.
         let mut it = with("", vec![]);
-        backfill_metadata(&mut it, None, Some("Delara"), None);
+        backfill_metadata(&mut it, None, Some("Delara"), None, None);
         assert_eq!(it.artists, "Delara");
 
         // A display subtitle that was parsed as the artist → replaced, and the links that pointed
@@ -5211,21 +5241,21 @@ mod tests {
             "Song • Dua Lipa",
         ] {
             let mut it = with(bogus, vec![bogus]);
-            backfill_metadata(&mut it, None, Some("Dua Lipa"), None);
+            backfill_metadata(&mut it, None, Some("Dua Lipa"), None, None);
             assert_eq!(it.artists, "Dua Lipa", "{bogus} should have been replaced");
             assert!(it.artist_runs.is_empty(), "{bogus}: stale links must not survive the swap");
         }
 
         // A real artist line is never second-guessed, links included. Collabs use "&" and ",".
         let mut it = with("Nicki Minaj, Ice Spice & Aqua", vec!["Nicki Minaj", " & ", "Aqua"]);
-        backfill_metadata(&mut it, None, Some("Nicki Minaj"), None);
+        backfill_metadata(&mut it, None, Some("Nicki Minaj"), None, None);
         assert_eq!(it.artists, "Nicki Minaj, Ice Spice & Aqua");
         assert_eq!(it.artist_runs.len(), 3);
 
         // Nothing to repair with (rustypipe served the stream, or /player had no author) → as-is.
         for author in [None, Some(""), Some("   ")] {
             let mut it = with("", vec![]);
-            backfill_metadata(&mut it, None, author, None);
+            backfill_metadata(&mut it, None, author, None, None);
             assert_eq!(it.artists, "");
         }
     }
@@ -5233,15 +5263,15 @@ mod tests {
     #[test]
     fn player_response_fills_only_a_missing_duration() {
         let mut it = song("v", None);
-        backfill_metadata(&mut it, Some("191"), None, None);
+        backfill_metadata(&mut it, Some("191"), None, None, None);
         assert_eq!(it.duration.as_deref(), Some("3:11"));
         // A duration the row already carried wins: it's the length of the cut YouTube listed.
         let mut it = innertube::SongItem { duration: Some("3:02".into()), ..song("v", None) };
-        backfill_metadata(&mut it, Some("191"), None, None);
+        backfill_metadata(&mut it, Some("191"), None, None, None);
         assert_eq!(it.duration.as_deref(), Some("3:02"));
         // Junk from the player response can't blank an existing one.
         let mut it = song("v", None);
-        backfill_metadata(&mut it, Some("not-a-number"), None, None);
+        backfill_metadata(&mut it, Some("not-a-number"), None, None, None);
         assert_eq!(it.duration, None);
     }
 
@@ -5251,16 +5281,22 @@ mod tests {
     #[test]
     fn player_response_settles_whether_the_track_is_a_video() {
         let mut it = song("v", None);
-        backfill_metadata(&mut it, None, None, Some(true));
+        backfill_metadata(&mut it, None, None, Some(true), None);
         assert!(it.is_video);
         // A stale `true` on what YouTube calls an audio track is cleared, not kept: video mode on
         // an art track shows a still image, which is worse than the artwork it replaced.
-        backfill_metadata(&mut it, None, None, Some(false));
+        backfill_metadata(&mut it, None, None, Some(false), None);
         assert!(!it.is_video);
         // Nothing said (rustypipe, or a cached URL) → whatever the row already claimed stands.
         it.is_video = true;
-        backfill_metadata(&mut it, None, None, None);
+        backfill_metadata(&mut it, None, None, None, None);
         assert!(it.is_video);
+        // The podcast flag (#500) on the same terms: an episode row stays one when nothing was said.
+        it.is_episode = true;
+        backfill_metadata(&mut it, None, None, None, None);
+        assert!(it.is_episode);
+        backfill_metadata(&mut it, None, None, None, Some(false));
+        assert!(!it.is_episode);
     }
 
     /// The trim is what keeps an endless radio session from growing the queue (and every emit and

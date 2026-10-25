@@ -939,6 +939,16 @@ export function setTempoPitch(speed: number, semitones: number, reverb = playbac
 }
 // playback-effects-check:end
 
+/** The podcast skip (#500), in the episode's own seconds whatever the tempo. Past the end is the
+ *  end, which advances the queue the way finishing the episode would. */
+export const SKIP_SECS = 15;
+export function skipBy(secs: number) {
+	const to = Math.max(0, Math.min(playback.position + secs, playback.duration || Infinity));
+	playback.position = to;
+	playback.positionAt = performance.now();
+	api.seek(to);
+}
+
 // Mute *is* volume 0 — no separate flag, so dragging the slider off zero un-mutes for free and the
 // icon can't disagree with what you hear. Remembers the level to come back to; falls back to 100
 // when the user dragged to zero themselves (nothing was remembered).

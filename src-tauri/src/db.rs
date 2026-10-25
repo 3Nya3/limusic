@@ -77,6 +77,9 @@ pub struct CachedStream {
     /// without it a replay inside the cache window can't tell the player view whether the track
     /// has a music video. `None` on rows written before the column existed.
     pub is_video: Option<bool>,
+    /// The same verdict read as "a podcast episode" (#500), so a replay keeps the podcast controls.
+    /// `None` on rows written before the column, and the queue row's own flag stands.
+    pub is_episode: Option<bool>,
     /// The watch-history ping (`videostatsPlaybackUrl` + the client that was issued it), cached for
     /// the same reason again: a hit skips `/player`, and without it every replay inside the cache
     /// window went unregistered. That included plenty of *first* listens, because the gapless
@@ -294,6 +297,8 @@ impl Db {
         if conn.execute("ALTER TABLE stream_url_cache ADD COLUMN client TEXT", []).is_ok() {
             let _ = conn.execute("DELETE FROM stream_url_cache", []);
         }
+        // Podcast episode (#500). No wipe: a NULL defers to the queue row, which episode pages flag.
+        let _ = conn.execute("ALTER TABLE stream_url_cache ADD COLUMN is_episode INTEGER", []);
         // Sweep dead stream URLs here as well as on write. `put_stream` only runs on a cache miss,
         // so a session spent replaying cached tracks never triggers one, and the backlog that
         // built up before anything pruned at all (1803 rows, 1772 of them expired, on a real
@@ -684,7 +689,7 @@ impl Db {
     pub fn get_stream(&self, video_id: &str, now: i64) -> Option<CachedStream> {
         let conn = self.0.lock().unwrap();
         conn.query_row(
-            "SELECT url, itag, expires_at, loudness_db, is_video, ping_url, ping_client, client FROM stream_url_cache WHERE video_id = ?1 AND expires_at > ?2",
+            "SELECT url, itag, expires_at, loudness_db, is_video, ping_url, ping_client, client, is_episode FROM stream_url_cache WHERE video_id = ?1 AND expires_at > ?2",
             rusqlite::params![video_id, now],
             |r| {
                 Ok(CachedStream {
@@ -696,6 +701,7 @@ impl Db {
                     ping_url: r.get(5)?,
                     ping_client: r.get(6)?,
                     client: r.get(7)?,
+                    is_episode: r.get(8)?,
                 })
             },
         )
@@ -717,8 +723,8 @@ impl Db {
     pub fn put_stream(&self, video_id: &str, row: &CachedStream, now: i64) {
         let conn = self.0.lock().unwrap();
         let _ = conn.execute(
-            "INSERT INTO stream_url_cache(video_id, url, itag, expires_at, loudness_db, is_video, ping_url, ping_client, client) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
-             ON CONFLICT(video_id) DO UPDATE SET url = excluded.url, itag = excluded.itag, expires_at = excluded.expires_at, loudness_db = excluded.loudness_db, is_video = excluded.is_video, ping_url = excluded.ping_url, ping_client = excluded.ping_client, client = excluded.client",
+            "INSERT INTO stream_url_cache(video_id, url, itag, expires_at, loudness_db, is_video, ping_url, ping_client, client, is_episode) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+             ON CONFLICT(video_id) DO UPDATE SET url = excluded.url, itag = excluded.itag, expires_at = excluded.expires_at, loudness_db = excluded.loudness_db, is_video = excluded.is_video, ping_url = excluded.ping_url, ping_client = excluded.ping_client, client = excluded.client, is_episode = excluded.is_episode",
             rusqlite::params![
                 video_id,
                 row.url,
@@ -728,7 +734,8 @@ impl Db {
                 row.is_video,
                 row.ping_url,
                 row.ping_client,
-                row.client
+                row.client,
+                row.is_episode
             ],
         );
         let _ = conn.execute("DELETE FROM stream_url_cache WHERE expires_at <= ?1", [now]);
@@ -1747,6 +1754,7 @@ mod tests {
             expires_at,
             loudness_db: None,
             is_video: None,
+            is_episode: None,
             ping_url: None,
             ping_client: None,
             client: None,
@@ -2421,6 +2429,7 @@ mod tests {
             expires_at: later,
             loudness_db: Some(-2.0),
             is_video: Some(true),
+            is_episode: Some(true),
             ping_url: Some("https://s.youtube.com/api/stats/playback".into()),
             ping_client: Some("WEB_REMIX".into()),
             client: Some("VISIONOS".into()),
@@ -2435,6 +2444,7 @@ mod tests {
             "{tag}"
         );
         assert_eq!(got.ping_client.as_deref(), Some("WEB_REMIX"), "{tag}");
+        assert_eq!(got.is_episode, Some(true), "{tag}");
         // Every one of these releases predates `client`, so the pre-column row has to be gone:
         // its headers cannot be rebuilt. Checked after the round trip above, which is what
         // proves `None` here means "deleted" and not "the query failed".
