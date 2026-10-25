@@ -421,9 +421,8 @@ export interface Reverb {
 	damping: number;
 	reflections: number;
 }
-export const DEFAULT_REVERB: Reverb = {
-	enabled: false, preset: 3, dry: 100, wet: 25, decay: 1.1, preDelay: 0, damping: 8000, reflections: 100
-};
+// Lives with the presets, which a Node self-check imports without this module's Tauri imports.
+export { DEFAULT_REVERB } from './effect-presets';
 /** Session-only tempo, pitch, and independent reverb controls. */
 export const setPlaybackParams = (speed: number, semitones: number, reverb: Reverb) =>
 	invoke<void>('set_playback_params', { speed, semitones, reverb });

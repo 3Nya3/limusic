@@ -16,10 +16,10 @@
 		FavouriteIcon,
 		Add01Icon,
 		InfinityIcon,
-		MinimizeScreenIcon,
 		MusicNote01Icon,
 		ArrowUp01Icon,
-		ArrowDown01Icon
+		ArrowDown01Icon,
+		PreferenceVerticalIcon
 	} from '@hugeicons/core-free-icons';
 	import { fade } from 'svelte/transition';
 	import { goto } from '$app/navigation';
@@ -32,9 +32,9 @@
 		cycleRepeat,
 		dragVolume,
 		openAddToPlaylist,
-		openMiniPlayer,
 		toggleMute,
 		toggleNowPlayingRating,
+		ui,
 		wheelVolume
 	} from '$lib/player.svelte';
 	import { thumb } from '$lib/thumb';
@@ -80,6 +80,11 @@
 	};
 
 	const shuffleOn = $derived(playback.queue.shuffle ?? false);
+	// Lit like shuffle while any effect is on: a speed set last week and forgotten is the case to
+	// catch, since the song then just sounds wrong.
+	const effectsOn = $derived(
+		playback.speed !== 1 || playback.semitones !== 0 || playback.reverb.enabled
+	);
 	const repeat = $derived(playback.queue.repeat ?? 'off');
 
 	// The current track was appended by autoplay → show the subtle ∞ badge next to the title.
@@ -145,6 +150,7 @@
      stays a plain region rather than becoming a focusable control wrapping every other control. -->
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions, a11y_no_noninteractive_element_interactions -->
 <footer
+	data-player-bar
 	onpointerdown={(e) => (pressedControl = isControl(e.target))}
 	onclick={onBarClick}
 	class="flex items-center gap-2 border-t bg-card px-2 py-2.5 sm:gap-4 sm:px-4 sm:py-3"
@@ -381,8 +387,17 @@
 		</div>
 		<!-- One cluster, so they sit tighter to each other than to the volume slider. -->
 		<div class="flex items-center gap-0.5">
-			<Button variant="ghost" size="icon-sm" onclick={openMiniPlayer} aria-label={t('player.mini_player')}>
-				<HugeiconsIcon icon={MinimizeScreenIcon} class="h-5 w-5" />
+			<Button
+				variant={ui.tempoPitchOpen ? 'secondary' : 'ghost'}
+				size="icon-sm"
+				onclick={() => (ui.tempoPitchOpen = !ui.tempoPitchOpen)}
+				aria-label={t('dialogs.tempo_pitch.title')}
+				aria-expanded={ui.tempoPitchOpen}
+			>
+				<HugeiconsIcon
+					icon={PreferenceVerticalIcon}
+					class="h-5 w-5 {effectsOn ? 'text-primary' : ''}"
+				/>
 			</Button>
 			<Button
 				variant={lyricsOpen ? 'secondary' : 'ghost'}

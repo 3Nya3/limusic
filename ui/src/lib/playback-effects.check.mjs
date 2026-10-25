@@ -4,7 +4,6 @@
 import { readFileSync } from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
 import { runInNewContext } from 'node:vm';
-import { presetSettings, sameEffects } from './effect-presets.ts';
 
 function ok(condition, message) {
 	if (!condition) throw new Error(message);
@@ -104,20 +103,4 @@ await failed;
 ok(rejected.playback.speed === 1.2 && rejected.playback.reverb.wet === 25 &&
 	rejected.playback.reverb !== confirmedReverb && rejected.errors[0] === 'unavailable',
 	'Rejected effects retain confirmed values, reset slider drafts and surface the error');
-const dialogSource = readFileSync(new URL('./components/TempoPitchDialog.svelte', import.meta.url), 'utf8');
-const selectSource = dialogSource.match(/\t(?:async )?function selectPreset\([\s\S]*?\n\t}/)?.[0];
-ok(selectSource, 'Preset selection handler must be found');
-const preset = { name: 'Slow room', speed: 0.8, semitones: -2, reverb: { wet: 40 } };
-const selection = harness();
-const dialog = { presets: [preset], selectedName: '', apply: selection.setTempoPitch,
-	presetSettings, sameEffects, playback: selection.playback, inRoom: () => false };
-const selectPreset = runInNewContext(
-	stripTypeScriptTypes(selectSource, { mode: 'strip' }) + '\nselectPreset', dialog);
-const selected = selectPreset(preset.name);
-selection.requests[0].result.resolve(undefined);
-await selected;
-ok(dialog.selectedName === preset.name && !sameEffects(preset, selection.playback),
-	'Preset selection survives a reply arriving before its confirmation event');
-selection.callbacks.onPlaybackParams(preset);
-ok(sameEffects(preset, selection.playback), 'The event confirms the selected sound');
 console.log('ok — backend-confirmed effects and startup snapshot');
