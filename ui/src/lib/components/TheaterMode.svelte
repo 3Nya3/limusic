@@ -29,6 +29,8 @@
 		Cancel01Icon,
 		FavouriteIcon,
 		FullScreenIcon,
+		GoBackward15SecIcon,
+		GoForward15SecIcon,
 		Mic01Icon,
 		MinimizeScreenIcon,
 		MusicNote01Icon,
@@ -51,6 +53,8 @@
 		openAddToPlaylist,
 		playback,
 		prefs,
+		SKIP_SECS,
+		skipBy,
 		toggleMute,
 		toggleNowPlayingRating,
 		ui,
@@ -75,6 +79,7 @@
 	import ArtistLine from './ArtistLine.svelte';
 	import LyricsView from './LyricsView.svelte';
 	import QueueList from './QueueList.svelte';
+	import SpeedPicker from './SpeedPicker.svelte';
 	import TrackMenu from './TrackMenu.svelte';
 	import Ambient from './Ambient.svelte';
 
@@ -207,6 +212,8 @@
 
 	const shuffleOn = $derived(playback.queue.shuffle ?? false);
 	const repeat = $derived(playback.queue.repeat ?? 'off');
+	// Same podcast transport as the player bar (#500): speed for shuffle, 15-second skips round play.
+	const episode = $derived(!!playback.now?.isEpisode);
 	const local = $derived(!!playback.now && api.isLocalId(playback.now.videoId));
 	// The queue row for what's playing: it carries the album link and what the ⋮ menu needs, which
 	// the now-playing event does not. Matched on videoId so a mid-advance mismatch can't point
@@ -819,17 +826,23 @@
 			<!-- Transport. Bigger than the player bar's: at arm's length this is the only control
 			     surface on screen, and play is the one you reach for without looking. -->
 			<div class="flex items-center gap-2 xl:gap-3">
-				<button
-					type="button"
-					onclick={() => api.toggleShuffle()}
-					class="flex size-10 cursor-pointer items-center justify-center rounded-full transition-colors hover:bg-foreground/10 {shuffleOn
-						? 'text-primary'
-						: 'text-muted-foreground hover:text-foreground'}"
-					aria-label={t('player.shuffle')}
-					aria-pressed={shuffleOn}
-				>
-					<HugeiconsIcon icon={ShuffleIcon} class="h-[18px] w-[18px]" />
-				</button>
+				{#if episode}
+					<SpeedPicker
+						class="flex h-10 min-w-10 items-center justify-center rounded-full px-1 text-sm transition-colors hover:bg-foreground/10 aria-expanded:bg-foreground/10"
+					/>
+				{:else}
+					<button
+						type="button"
+						onclick={() => api.toggleShuffle()}
+						class="flex size-10 cursor-pointer items-center justify-center rounded-full transition-colors hover:bg-foreground/10 {shuffleOn
+							? 'text-primary'
+							: 'text-muted-foreground hover:text-foreground'}"
+						aria-label={t('player.shuffle')}
+						aria-pressed={shuffleOn}
+					>
+						<HugeiconsIcon icon={ShuffleIcon} class="h-[18px] w-[18px]" />
+					</button>
+				{/if}
 				<button
 					type="button"
 					onclick={() => api.prevTrack()}
@@ -840,6 +853,17 @@
 				>
 					<HugeiconsIcon icon={PreviousIcon} class={short.current ? 'h-5 w-5' : 'h-6 w-6'} />
 				</button>
+				{#if episode}
+					<button
+						type="button"
+						onclick={() => skipBy(-SKIP_SECS)}
+						class="flex size-10 cursor-pointer items-center justify-center rounded-full text-foreground/90 transition-colors hover:bg-foreground/10 hover:text-foreground"
+						aria-label={t('player.skip_back', { seconds: SKIP_SECS })}
+						title={t('player.skip_back', { seconds: SKIP_SECS })}
+					>
+						<HugeiconsIcon icon={GoBackward15SecIcon} class="h-5 w-5" />
+					</button>
+				{/if}
 				<button
 					type="button"
 					onclick={() => api.togglePause()}
@@ -856,6 +880,17 @@
 						class={short.current ? 'h-6 w-6' : 'h-7 w-7'}
 					/>
 				</button>
+				{#if episode}
+					<button
+						type="button"
+						onclick={() => skipBy(SKIP_SECS)}
+						class="flex size-10 cursor-pointer items-center justify-center rounded-full text-foreground/90 transition-colors hover:bg-foreground/10 hover:text-foreground"
+						aria-label={t('player.skip_forward', { seconds: SKIP_SECS })}
+						title={t('player.skip_forward', { seconds: SKIP_SECS })}
+					>
+						<HugeiconsIcon icon={GoForward15SecIcon} class="h-5 w-5" />
+					</button>
+				{/if}
 				<button
 					type="button"
 					onclick={() => api.nextTrack()}

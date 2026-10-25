@@ -85,6 +85,10 @@ pub struct SongItem {
     /// "hide music videos" setting; computed once here, never re-derived downstream.
     #[serde(default)]
     pub is_video: bool,
+    /// A podcast episode, not a song: the player swaps shuffle for a speed control and adds the
+    /// 15-second skips (#500). Set by the episode rows and by `/player`'s `musicVideoType`.
+    #[serde(default)]
+    pub is_episode: bool,
     /// The same song's other version: the music video for an audio track, or the audio track for
     /// a video. What the player's Song/Video switch swaps to (#442). Known only where YouTube
     /// pairs them: an album row we swapped to its audio id, and the wrapper rows of a signed-in
@@ -166,6 +170,9 @@ pub(crate) const AUDIO_TRACK_TYPE: &str = "MUSIC_VIDEO_TYPE_ATV";
 /// video mode on a track that has no video at all. Issue #71.
 pub(crate) const UPLOADED_TRACK_TYPE: &str = "MUSIC_VIDEO_TYPE_PRIVATELY_OWNED_TRACK";
 
+/// A podcast episode. Still a "video" to [`is_video_type`]: a video podcast has a picture.
+pub(crate) const PODCAST_EPISODE_TYPE: &str = "MUSIC_VIDEO_TYPE_PODCAST_EPISODE";
+
 /// True for a `musicVideoType` that means "a music video", i.e. neither of the two audio kinds.
 pub(crate) fn is_video_type(t: &str) -> bool {
     t != AUDIO_TRACK_TYPE && t != UPLOADED_TRACK_TYPE
@@ -205,6 +212,11 @@ pub(crate) fn is_video_row(node: &Value) -> bool {
 /// True when a renderer row links one of the user's own uploads. Same lookup as [`is_video_row`].
 pub(crate) fn is_upload_row(node: &Value) -> bool {
     row_video_type(node) == Some(UPLOADED_TRACK_TYPE)
+}
+
+/// True when a renderer row links a podcast episode (#500), as a search result does. Same lookup.
+pub(crate) fn is_episode_row(node: &Value) -> bool {
+    row_video_type(node) == Some(PODCAST_EPISODE_TYPE)
 }
 
 /// The `musicVideoType` a row claims, from the overlay play button when it carries one.
@@ -644,6 +656,7 @@ pub(crate) fn parse_list_item(node: &Value) -> Option<SongItem> {
         counterpart_thumbnail: None,
         counterpart_segments: Vec::new(),
         is_upload: is_upload_row(node),
+        is_episode: is_episode_row(node),
         explicit: is_explicit(node),
         library: library_toggle(node),
     })
@@ -679,6 +692,7 @@ pub(crate) fn parse_episode_item(node: &Value) -> Option<SongItem> {
         // An episode's type is MUSIC_VIDEO_TYPE_PODCAST_EPISODE, which "hide music videos" would
         // otherwise drop. Video mode still reads the player response, so video podcasts keep it.
         is_video: false,
+        is_episode: true,
         library: library_toggle(node),
         ..Default::default()
     })
@@ -954,6 +968,7 @@ fn parse_panel_video(node: &Value) -> Option<SongItem> {
         counterpart_thumbnail: None,
         counterpart_segments: Vec::new(),
         is_upload: is_upload_row(node),
+        is_episode: is_episode_row(node),
         // Queue-panel rows carry no badges today; asking anyway costs a map lookup and picks the
         // flag up for free if YouTube ever adds one.
         explicit: is_explicit(node),
@@ -1275,6 +1290,11 @@ mod tests {
         let up = "MUSIC_VIDEO_TYPE_PRIVATELY_OWNED_TRACK";
         assert!(!is_video_row(&json!({ "navigationEndpoint": cfg(up) })));
         assert!(!is_video_row(&json!({ "overlay": overlay(up) })));
+
+        // A podcast episode in a search result (#500), read off the same tag.
+        let ep = "MUSIC_VIDEO_TYPE_PODCAST_EPISODE";
+        assert!(is_episode_row(&json!({ "overlay": overlay(ep) })));
+        assert!(!is_episode_row(&json!({ "overlay": overlay("MUSIC_VIDEO_TYPE_OMV") })));
     }
 
     // The upload flag picks the orchestrator's login-only client chain (issue #71), so it has to
