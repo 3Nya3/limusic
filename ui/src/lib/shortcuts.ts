@@ -154,7 +154,10 @@ export function initShortcuts(mini = false) {
 		const t = e.target;
 		if (!pointer || !(t instanceof HTMLElement) || typing(t)) return;
 		if (t.closest(KEEPS_FOCUS)) return;
-		t.blur();
+		// On the next tick, not here: WebKit and Chromium count focus moved inside a focus handler
+		// as a blocked focus change and swallow the mousedown that caused it, so no drag could start
+		// on a track row, a queue row or a card. Unless focus has already gone somewhere else.
+		setTimeout(() => document.activeElement === t && t.blur());
 	};
 	window.addEventListener('keydown', onKey);
 	window.addEventListener('pointerdown', onPointer, true);
