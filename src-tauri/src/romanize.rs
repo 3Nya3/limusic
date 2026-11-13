@@ -710,7 +710,14 @@ fn align_words(line: &LyricLine, pieces: &[Piece]) -> Option<Vec<LyricWord>> {
 
     Some(
         segs.into_iter()
-            .map(|s| LyricWord { text: s.text, start_ms: s.start_ms, end_ms: s.end_ms })
+            .map(|s| LyricWord {
+                // A romaji span sung by the background voice stays background, so the lyrics
+                // view splits the romaji line into the same voice runs as the original.
+                bg: s.word.and_then(|i| words.get(i)).is_some_and(|w| w.bg),
+                text: s.text,
+                start_ms: s.start_ms,
+                end_ms: s.end_ms,
+            })
             .collect(),
     )
 }
@@ -817,7 +824,12 @@ mod tests {
             words: Some(
                 words
                     .iter()
-                    .map(|(t, s, e)| LyricWord { text: (*t).into(), start_ms: *s, end_ms: *e })
+                    .map(|(t, s, e)| LyricWord {
+                        text: (*t).into(),
+                        start_ms: *s,
+                        end_ms: *e,
+                        bg: false,
+                    })
                     .collect(),
             ),
             ..Default::default()
@@ -834,6 +846,22 @@ mod tests {
             assert!(w.start_ms <= w.end_ms, "window runs backwards: {w:?}");
         }
         spans
+    }
+
+    #[test]
+    fn background_words_keep_bg_in_their_romaji_spans() {
+        // Limusic Lyrics marks background vocals per word; the romaji spans under them must
+        // carry the flag, or the lyrics view draws the backing voice at lead size.
+        let mut line =
+            timed("夢ならば", &[("夢", 1000, 1400), ("なら", 1400, 1800), ("ば", 1800, 2200)]);
+        line.words.as_mut().unwrap()[2].bg = true;
+        let mut l =
+            Lyrics { source: "t".into(), synced: true, lines: vec![line], ..Default::default() };
+        fill(&mut l);
+        let spans = assert_sane(&l.lines[0]);
+        let bg_of = |t: &str| spans.iter().find(|w| w.text.trim() == t).map(|w| w.bg);
+        assert_eq!(bg_of("yume"), Some(false));
+        assert_eq!(bg_of("ba"), Some(true), "the background word's span stays background");
     }
 
     #[test]
@@ -1029,6 +1057,7 @@ mod tests {
                     text: "yume ".into(),
                     start_ms: 1,
                     end_ms: 2,
+                    bg: false,
                 }]),
                 ..Default::default()
             }],
