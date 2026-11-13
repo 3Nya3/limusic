@@ -55,7 +55,6 @@
 		openDownloadPage,
 		recheckForUpdates
 	} from '$lib/updater.svelte';
-	import { goto } from '$app/navigation';
 	import { getVersion } from '@tauri-apps/api/app';
 	import { t, setLocale, currentLocale, LOCALES } from '$lib/i18n.svelte';
 	import GlobalHotkeysSettings from '$lib/components/GlobalHotkeysSettings.svelte';
@@ -1125,6 +1124,8 @@
 										{t('limusic.open_editor')}
 									</Button>
 								</div>
+							</div>
+						</section>
 					{:else if tab === 'downloads'}
 						<section class={GROUP}>
 							<h3 class={LABEL}>{t('settings.sections.downloads')}</h3>
